@@ -32,7 +32,7 @@ Treat voice as higher priority than screen frame rate under CPU or network press
 
 ## Verification and handoff
 
-- Linux: two-way audio, X11 and Wayland screen/window selection, publish and remote render, stop/restart, hotplug, and permission denial.
+- Linux: two-way audio, X11 and Wayland screen/window selection, publish and remote render, stop/restart, hotplug, and permission denial. First Linux evidence and the open items are recorded in [Phase 0 media spike](./../../spikes/media-phase0.md); the gate is not passed yet.
 - Later OS gates: equivalent macOS and Windows tests, including installer launch and OS permission prompts.
 - Load test two concurrent screen shares and verify voice continuity, text readability, client CPU, and server egress.
 
