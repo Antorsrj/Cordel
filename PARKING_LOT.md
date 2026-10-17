@@ -15,6 +15,33 @@ Assigning a Proposed ADR to an agent means researching, prototyping, and returni
 - **Backup targets:** Approve and prove recovery targets under [ADR-007](./docs/adr/server/ADR-007-backup-operations.md) before admitting real users.
 - **Image-chat storage:** Approve the private-volume design, upload/retention limits, and consistent backup under [ADR-011](./docs/adr/server/ADR-011-rich-chat-images.md) before enabling images. The Journal image UX itself is accepted.
 
+## Open after the Phase 0 media spike
+
+[Client 103](./docs/adr/client/ADR-103-capture-playback.md) is in progress with the
+interface and adapters in `client/media`, and the measured evidence in
+[docs/spikes/media-phase0.md](./docs/spikes/media-phase0.md). These items are open:
+
+- **Linux screen capture backend:** The recorded capture failure used the SDK's
+  `Screen` source type, which selects the X11 capturer. Test
+  `DesktopCaptureSourceType::Generic` (the PipeWire/portal path) on Wayland with a
+  person present to accept the dialog before writing bespoke capture adapters. If
+  it fails, implement the Wayland ScreenCast portal + PipeWire and the X11
+  XShm/XDamage paths behind `ScreenCapture`.
+- **Microphone route:** `init_recording` fails in this SDK build on the measured
+  machine while the OS captures through PipeWire. Decide between fixing or working
+  around the SDK and capturing with `cpal`/PipeWire into `RtcAudioSource::Native`.
+- **Audio processing:** Echo cancellation, gain control and noise suppression are
+  not in ADR-103's interface, and the "voice quality beats screen frame rate"
+  priority has no implementation point yet.
+- **Two-client room evidence:** Publish, subscribe and remote render, plus the
+  two-track detach/dock path, need two clients in a real room and two networks. A
+  LiveKit server already exists under [ADR-001](./docs/adr/server/ADR-001-single-host-deployment.md),
+  so this needs a test room and a join token rather than new infrastructure.
+- **One media crate, not two:** `client/phase0/src/screen.rs` and
+  `client/phase0/src/pixels.rs` duplicate the capture call and frame conversions
+  that `client/media` now owns. Converge the shell onto the media crate before the
+  two implementations drift further.
+
 ## Later versions
 
 - Multiple communities per installation.
