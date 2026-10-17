@@ -1,0 +1,41 @@
+# ADR-003: Start with two roles and durable moderation state
+
+**Status:** Accepted
+
+**Date:** 2026-10-17
+
+**Decider:** Project owner
+
+## Context
+
+The first release needs simple, predictable access. Members must create text and voice rooms. Admins manage invitations and moderation. Detailed ACLs and multiple communities are planned for later, but implementing them now would enlarge the first release.
+
+## Decision
+
+Use only `user` and `admin` as in-app roles. Every active member may create text and voice channels. Admins may invite, kick, ban, and unban **users**. Admins cannot kick or ban other admins. A kick blocks community access for at least 30 minutes and may have a longer admin-selected duration. A ban has no automatic expiry and an admin may lift it. A network disconnection never creates a moderation restriction.
+
+Store membership, role, `kicked_until`, and ban state durably in PostgreSQL. Check the current state for REST, WebSocket commands/subscriptions, message history, and LiveKit token issuance. Apply a kick or ban to active sessions and subscriptions immediately. Authorized host access provides a separate local mechanism to add, remove, and recover admins. This is not a third in-app role or a public API. The normal mechanism must not leave the community with zero active admins; a replacement can be installed in the same operation.
+
+Keep a community ID in persisted records even though only one community can be created in version one. Do not expose a public create-community endpoint or per-channel role overrides yet.
+
+## Options considered
+
+| Option | Benefit | Cost or risk |
+| --- | --- | --- |
+| Two roles with host-side admin management **(chosen)** | Matches current policy; small test matrix | Future ACL migration |
+| General role bitmask and channel overrides now | Flexible immediately | Harder authorization proof and moderation semantics |
+| Owner as a third in-app role | Recovery UI | Contradicts two-role first version |
+
+## Consequences
+
+- A moderator action has separate app/WS and media effects. ADR-006 must close the old LiveKit-token rejoin path before voice moderation is complete.
+- The host-side admin command needs authentication through host access, transactionality, and an audit trail. Account recovery details remain an implementation gate.
+- Future multi-community and ACL work must preserve the default behavior of existing communities.
+
+## Verification and handoff
+
+- Test a matrix of both roles for channel creation, inviting, kicking, banning, unbanning, read/write, and media admission.
+- Test 30-minute and longer kicks, expiry, indefinite bans, an admin as the attempted target, and zero-admin prevention.
+- Race a kick or ban with REST, a queued WebSocket fan-out, and voice admission. Deny later actions using the same authoritative policy check.
+
+**Related:** [ADR-002](ADR-002-invite-only-identity.md), [ADR-006](ADR-006-media-revocation.md).

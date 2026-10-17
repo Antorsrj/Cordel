@@ -1,0 +1,12 @@
+# macOS metadata
+.DS_Store
+
+# Rust build output
+target/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
