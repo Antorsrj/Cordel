@@ -14,9 +14,9 @@ O objetivo inicial é uma experiência simples, confiável e controlada pela pr�
 
 - Há **uma comunidade**, no sentido de um servidor do Discord. Dentro dela, membros podem criar canais de texto e canais de voz. A estrutura deve permitir várias comunidades em uma versão futura, sem exigir que elas existam agora.
 - O acesso é **somente por convite de um admin**. Não há cadastro público. O convidado faz um registro curto com login e senha antes de entrar na comunidade. E-mail e outros dados de perfil ficam para versões posteriores. Toda pessoa precisa se autenticar com login e senha.
-- Existem apenas dois níveis de acesso no produto: **user** e **admin**. Todos os membros podem criar canais de texto e voz. Apenas admins podem convidar, expulsar temporariamente e banir users; admins não podem aplicar kick ou ban a outros admins. Pessoas autorizadas com acesso ao host terão um mecanismo administrativo separado para adicionar e remover admins. Um sistema detalhado de cargos e permissões por canal fica para versões futuras.
+- O servidor da aplicação não terá interface gráfica própria: os clientes oferecem a interface do produto, inclusive os controles administrativos. Existem apenas dois níveis de acesso no produto: **user** e **admin**. Todos os membros podem criar canais de texto e voz, mas users não podem alterar as configurações da comunidade/servidor nem administrar membros. Apenas admins podem alterar essas configurações, convidar, expulsar temporariamente e banir users; admins não podem aplicar kick ou ban a outros admins. O servidor valida as permissões em cada operação, independentemente da interface do cliente. Configurações de infraestrutura e um mecanismo separado para adicionar, remover e recuperar admins exigem acesso autorizado ao host. Um sistema detalhado de cargos e permissões por canal fica para versões futuras.
 - Um **kick** impede a volta por pelo menos 30 minutos; o admin pode escolher um período maior. Um **ban** não expira automaticamente, mas um admin pode removê-lo. Uma queda de conexão não é kick: o cliente autorizado deve tentar voltar rapidamente e recuperar o estado perdido.
-- Chat persistente, voz em tempo real e compartilhamento de tela devem funcionar juntos. Na primeira versão não há gravação ou transcodificação de mídia como requisito.
+- Chat persistente, voz em tempo real e compartilhamento de tela devem funcionar juntos. A interface **Journal** mostra pessoas conectadas e suas salas de voz, permite ocultar e restaurar a conversa, apresenta texto formatado e imagens no chat, exibe dois compartilhamentos de tela ao mesmo tempo e permite destacar um deles em outra janela sem sair da sala. Na primeira versão não há gravação ou transcodificação de mídia como requisito.
 - O cliente nativo usa Rust. **Linux é a primeira prioridade**, incluindo validação separada de X11 e Wayland. **macOS vem em seguida** e **Windows depois**. O objetivo é suportar os três, com captura de tela, áudio e distribuição tratados conforme cada sistema operacional.
 - Haverá um **cliente web para testes**. Ele não precisa ter paridade com o cliente nativo. A decisão de transformá-lo em produto permanente será tomada após os testes.
 - A primeira versão de testes **não exige criptografia ponta a ponta (E2EE)**. O projeto deve reservar uma evolução concreta para E2EE de texto, voz e compartilhamento de tela **antes da versão final**. TLS e a criptografia de transporte da mídia não substituem E2EE.
@@ -31,8 +31,8 @@ Usuários em outros países se conectam ao servidor brasileiro. O tráfego de m�
 
 1. **Validar riscos técnicos no Linux:** compilar o cliente e os serviços, demonstrar áudio bidirecional, captura e exibição de um quadro de tela, e medir a usabilidade e o desempenho da interface. X11 e Wayland exigem testes separados. O resultado decide se a escolha de UI e captura é viável.
 2. **Entregar identidade e comunidade:** iniciar a primeira comunidade e seu primeiro admin com um procedimento seguro; admins emitem convites; convidados criam login e senha; membros autenticados criam canais. Aplicar as regras de user/admin desde o começo, inclusive em REST e WebSocket.
-3. **Entregar chat confiável:** persistir mensagens em ordem por canal, confirmar envios e recuperar eventos perdidos após desconexão. Presença e indicação de digitação são estados temporários.
-4. **Entregar voz e tela:** admitir apenas membros autorizados nas salas de voz, publicar microfone e tela e exibir os participantes e compartilhamentos. Validar NAT, CGNAT, TURN e reconexão com clientes em redes distintas.
+3. **Entregar chat confiável:** persistir mensagens em ordem por canal, confirmar envios e recuperar eventos perdidos após desconexão. Incluir texto formatado e imagens protegidas, com armazenamento e backup aprovados antes de habilitar imagens. Presença e indicação de digitação são estados temporários.
+4. **Entregar voz e tela:** admitir apenas membros autorizados nas salas de voz, publicar microfone e tela, mostrar claramente as pessoas conectadas e exibir dois compartilhamentos simultâneos, inclusive com um deles em janela separada. Validar NAT, CGNAT, TURN e reconexão com clientes em redes distintas.
 5. **Validar a implantação brasileira:** medir o cenário de 15 pessoas e duas telas, segurança, backups e restauração. Criar o cliente web de testes para exercitar os mesmos contratos de servidor e mídia.
 6. **Ampliar suporte e preparar a versão final:** validar macOS e depois Windows; definir e implementar E2EE com gestão de chaves e recuperação apropriadas; revisar as necessidades reais de capacidade, experiência e distribuição.
 
@@ -43,7 +43,7 @@ Essas etapas são objetivos, não um cronograma fechado. O teste da captura, da 
 - Várias comunidades por instalação, com convites e administração separados.
 - Cargos e controles detalhados de acesso por comunidade e canal.
 - Decisão sobre manter e ampliar o cliente web.
-- Recursos como anexos, reações, mensagens diretas, busca e notificações conforme a prioridade observada nos testes.
+- Outros tipos de anexos além de imagens no chat, reações, mensagens diretas, busca e notificações conforme a prioridade observada nos testes.
 - Escala para mais participantes ou múltiplos hosts somente após medição da demanda e do custo operacional.
 
 ## Decisões ainda abertas

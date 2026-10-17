@@ -12,9 +12,9 @@ Cordel needs native clients for Linux, macOS, and Windows. Linux is the first pr
 
 ## Decision
 
-Use Rust for shared application state, REST/WS, auth flow, and LiveKit orchestration. Use Slint as the **candidate** native UI and the LiveKit Rust SDK for media. Place screen capture, device handling, OS permissions, credential storage, and packaging behind platform adapters. Keep the server protocol platform-neutral. Do not assume a Linux build proves macOS or Windows support.
+Use Rust for shared application state, REST/WS, auth flow, and LiveKit orchestration. Use Slint as the **candidate** native UI and the LiveKit Rust SDK for media. The client provides the product UI, including community-setting and member-management controls visible only to authorized admins; the headless server enforces each operation. Users may create text and voice channels but cannot manage community settings or members. Place screen capture, device handling, OS permissions, credential storage, and packaging behind platform adapters. Keep the server protocol platform-neutral. Do not assume a Linux build proves macOS or Windows support.
 
-Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct capture paths. Demonstrate a two-person voice call, publish one captured screen frame, receive and render one remote frame in Slint, and exercise a representative long chat list. Measure audio continuity, CPU/RAM, frame copies, text readability, scroll behavior, and accessibility. If Slint or the capture path fails the gate, record a superseding ADR before building the whole client around it. Validate macOS next and Windows later, each with its own capture and packaging gate.
+Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct capture paths. Demonstrate a two-person voice call, publish one captured screen frame, receive and render two remote frames simultaneously in Slint, detach one into a second window, and exercise a representative long chat list with the Journal layout in ADR-107. Measure audio continuity, CPU/RAM, frame copies, text readability, scroll behavior, and accessibility. If Slint or the capture path fails the gate, record a superseding ADR before building the whole client around it. Validate macOS next and Windows later, each with its own capture and packaging gate.
 
 ## Options considered
 
@@ -32,7 +32,7 @@ Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct captu
 
 ## Verification and handoff
 
-- Record Phase 0 artifacts: build steps, two-way audio, capture and remote render, 10,000-message UI test, X11/Wayland results, and measurements.
+- Record Phase 0 artifacts: build steps, two-way audio, capture and two-track remote render including a detached window, 10,000-message UI test, X11/Wayland results, and measurements.
 - At each later OS gate, test microphone and screen permission prompts, device changes, sleep/wake, installer launch, and real network media.
 
 **References:** [Slint desktop](https://slint.dev/desktop), [LiveKit Rust SDK](https://github.com/livekit/rust-sdks), [XDG ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html).

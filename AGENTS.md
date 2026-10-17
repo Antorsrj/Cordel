@@ -9,6 +9,14 @@ These repository instructions are tool-neutral. Follow the human user's current 
 - Read only the documents relevant to the task. `architecture.md` is the proposed deployment architecture, not a record of running infrastructure. `Plano de Desenvolvimento - Revisado.md` is the Portuguese project vision. `docs/adr/README.md` indexes accepted and proposed architecture decisions by server and client. `PARKING_LOT.md` holds deferred issues. When code and documentation disagree, inspect the implementation and ask which direction to preserve before changing behavior.
 - The repository has no application source, Cargo workspace, or established verification commands yet. Do not claim that a planned component already exists.
 
+## Assign work by complexity
+
+- These are model capability guidelines, not tool-specific configuration. Use the closest available model of the indicated capability; check the contributor's actual model names and availability instead of assuming a fixed version.
+- Use a high-capability reasoning model such as **Sol, Astra, or Opus** for new architecture, ADR creation or revision, protocol and data-model changes, security boundaries, cryptography, threat models, and reviews that may change the project direction. Have a high-capability model review any proposed ADR before treating its design as settled.
+- Use **Sonnet or Luna** for bounded application implementation, infrastructure configuration, and deployment work when an Accepted ADR and explicit acceptance criteria already define the design. Prefer Sonnet for interacting components or nontrivial debugging; use Luna for narrow, well-specified changes and checks. If the task exposes a missing decision or a conflict between ADRs, stop that part and escalate it to a high-capability architecture review rather than inventing policy.
+- A model choice does not replace verification or approval. A production deployment, security-sensitive change, or release still requires its applicable review, tests, and the owner's authorization for outward-facing actions.
+- Give each contributor a scoped task with the relevant ADRs, dependencies, expected files or interfaces, acceptance criteria, and required evidence. Record decisions and implementation results in the repository so another contributor can continue without relying on chat history.
+
 ## Language and portability
 
 - Write new project documentation in English. Preserve the Portuguese language of `Plano de Desenvolvimento - Revisado.md` when editing that file. Keep UI labels and technical terms in their original English form unless the product explicitly adopts localization.
@@ -28,7 +36,7 @@ These repository instructions are tool-neutral. Follow the human user's current 
 ## Architecture and security invariants
 
 - Axum is the authorization authority for REST, chat WebSocket operations, and LiveKit token issuance. Clients never access PostgreSQL or receive the LiveKit API secret.
-- Version one has only `user` and `admin` in-app roles. Every member can create text and voice channels. Only admins can issue invitations, kick, ban, and unban users; admins cannot kick or ban other admins. Authorized host access provides a separate way to add, remove, and recover admins while preserving at least one active admin. Public registration is disabled; invitees create a login and password. Detailed ACLs and multiple communities belong to later versions.
+- The server is headless: client applications provide the product UI, including admin controls. Version one has only `user` and `admin` in-app roles. Every member can create text and voice channels, but users cannot change community/server settings or manage members. Only admins can change community settings, issue invitations, kick, ban, and unban users; admins cannot kick or ban other admins. Axum enforces these permissions on every operation, regardless of client UI. Host infrastructure configuration and the separate mechanism to add, remove, and recover admins require authorized host access; preserve at least one active admin. Public registration is disabled; invitees create a login and password. Detailed ACLs and multiple communities belong to later versions.
 - A kick blocks rejoining for at least 30 minutes and can last longer; a ban has no automatic expiry and an admin can lift it. A network drop must trigger fast authorized reconnection, not moderation state.
 - Persist messages and their per-channel sequence numbers transactionally. Treat WebSocket delivery as ephemeral and recover missing events from PostgreSQL.
 - Check membership, role, and kick/ban state for reads, writes, subscriptions, and media admission. When access changes, invalidate affected existing chat subscriptions; implementation details remain in `PARKING_LOT.md`.
@@ -47,7 +55,9 @@ These repository instructions are tool-neutral. Follow the human user's current 
 
 ## GitHub and documentation
 
-- The owner selected the official GitHub URL `https://github.com/Antorsrj/Cordel.git`; this folder is initialized on local `main` with that URL as `origin`. Inspect the current branch, working tree, and remote before Git work. Do not infer future remote contents, license, branch policy, or issue numbers from the URL.
-- Once Git is initialized, inspect the current branch and working tree before committing or integrating. Avoid force-pushes and history rewrites unless the owner explicitly requests them.
-- Keep `AGENTS.md` as the canonical shared instruction file. Any tool-specific compatibility file should point to it rather than duplicate or contradict its rules.
+- The official repository is `https://github.com/Antorsrj/Cordel.git`, configured as `origin`. The first documentation batch was published to its public `main` branch on 2026-10-17. This checkout tracks `origin/main`. Verify current branch, working tree, remote, and access before Git work; remote state may have changed since this note.
+- Keep project work and decisions in this repository. Do not create a parallel repository or leave an agreed architecture decision only in chat. The initial publication contains documentation and ADRs, not application code. No Cordel license has been selected; resolve ADR-106 before publishing code or binaries.
+- Make local changes on an appropriate branch or checkout when collaborating, keep commits scoped, and do not overwrite another contributor's work. Avoid force-pushes and history rewrites unless the owner explicitly requests them. A local commit is not permission to push; follow the outward-facing approval rule above.
+- Keep `AGENTS.md` as the canonical shared instruction file for Codex, OpenCode, and other compatible agents. `CLAUDE.md` imports it for Claude Code compatibility. Do not duplicate these rules in tool-specific files or assume every tool expands file references automatically; read a referenced ADR when the task needs it.
+- Treat Accepted ADRs as the current decision. Treat Proposed ADRs as designs with explicit gates, not settled implementation authority. When work reveals a material change, update or supersede the ADR and its index before delegating the changed design.
 - Update `architecture.md` when a deployment decision changes. Record deferred questions in `PARKING_LOT.md`. Keep the Portuguese vision document focused on product intent rather than duplicating operational instructions.

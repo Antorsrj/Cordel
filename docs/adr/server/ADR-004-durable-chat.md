@@ -18,6 +18,8 @@ Axum provides authenticated REST history and one multiplexed chat WebSocket per 
 
 Use the app session from ADR-002 for WS authentication. Native clients may send the app access token in the handshake header. Browser authentication uses ADR-009's separate mechanism because the browser WebSocket API cannot add an arbitrary `Authorization` header.
 
+Message content may include the restricted rich-text representation and image references from ADR-011. The message event carries authorized attachment metadata, not image bytes or a permanent public download URL. Keep the same message sequence, idempotency, and catch-up semantics for image messages. Roster and active-share events are ephemeral under ADR-010 and use a separate revision, not a chat `seq`.
+
 ## Options considered
 
 | Option | Benefit | Cost or risk |
@@ -39,4 +41,4 @@ Use the app session from ADR-002 for WS authentication. Native clients may send 
 - Test revocation while subscribed and while a message is queued. A kicked or banned user receives no later protected event.
 - Test protocol-version compatibility between an older client and a newer server.
 
-**Related:** [ADR-003](ADR-003-community-authorization.md), [ADR-102](../client/ADR-102-client-state-recovery.md).
+**Related:** [ADR-003](ADR-003-community-authorization.md), [ADR-010](ADR-010-presence-and-share-state.md), [ADR-011](ADR-011-rich-chat-images.md), [ADR-102](../client/ADR-102-client-state-recovery.md).

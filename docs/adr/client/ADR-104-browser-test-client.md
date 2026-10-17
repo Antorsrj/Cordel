@@ -12,7 +12,7 @@ The owner wants a browser version for testing that might later become permanent.
 
 ## Decision
 
-Build a separate small browser client that can redeem an invite, log in, send and receive text, join voice, publish and view a screen share, and display reconnect/permission errors. It calls the same Axum REST and chat WS endpoints and uses the LiveKit JavaScript SDK for media. Do not make parity with the native client a first-test gate.
+Build a separate small browser client that can redeem an invite, log in, send and receive text, join voice, publish and view a screen share, and display reconnect/permission errors. It calls the same Axum REST and chat WS endpoints and uses the LiveKit JavaScript SDK for media. It must safely display rich messages and protected image previews when ADR-011 is enabled, so the shared server contract is exercised. Do not make Journal layout or native detach parity with the browser a first-test gate.
 
 Serve it from the same site as the API where practical. Use the browser-safe session and WebSocket admission contract selected in ADR-009. Do not put a long-lived bearer credential in a URL or localStorage. Keep LiveKit room tokens short-lived and in memory.
 

@@ -12,7 +12,7 @@ The first test has one Discord-like community. This does not mean the product's 
 
 ## Decision
 
-Run one Linux host in Brazil, either a cloud VM or a home server with publicly reachable media endpoints. Use a TLS edge, Axum, PostgreSQL, and self-hosted LiveKit on that host. Keep database and internal control ports private. Use version-pinned containers and a documented Compose deployment. Begin with the [LiveKit VM deployment guidance](https://docs.livekit.io/transport/self-hosting/vm/) for media, TURN, TLS, and firewall settings. Redis, Kubernetes, recording, and an attachment store are not required by the first test.
+Run one Linux host in Brazil, either a cloud VM or a home server with publicly reachable media endpoints. Use a TLS edge, Axum, PostgreSQL, and self-hosted LiveKit on that host. Keep database and internal control ports private. Use version-pinned containers and a documented Compose deployment. Begin with the [LiveKit VM deployment guidance](https://docs.livekit.io/transport/self-hosting/vm/) for media, TURN, TLS, and firewall settings. Redis, Kubernetes, and recording are not required by the first test. The approved image-chat UX adds a private attachment volume under ADR-011 before that feature ships.
 
 Use separate public names for app API, LiveKit signaling, and TURN where the generated configuration needs them. Prefer UDP for media and enable tested TCP/TURN fallbacks. Select either the UDP range or mux based on the actual host/router and a load test, rather than fixing an example port into the product contract. A home host behind server-side CGNAT must obtain an inbound-reachable address or move the public deployment to a VM.
 
@@ -27,7 +27,7 @@ Use separate public names for app API, LiveKit signaling, and TURN where the gen
 ## Consequences
 
 - All media for a room traverses the Brazil host. Client-side CGNAT generally permits outbound connections, but restrictive networks need a working fallback path.
-- Initial sizing is 4 dedicated vCPU, 8 GB RAM, 50 GB SSD, and at least 200 Mbps sustained outbound capacity. These are estimates from [architecture.md](../../../architecture.md), not benchmarks.
+- Initial media sizing is 4 dedicated vCPU, 8 GB RAM, 50 GB SSD, and at least 200 Mbps sustained outbound capacity. The disk estimate predates image uploads and must be recalculated with ADR-011 limits. These are estimates from [architecture.md](../../../architecture.md), not benchmarks.
 - The single host requires off-host encrypted backups and a recovery plan under ADR-007.
 - Capacity, codec, bitrate, public DNS, exact firewall ports, and cloud-versus-home choice remain deployment configuration and test results.
 

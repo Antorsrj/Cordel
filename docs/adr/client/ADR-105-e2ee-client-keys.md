@@ -12,7 +12,7 @@ The first test may omit E2EE. The final release needs E2EE for stored text, voic
 
 ## Proposed decision
 
-Assign each client device a cryptographic identity. Encrypt text content on the sender device before it reaches Axum and decrypt only on authorized recipient devices. Use a versioned ciphertext envelope so the storage protocol can evolve. Enable LiveKit media E2EE with keys delivered through a client-controlled authenticated exchange, not a plaintext room key supplied by Axum. Treat voice and screen tracks in the same room as one E2EE policy. Rotate the relevant keys when a member loses access; recognize that previously received plaintext or keys cannot be retroactively erased.
+Assign each client device a cryptographic identity. Encrypt text content and image attachments on the sender device before they reach Axum and decrypt only on authorized recipient devices. Use a versioned ciphertext envelope so the storage protocol can evolve. Enable LiveKit media E2EE with keys delivered through a client-controlled authenticated exchange, not a plaintext room key supplied by Axum. Treat voice and screen tracks in the same room as one E2EE policy. Rotate the relevant keys when a member loses access; recognize that previously received plaintext or keys cannot be retroactively erased.
 
 Choose a reviewed key agreement and recovery design only after an interoperable proof with the pinned Rust and browser SDKs. Define how a new device gains access, how users verify devices, what happens after total key loss, and whether the project can recover historical messages. Do not silently fall back to plaintext when a participant cannot use E2EE.
 

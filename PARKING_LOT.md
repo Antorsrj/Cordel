@@ -11,11 +11,12 @@ These are unresolved designs or later-version features. The decisions already ma
 - **Repository license:** Choose Cordel's license and confirm Slint terms under [ADR-106](./docs/adr/client/ADR-106-license-distribution.md) before publishing code.
 - **Browser test client:** Review the server authentication proposal under [ADR-009](./docs/adr/server/ADR-009-browser-auth.md). The diagnostic client itself is accepted under [ADR-104](./docs/adr/client/ADR-104-browser-test-client.md); decide later whether it becomes permanent.
 - **Backup targets:** Approve and prove recovery targets under [ADR-007](./docs/adr/server/ADR-007-backup-operations.md) before admitting real users.
+- **Image-chat storage:** Approve the private-volume design, upload/retention limits, and consistent backup under [ADR-011](./docs/adr/server/ADR-011-rich-chat-images.md) before enabling images. The Journal image UX itself is accepted.
 
 ## Later versions
 
 - Multiple communities per installation.
 - Detailed roles and per-channel ACLs beyond `user` and `admin`.
 - Email and other profile details; self-service account recovery.
-- Decide priorities for attachments, reactions, direct messages, search, notifications, and channel categories.
+- Decide priorities for other attachment types, reactions, direct messages, search, notifications, and channel categories.
 - Revisit multi-host or multi-region deployment only after the Brazil test measures demand and network quality.

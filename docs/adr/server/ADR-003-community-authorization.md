@@ -8,13 +8,13 @@
 
 ## Context
 
-The first release needs simple, predictable access. Members must create text and voice rooms. Admins manage invitations and moderation. Detailed ACLs and multiple communities are planned for later, but implementing them now would enlarge the first release.
+The first release needs simple, predictable access. Members must create text and voice rooms. Admins manage community settings, invitations, and moderation through the client UI. The server is headless and must enforce permissions independently of that UI. Detailed ACLs and multiple communities are planned for later, but implementing them now would enlarge the first release.
 
 ## Decision
 
-Use only `user` and `admin` as in-app roles. Every active member may create text and voice channels. Admins may invite, kick, ban, and unban **users**. Admins cannot kick or ban other admins. A kick blocks community access for at least 30 minutes and may have a longer admin-selected duration. A ban has no automatic expiry and an admin may lift it. A network disconnection never creates a moderation restriction.
+Use only `user` and `admin` as in-app roles. Every active member may create text and voice channels. Only admins may change community/server settings or manage members. Admins may invite, kick, ban, and unban **users**. Admins cannot kick or ban other admins. A kick blocks community access for at least 30 minutes and may have a longer admin-selected duration. A ban has no automatic expiry and an admin may lift it. A network disconnection never creates a moderation restriction.
 
-Store membership, role, `kicked_until`, and ban state durably in PostgreSQL. Check the current state for REST, WebSocket commands/subscriptions, message history, and LiveKit token issuance. Apply a kick or ban to active sessions and subscriptions immediately. Authorized host access provides a separate local mechanism to add, remove, and recover admins. This is not a third in-app role or a public API. The normal mechanism must not leave the community with zero active admins; a replacement can be installed in the same operation.
+Store membership, role, `kicked_until`, and ban state durably in PostgreSQL. Check the current state for REST, WebSocket commands/subscriptions, community-setting changes, message history, and LiveKit token issuance. Hiding admin controls from a user in the client is not authorization. Apply a kick or ban to active sessions and subscriptions immediately. Authorized host access provides a separate local mechanism to add, remove, and recover admins. Host infrastructure configuration is not exposed in client admin controls. This is not a third in-app role or a public API. The normal mechanism must not leave the community with zero active admins; a replacement can be installed in the same operation.
 
 Keep a community ID in persisted records even though only one community can be created in version one. Do not expose a public create-community endpoint or per-channel role overrides yet.
 
@@ -34,7 +34,7 @@ Keep a community ID in persisted records even though only one community can be c
 
 ## Verification and handoff
 
-- Test a matrix of both roles for channel creation, inviting, kicking, banning, unbanning, read/write, and media admission.
+- Test a matrix of both roles for channel creation, community-setting changes, inviting, kicking, banning, unbanning, read/write, and media admission. Direct API requests from a `user` must fail for admin operations even if the client UI hides them.
 - Test 30-minute and longer kicks, expiry, indefinite bans, an admin as the attempted target, and zero-admin prevention.
 - Race a kick or ban with REST, a queued WebSocket fan-out, and voice admission. Deny later actions using the same authoritative policy check.
 
