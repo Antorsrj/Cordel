@@ -1,0 +1,32 @@
+[package]
+name = "cordel-phase0-media"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Linux Phase 0 media probe for ADR-103: capture, publish and render. Spike, not a product build."
+
+# License is deliberately unset: the repository license is still open (ADR-106).
+# Do not add a license field here until the owner decides.
+
+[dependencies]
+anyhow = "1"
+slint = { version = "1.18", optional = true }
+livekit = { version = "0.9", optional = true }
+tokio = { version = "1", optional = true, features = ["macros", "rt-multi-thread", "time", "signal"] }
+tokio-stream = { version = "0.1", optional = true }
+
+[build-dependencies]
+# Only used by build.rs, and only for the `sdk` feature on Linux; see build.rs.
+pkg-config = "0.3"
+
+[features]
+default = []
+# Frame -> Slint image path (Phase 0 spike B).
+ui = ["dep:slint"]
+# LiveKit Rust SDK adapters: audio devices, desktop capture, publish/subscribe.
+sdk = ["dep:livekit", "dep:tokio", "dep:tokio-stream"]
+full = ["ui", "sdk"]
+
+[[bin]]
+name = "probe"
+path = "src/bin/probe.rs"
