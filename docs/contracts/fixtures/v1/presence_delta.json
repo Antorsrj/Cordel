@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "type": "presence.delta",
+  "event_id": "8ac5ea22-4d03-4b82-8eb2-c39ba13721a2",
+  "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "base_revision": "71",
+  "revision": "72",
+  "changes": [
+    {
+      "kind": "share_ended",
+      "share_id": "c9089ac7-a306-464b-8b24-f5900dc0c9b7"
+    }
+  ]
+}

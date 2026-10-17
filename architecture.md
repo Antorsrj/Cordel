@@ -5,7 +5,7 @@
 **Last reviewed:** 2026-10-17
 
 **Scope:** One invite-only community on one Brazil-hosted installation for the first test; 15 simultaneous users and two screen shares are a sizing example
-**Related documents:** [Portuguese project vision](./Plano%20de%20Desenvolvimento%20-%20Revisado.md), [ADR index](./docs/adr/README.md), [parking lot](./PARKING_LOT.md)
+**Related documents:** [Portuguese project vision](./Plano%20de%20Desenvolvimento%20-%20Revisado.md), [ADR index](./docs/adr/README.md), [implementation status](./docs/adr/STATUS.md), [independent workstreams](./docs/adr/WORKSTREAMS.md), [v1 app contract](./docs/contracts/v1.md), [Journal behavior](./docs/ux/journal.md), [parking lot](./PARKING_LOT.md)
 
 ## 1. Decision and boundaries
 
@@ -14,6 +14,8 @@ Cordel uses one Linux host in Brazil for its first test deployment. The same des
 The first version has one Discord-like community, with text and voice channels inside it. Its installation happens to use one physical host; the community and the host are distinct concepts. All members can create channels. The server is headless: clients provide the product UI, including admin controls for community settings and member management. Users cannot manage the community/server settings. Accounts are created only through admin-issued invitations, and each person registers a login and password. The server remains authoritative for accounts, membership, moderation, message history, and room admission. PostgreSQL stores durable state. Axum exposes HTTPS and WebSocket endpoints and signs narrowly scoped LiveKit room tokens. LiveKit is an SFU: clients send each media track once to it, and it forwards tracks to authorized subscribers. Peer-to-peer media is outside the current design. No Redis, Kubernetes, recording, or ingress is required for the first single-node installation. Approved image chat adds a private attachment volume under ADR-011 before that feature ships.
 
 This is a deployment architecture, not a claim that the clients or server have already been implemented. The CPU and bandwidth figures below are planning estimates and must be checked with a real client and LiveKit load test.
+
+Contributors can build server and client workstreams separately using the versioned [v1 application contract](./docs/contracts/v1.md) and the ownership/integration gates in [WORKSTREAMS.md](./docs/adr/WORKSTREAMS.md). The contract is an implementation baseline, not a deployed API. Proposed browser-auth, media-revocation, image-storage, and E2EE details retain their ADR gates. The [written Journal specification](./docs/ux/journal.md) records the approved UI behavior without requiring mock files in Git. The first integrated product test waits until every mandatory Linux/browser ADR is Done in [STATUS.md](./docs/adr/STATUS.md); technical proofs required to reach that state run during implementation. macOS, Windows, and E2EE have later gates.
 
 ### Service ownership
 
@@ -253,7 +255,7 @@ flowchart TB
 | Windows | Windows.Graphics.Capture picker, microphone access, device changes | Installer, signing, runtime dependencies, update path |
 | Linux | X11 capture separately from Wayland portal/PipeWire flow, microphone through the selected audio stack | Packaging target and library compatibility across distributions |
 
-The OS APIs above are candidates to prototype, not a claim that they are wired into the Rust SDK today. The shared interface should produce audio samples and video frames in a format the LiveKit SDK accepts and consume decoded remote frames for Slint. The Phase 0 gate is **Linux only**: demonstrate two-person audio plus capture, publication, reception, and display of at least one screen frame; examine X11 and Wayland separately. Device switching, sleep/wake recovery, packaging, and the corresponding macOS and Windows gates follow in later platform stages. [Apple ScreenCaptureKit](https://developer.apple.com/documentation/ScreenCaptureKit); [Windows capture](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture); [XDG ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html).
+The OS APIs above are candidates to prototype, not a claim that they are wired into the Rust SDK today. The shared interface should produce audio samples and video frames in a format the LiveKit SDK accepts and consume decoded remote frames for Slint. The Phase 0 gate is **Linux only**: demonstrate two-person audio plus capture/publication, then receive and display two independent remote screen tracks and detach one into a second window; examine X11 and Wayland separately. Device switching, sleep/wake recovery, packaging, and the corresponding macOS and Windows gates follow in later platform stages. [Apple ScreenCaptureKit](https://developer.apple.com/documentation/ScreenCaptureKit); [Windows capture](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture); [XDG ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html).
 
 Store refresh credentials in macOS Keychain, Windows Credential Manager, or the Linux desktop's selected Secret Service implementation. Keep short-lived access and LiveKit tokens in process memory. The client cache is not authoritative. Never ship the LiveKit API secret or a database password in a desktop binary.
 
@@ -332,7 +334,7 @@ Measure CPU, memory, actual track bitrate, packets per second, egress, packet lo
 
 ### Host and operational controls
 
-- TLS protects public app and signaling traffic. WebRTC provides transport encryption for media. The first test version does not require E2EE. **Before the final release, text, voice, and screen sharing must have an E2EE solution.** Reserve protocol versioning and encrypted-content envelopes for that transition; define device identity, key distribution, rotation after membership changes, recovery, and what the server can still moderate or search. Validate media E2EE support in both the native Rust SDK and browser test client before committing to an implementation. E2EE is not implied by TLS or WebRTC transport encryption. [LiveKit encryption](https://docs.livekit.io/transport/encryption/).
+- TLS protects public app and signaling traffic. WebRTC provides transport encryption for media. The first test version does not require E2EE. **Before the final release, text, chat images, voice, and screen sharing must have an E2EE solution.** Reserve protocol versioning and encrypted-content envelopes for that transition; define device identity, key distribution, rotation after membership changes, recovery, and what the server can still moderate or search. Validate media E2EE support in both the native Rust SDK and browser test client before committing to an implementation. E2EE is not implied by TLS or WebRTC transport encryption. [LiveKit encryption](https://docs.livekit.io/transport/encryption/).
 - Keep database and internal service ports private. Use separate credentials for database migrations, Axum data access, and LiveKit control. Rotate secrets on a documented schedule and after suspected exposure.
 - Put limits on HTTP and WS body size, connection count, per-user and per-IP request rate, idle connections, outbound queue size, and channel subscriptions. Avoid logging access tokens, refresh tokens, full chat bodies, or screen content. [OWASP WebSocket guidance](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html).
 - Pin dependency and container versions. Scan dependencies and images during CI; apply security fixes on a maintenance cadence. Make authenticated database backups and test restores.
@@ -341,7 +343,7 @@ Measure CPU, memory, actual track bitrate, packets per second, egress, packet lo
 
 This is a single-node system. A VM, disk, ISP, router, or power failure interrupts both chat and voice. PostgreSQL preserves committed messages when its storage survives, but active WebSocket and LiveKit sessions reconnect or end. A second availability zone or region is outside this baseline.
 
-Use a PostgreSQL backup method that produces a consistent restore point. Keep encrypted copies off the host and outside the same physical location or cloud failure domain. For a small database, a nightly logical backup plus a tested restore may be sufficient; if losing a day's messages is unacceptable, add WAL archiving or more frequent backups. Keep at least one older generation. Record the target recovery point and recovery time **before** choosing a schedule. Back up configuration and secret-recovery instructions separately, with access controls. A backup is not validated until restored into an isolated instance and the application can read it.
+Use a PostgreSQL backup method that produces a consistent restore point. Keep encrypted copies off the host and outside the same physical location or cloud failure domain. For a small database, a nightly logical backup plus a tested restore may be sufficient; if losing a day's messages is unacceptable, add WAL archiving or more frequent backups. Keep at least one older generation. Record the target recovery point and recovery time **before** choosing a schedule. If image chat is enabled, the private image volume and PostgreSQL metadata must restore to a consistent state. Back up configuration and secret-recovery instructions separately, with access controls. A backup is not validated until restored into an isolated instance and the application can read messages and their images.
 
 Collect structured Axum logs, PostgreSQL health, LiveKit metrics, host CPU/RAM/disk, certificate expiry, and network egress. Alert on failed login bursts, repeated token reuse, webhook signature failures, database storage pressure, media packet loss, high RTT, and sustained egress near the available link. Logs must include request or session correlation IDs without leaking bearer credentials or private message content.
 
@@ -359,7 +361,9 @@ For upgrades, take a backup, review schema migration compatibility, deploy a pin
 | Server behind CGNAT | Inbound media and signaling cannot be reached with normal router forwarding | Obtain a public address or move the public deployment to a VM |
 | Backup restore required | Messages since the last recoverable point may be lost | Restore encrypted off-host backup, validate schema and application, then reopen access |
 
-## 9. Verification gates before real users
+## 9. Engineering gates before the first integrated product test
+
+These checks complete mandatory ADRs; they are not the user-facing integrated product test itself. The product test starts only after the [implementation ledger](./docs/adr/STATUS.md) marks all first-test ADRs Done with evidence. macOS and Windows get separate later platform gates under ADR-108/109.
 
 1. **Network:** externally resolve every hostname; validate certificate chain and renewal; prove each public media path from a second network. Confirm private ports are unreachable from the Internet.
 2. **Client stages:** the first test gate is Linux: log in, send chat, join voice, capture and display two screen tracks, detach one view, and test X11 and Wayland separately. Test the browser diagnostic client against the same service contracts. Complete equivalent macOS validation next and Windows validation later, before claiming support for either.
@@ -367,7 +371,7 @@ For upgrades, take a backup, review schema migration compatibility, deploy a pin
 4. **International:** test actual users or probes in the intended countries against the selected host location. Measure RTT, jitter, and screen readability; do not infer experience from geographic distance alone.
 5. **Load:** run 15 simultaneous participants and two screen shares watched by all; observe peak and sustained egress, CPU, memory, and client download. Include one-hour soak and reconnects.
 6. **Security:** verify public registration is denied and only admins can invite or moderate users. Test that an admin cannot kick or ban another admin and that host-side admin changes cannot leave the community without an admin. Test user-created channels, a kick of at least 30 minutes, a longer kick, ban and admin unban during active chat and voice, and the old LiveKit-token rejoin window. Also test refresh-token reuse, token expiry, webhook tampering, oversized WS frames, and rate limits.
-7. **Recovery:** restore PostgreSQL into an isolated host; restart each service independently; check message catch-up, voice-presence reconciliation, and client update compatibility.
+7. **Recovery:** restore PostgreSQL and the image volume, when enabled, into an isolated host; restart each service independently; check message/image access, chat catch-up, voice-presence reconciliation, and client update compatibility.
 
 ## 10. Decisions left open
 
@@ -379,6 +383,7 @@ For upgrades, take a backup, review schema migration compatibility, deploy a pin
 | Screen-share codec, resolution, frame rate, and bitrate cap | Dominates egress and text readability | Cross-platform media prototype |
 | Enforceable moderation revocation design | Self-hosted tokens have a rejoin window despite an active kick or ban | Before moderation release |
 | Backup recovery targets and retention | Determines backup frequency and WAL need | Before real users |
+| Image-upload limits and retention | Sets disk, backup, privacy, and abuse-control bounds under ADR-011 | Before image chat |
 | Linux package target and supported OS versions | Determines library and portal compatibility | Client release gate |
 | E2EE design for text, voice, and screen | Requirement is set for before the final release; key management and SDK feasibility remain open | Before final-release architecture |
 | Host-side admin management and recovery procedure | Admins cannot kick or ban admins; authorized host access controls admin assignment and recovery | Before moderation release |

@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -17,6 +19,11 @@ Keep PostgreSQL/Axum authoritative for messages, membership, moderation, and cur
 For chat, retain the last applied `seq` per open channel. On WS reconnect, authenticate, subscribe, buffer incoming events, fetch `after_seq` history, apply history and buffer in order, and deduplicate by `(channel_id, seq)`. A pending send keeps one stable `client_message_id` across retries and transitions from sending to acknowledged or failed. Handle unknown additive protocol fields safely.
 
 For media, allow the LiveKit SDK to attempt normal session recovery first. If full reconnect is required, request a fresh token from Axum and join the currently authorized room generation. Back off repeated failures with jitter, but prioritize a quick first retry. A kick or ban stops retrying and presents the restriction; a room-generation change under ADR-006 requests a fresh authorized room token.
+
+## Implementation boundary
+
+- **Owns:** native credential storage, app session handling, REST/WS client state, ordered chat catch-up, and reconnect state machine. Client 103 owns media capture/rendering; Client 107 owns how recovery is shown.
+- **Handoff:** use frozen Server 002/004/006/010 fixtures. Expose typed state and explicit revoked-versus-reconnecting outcomes to the Journal UI.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ For media, allow the LiveKit SDK to attempt normal session recovery first. If fu
 - Measure time to usable chat and audio after a brief network interruption.
 
 **Related:** [ADR-004](../server/ADR-004-durable-chat.md), [ADR-006](../server/ADR-006-media-revocation.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 4/5

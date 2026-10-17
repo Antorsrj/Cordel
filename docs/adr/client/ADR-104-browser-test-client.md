@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner for public exposure and permanent-product scope
@@ -17,6 +19,11 @@ Build a separate small browser client that can redeem an invite, log in, send an
 Serve it from the same site as the API where practical. Use the browser-safe session and WebSocket admission contract selected in ADR-009. Do not put a long-lived bearer credential in a URL or localStorage. Keep LiveKit room tokens short-lived and in memory.
 
 Decide whether to maintain the browser client as a permanent product only after usability, security, and maintenance costs are measured. That later decision may change its feature and accessibility requirements.
+
+## Implementation boundary
+
+- **Owns:** browser diagnostic UI and browser media/session integration. It consumes the shared app contracts but does not own server identity, cookie security, Journal parity, or native window behavior.
+- **Handoff:** provide browser/OS/network test results and missing-feature notes. Public exposure waits for Server 009 acceptance; rich image handling waits for Server 011.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ Decide whether to maintain the browser client as a permanent product only after 
 - Record which test workflows are absent; do not label it feature-complete.
 
 **Related:** [ADR-002](../server/ADR-002-invite-only-identity.md), [ADR-004](../server/ADR-004-durable-chat.md), [ADR-005](../server/ADR-005-livekit-media.md), [ADR-009](../server/ADR-009-browser-auth.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 3/5

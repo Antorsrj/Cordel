@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -19,6 +21,11 @@ Axum provides authenticated REST history and one multiplexed chat WebSocket per 
 Use the app session from ADR-002 for WS authentication. Native clients may send the app access token in the handshake header. Browser authentication uses ADR-009's separate mechanism because the browser WebSocket API cannot add an arbitrary `Authorization` header.
 
 Message content may include the restricted rich-text representation and image references from ADR-011. The message event carries authorized attachment metadata, not image bytes or a permanent public download URL. Keep the same message sequence, idempotency, and catch-up semantics for image messages. Roster and active-share events are ephemeral under ADR-010 and use a separate revision, not a chat `seq`.
+
+## Implementation boundary
+
+- **Owns:** message/sequence/idempotency schema, authenticated history and send operations, WS subscription/delivery, and catch-up rules. Server 011 owns rich-content validation and image bytes; Server 010 owns ephemeral roster/share events over the same transport.
+- **Handoff:** publish versioned message, ack, gap, error, and revocation fixtures for Client 102/104/107. Prove races against Server 003 policy using test doubles before full integration.
 
 ## Options considered
 
@@ -42,3 +49,7 @@ Message content may include the restricted rich-text representation and image re
 - Test protocol-version compatibility between an older client and a newer server.
 
 **Related:** [ADR-003](ADR-003-community-authorization.md), [ADR-010](ADR-010-presence-and-share-state.md), [ADR-011](ADR-011-rich-chat-images.md), [ADR-102](../client/ADR-102-client-state-recovery.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 5/5

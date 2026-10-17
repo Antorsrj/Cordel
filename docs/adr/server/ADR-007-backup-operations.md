@@ -2,6 +2,8 @@
 
 **Status:** Proposed
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner for loss and recovery targets
@@ -17,6 +19,11 @@ Use pinned container images, health checks, versioned SQLx migrations, private s
 For the initial test, propose a **24-hour recovery point target** and a **4-hour recovery time target** as planning assumptions, with a nightly logical database backup, seven daily copies, and four weekly copies. These are targets to approve and prove in a drill, not guarantees. If losing up to a day of messages is unacceptable, add more frequent backups or WAL archiving. Before image chat is enabled under ADR-011, include attachment bytes and PostgreSQL metadata in a consistent backup set; verify both in the restore drill.
 
 Keep PostgreSQL, LiveKit control, and Axum's private listener off the public Internet. Document cloud firewall/router rules, DNS, certificate renewal, media ports, backup location, operator access, and a recovery runbook. Host-side admin management from ADR-002/003 must work during recovery.
+
+## Implementation boundary
+
+- **Owns:** backup/restore procedure, operating targets, observability, upgrade/rollback runbook, and recovery evidence. Server 001 owns host networking; Server 011 owns image write/read behavior.
+- **Handoff:** publish a restore recipe using disposable data and prove a consistent database-plus-image recovery when images are enabled. Recovery targets need owner acceptance before real users.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ Keep PostgreSQL, LiveKit control, and Axum's private listener off the public Int
 - Verify certificate renewal, resource/egress alerts, and rollback procedure without exposing secrets.
 
 **Related:** [ADR-001](ADR-001-single-host-deployment.md), [ADR-004](ADR-004-durable-chat.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md).
+
+**Complexity:** 4/5

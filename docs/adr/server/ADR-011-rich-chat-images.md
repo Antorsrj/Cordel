@@ -2,6 +2,8 @@
 
 **Status:** Proposed
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner for image storage and operating cost
@@ -17,6 +19,11 @@ Store message text as a bounded, versioned structured content format that suppor
 Add an authenticated image-upload flow. For the first host, store image bytes in a private directory on a persistent data volume and attachment metadata in PostgreSQL, linked to the message/channel/author. Accept only a reviewed set of raster formats, impose configurable byte and pixel limits, inspect actual content rather than trusting filename or MIME claims, and reject active content such as SVG. Process images with a maintained decoder to normalize previews and remove metadata where feasible. Serve previews and originals through an Axum endpoint that checks current channel membership and moderation status on every request; do not expose the storage directory or permanent public URLs. Use short-lived responses and cache policy that prevents a revoked user from receiving new protected bytes through stale shared caches.
 
 Treat upload and message creation as a two-step operation with temporary objects, expiration, and cleanup, so an orphaned upload cannot grow without bound. A deleted message or removed image loses API access promptly; define physical retention in the operating policy. Back up database metadata and image bytes as one recoverable set under ADR-007. Keep the attachment record able to carry a versioned encrypted payload later; pre-E2EE plaintext images must be handled by the migration policy in ADR-008/105.
+
+## Implementation boundary
+
+- **Owns:** proposed restricted content format, image upload lifecycle, private byte storage, authorized preview/original reads, quotas, and orphan cleanup. Server 004 owns message ordering and transport; Server 007 owns backup/restore procedure.
+- **Handoff:** publish content/upload/download schemas, malformed-image fixtures, and a backup consistency case for Client 104/107 and Server 007. Storage and limits require acceptance before image chat ships.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ Treat upload and message creation as a two-step operation with temporary objects
 - Restore PostgreSQL plus image files to an isolated host and verify that no message points to a missing image after a consistent backup.
 
 **Related:** [ADR-004](ADR-004-durable-chat.md), [ADR-007](ADR-007-backup-operations.md), [ADR-107](../client/ADR-107-journal-ux.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 5/5

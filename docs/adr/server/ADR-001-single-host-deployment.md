@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -15,6 +17,11 @@ The first test has one Discord-like community. This does not mean the product's 
 Run one Linux host in Brazil, either a cloud VM or a home server with publicly reachable media endpoints. Use a TLS edge, Axum, PostgreSQL, and self-hosted LiveKit on that host. Keep database and internal control ports private. Use version-pinned containers and a documented Compose deployment. Begin with the [LiveKit VM deployment guidance](https://docs.livekit.io/transport/self-hosting/vm/) for media, TURN, TLS, and firewall settings. Redis, Kubernetes, and recording are not required by the first test. The approved image-chat UX adds a private attachment volume under ADR-011 before that feature ships.
 
 Use separate public names for app API, LiveKit signaling, and TURN where the generated configuration needs them. Prefer UDP for media and enable tested TCP/TURN fallbacks. Select either the UDP range or mux based on the actual host/router and a load test, rather than fixing an example port into the product contract. A home host behind server-side CGNAT must obtain an inbound-reachable address or move the public deployment to a VM.
+
+## Implementation boundary
+
+- **Owns:** host topology, DNS/TLS/media port configuration, private service wiring, and a measured capacity report. Do not implement Axum business logic or client UI here.
+- **Consumes:** service health/configuration requirements from Server 002–005 and persistence requirements from Server 007/011. Produce a reproducible deployment manifest and a network test record that another contributor can use without the original host.
 
 ## Options considered
 
@@ -38,3 +45,7 @@ Use separate public names for app API, LiveKit signaling, and TURN where the gen
 - Confirm PostgreSQL and internal APIs are not Internet-reachable. Document the selected DNS, ports, and host region.
 
 **References:** [LiveKit ports](https://docs.livekit.io/transport/self-hosting/ports-firewall/), [LiveKit self-hosting](https://docs.livekit.io/transport/self-hosting/).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md).
+
+**Complexity:** 3/5

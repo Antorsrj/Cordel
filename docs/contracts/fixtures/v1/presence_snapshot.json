@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "revision": "71",
+  "members": [
+    {
+      "user_id": "6daa8a59-0ac7-4737-bdad-768d60607767",
+      "display_name": "Example A",
+      "online": true,
+      "voice_channel_id": "0700eaa6-8204-4f0b-a45e-57d929289818",
+      "speaking": false,
+      "muted": false,
+      "sharing": true
+    },
+    {
+      "user_id": "0c900df0-7a32-4776-b996-827825ad6298",
+      "display_name": "Example B",
+      "online": true,
+      "voice_channel_id": null,
+      "speaking": false,
+      "muted": false,
+      "sharing": false
+    },
+    {
+      "user_id": "e61a2d70-2c27-4889-a041-e94a663f46d6",
+      "display_name": "Example C",
+      "online": true,
+      "voice_channel_id": "0700eaa6-8204-4f0b-a45e-57d929289818",
+      "speaking": false,
+      "muted": false,
+      "sharing": true
+    }
+  ],
+  "shares": [
+    {
+      "share_id": "c9089ac7-a306-464b-8b24-f5900dc0c9b7",
+      "publisher_id": "6daa8a59-0ac7-4737-bdad-768d60607767",
+      "voice_channel_id": "0700eaa6-8204-4f0b-a45e-57d929289818",
+      "track_id": "TR_example_a"
+    },
+    {
+      "share_id": "1797dd28-f6a0-4280-ad37-45deeb262d72",
+      "publisher_id": "e61a2d70-2c27-4889-a041-e94a663f46d6",
+      "voice_channel_id": "0700eaa6-8204-4f0b-a45e-57d929289818",
+      "track_id": "TR_example_b"
+    }
+  ]
+}

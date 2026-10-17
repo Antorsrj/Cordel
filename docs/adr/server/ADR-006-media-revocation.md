@@ -2,6 +2,8 @@
 
 **Status:** Proposed
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner after a LiveKit proof
@@ -17,6 +19,11 @@ Keep a `media_generation` for each logical voice channel. Mint tokens only for t
 Normal network loss does **not** rotate a room. The client first attempts LiveKit's normal reconnect and then requests a fresh current-generation token through Axum if needed.
 
 This cutover makes the old token incapable of joining the **current** room. It may still recreate or enter an old, isolated room. Before acceptance, prove that no authorized client continues publishing there after cutover, including on automatic SDK reconnect. If strict denial of even an empty old room is required, add a tested admission gateway or another token-revocation mechanism; do not claim the cutover provides that stronger property.
+
+## Implementation boundary
+
+- **Owns:** the proposed room-generation cutover and its failure handling, including a proof against old tokens and stale clients. Do not change kick/ban policy, which belongs to Server 003.
+- **Handoff:** provide an executable scenario, observed rejoin window, disruption time, and any required change to Server 005/Client 102 contracts. This is a design gate until the proof succeeds.
 
 ## Options considered
 
@@ -41,3 +48,7 @@ This cutover makes the old token incapable of joining the **current** room. It m
 - Measure disruption duration for authorized participants. If the isolation proof fails, redesign admission before shipping moderation.
 
 **Related:** [ADR-003](ADR-003-community-authorization.md), [ADR-005](ADR-005-livekit-media.md), [ADR-102](../client/ADR-102-client-state-recovery.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 5/5

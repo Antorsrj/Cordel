@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -16,9 +18,14 @@ Use a text-forward Journal layout with a persistent community/channel navigation
 
 The conversation renders a restricted set of rich-text elements, safe links, and authorized inline image previews from ADR-011. Provide a readable loading state, a failed-image state, and an explicit open-image action. Do not render arbitrary HTML or treat a URL preview as proof that a remote site is safe. The user may hide the conversation to give media more space and restore it without losing scroll position or draft text.
 
-When no screen share is active, conversation and people are the main surfaces; do not show an empty video stage. With two active shares, the user can view both at once inside the client, switch their relative prominence, and still reach chat and the people area. A share can be detached into a separate native window while another stays in the main window. Detach and dock change presentation only: they do not leave the voice room, start a second publication, or require a second account login. Closing a detached window stops that view or docks it according to a clear user control; it must never stop another person's share or unexpectedly leave voice. If a source ends or access is revoked, remove its view promptly and show the remaining state.
+When no screen share is active, conversation and people are the main surfaces; do not show an empty video stage. With two active shares, the user can view both at once inside the client, switch their relative prominence, and still reach chat and the people area. A share can be detached into a separate native window while another stays in the main window. Detach and dock change presentation only: they do not leave the voice room, start a second publication, or require a second account login. Closing a detached window docks an active share back into the main window; it must never stop another person's share or unexpectedly leave voice. If a source ends or access is revoked, remove its view promptly and show the remaining state.
 
-Keep the state model and controls consistent on Linux, macOS, and Windows. Window chrome, shortcuts, and screen-reader integration may follow the OS. The browser diagnostic client in ADR-104 is not required to reproduce the full Journal layout. The prototype's sample community, channel, and person names are fixture data only.
+Keep the state model and controls consistent on Linux, macOS, and Windows. Window chrome, shortcuts, and screen-reader integration may follow the OS. The browser diagnostic client in ADR-104 is not required to reproduce the full Journal layout. The prototype's sample community, channel, and person names are fixture data only. The [written Journal behavior spec](../../ux/journal.md) is the repository handoff; contributors do not need the mock files.
+
+## Implementation boundary
+
+- **Owns:** Journal view models, layout, interactions, accessibility states, and local presentation preferences. Client 103 owns media surfaces; Client 102 owns connection state; Server 010/011 own roster and image data.
+- **Handoff:** test all three states with committed text fixtures and fake media tracks. Do not rely on external mock images, hardcode reference community names, or request server permissions based on UI visibility.
 
 ## Options considered
 
@@ -43,3 +50,7 @@ Keep the state model and controls consistent on Linux, macOS, and Windows. Windo
 - Measure CPU, memory, frame copies, and text readability on the Linux Phase 0 build. Repeat platform-specific window and accessibility checks on macOS and Windows before claiming support.
 
 **Related:** [ADR-101](ADR-101-native-client-platforms.md), [ADR-103](ADR-103-capture-playback.md), [ADR-010](../server/ADR-010-presence-and-share-state.md), [ADR-011](../server/ADR-011-rich-chat-images.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 4/5

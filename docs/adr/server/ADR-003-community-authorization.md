@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -17,6 +19,11 @@ Use only `user` and `admin` as in-app roles. Every active member may create text
 Store membership, role, `kicked_until`, and ban state durably in PostgreSQL. Check the current state for REST, WebSocket commands/subscriptions, community-setting changes, message history, and LiveKit token issuance. Hiding admin controls from a user in the client is not authorization. Apply a kick or ban to active sessions and subscriptions immediately. Authorized host access provides a separate local mechanism to add, remove, and recover admins. Host infrastructure configuration is not exposed in client admin controls. This is not a third in-app role or a public API. The normal mechanism must not leave the community with zero active admins; a replacement can be installed in the same operation.
 
 Keep a community ID in persisted records even though only one community can be created in version one. Do not expose a public create-community endpoint or per-channel role overrides yet.
+
+## Implementation boundary
+
+- **Owns:** community, membership, role, channel, and moderation records plus one reusable authorization policy interface. Other server workstreams call that interface instead of copying role checks.
+- **Handoff:** publish a role/action matrix, revocation signal, and channel/member fixtures. Server 004/005/010/011 consume the policy; Server 006 owns media-specific revocation mechanics; clients only display controls from authorized state.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ Keep a community ID in persisted records even though only one community can be c
 - Race a kick or ban with REST, a queued WebSocket fan-out, and voice admission. Deny later actions using the same authoritative policy check.
 
 **Related:** [ADR-002](ADR-002-invite-only-identity.md), [ADR-006](ADR-006-media-revocation.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 4/5

@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -17,6 +19,11 @@ Axum serves an authorized community snapshot containing member identity/display 
 Derive online state from active authenticated app sessions with heartbeat/lease expiry; do not write every heartbeat to PostgreSQL. Multiple devices for one user collapse into one member entry. Derive voice-room and share state from LiveKit participant/track observations, then reconcile against LiveKit after restart, webhook loss, and periodic checks. A webhook alone never grants membership or becomes an authorization source. A share descriptor identifies its publisher, logical voice room, and media track so the client can subscribe to the two views under ADR-103. Presence is a best-effort view of current connections, not a durable audit record. Expire stale entries and avoid asserting a member is online indefinitely after abrupt loss.
 
 Only expose the minimum member and media metadata needed for the current community. Keep login secrets, network addresses, device identifiers, and private LiveKit credentials out of roster events. A kick or ban invalidates app presence and media access under ADR-003 and ADR-006.
+
+## Implementation boundary
+
+- **Owns:** authenticated online leases, reconciled voice/share snapshot, revisioned deltas, expiration, and resync behavior. Server 005 supplies LiveKit observations; Server 004 supplies the authenticated WS transport; Server 003 supplies authorization.
+- **Handoff:** publish snapshot and delta fixtures for Client 107, including two shares, text-only users, a lost event, a stale lease, and a kicked member.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ Only expose the minimum member and media metadata needed for the current communi
 - Verify kicked/banned members lose protected events and are removed from the roster without using the roster itself as proof of access.
 
 **Related:** [ADR-004](ADR-004-durable-chat.md), [ADR-005](ADR-005-livekit-media.md), [ADR-107](../client/ADR-107-journal-ux.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 4/5

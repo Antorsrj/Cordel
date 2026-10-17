@@ -2,6 +2,8 @@
 
 **Status:** Proposed
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -16,6 +18,11 @@ Before publishing application code or binaries, choose the intended license for 
 
 Until the owner selects a license, do not label Cordel as MIT, Apache-2.0, GPLv3, proprietary, or “open source” merely because a GitHub repository exists. This ADR does not decide repository visibility, release channel, signing, or package format.
 
+## Implementation boundary
+
+- **Owns:** license research, owner decision record, third-party notice inventory, and package/About attribution requirements. It does not choose product architecture or publish code on its own.
+- **Handoff:** provide current official terms, a recommended compatible path, and the exact files/notices required before any application code or binary publication.
+
 ## Options considered
 
 | Option | Benefit | Cost or risk |
@@ -29,7 +36,7 @@ Until the owner selects a license, do not label Cordel as MIT, Apache-2.0, GPLv3
 
 - The license choice is a publication gate, not a blocker for drafting ADRs or private prototypes.
 - A successful Slint technical spike does not settle distribution rights.
-- The owner-selected repository URL is configured as local `origin`. It had no branch or license when checked on 2026-10-17; inspect it again before publishing. No push/deployment is authorized by this ADR.
+- The owner-selected repository URL is configured as local `origin`, and the first documentation batch was published. Repository state and license terms must be inspected again before publishing application code or binaries. No push/deployment is authorized by this ADR.
 
 ## Acceptance and handoff
 
@@ -38,3 +45,7 @@ Until the owner selects a license, do not label Cordel as MIT, Apache-2.0, GPLv3
 - Confirm package artifacts and About screen satisfy the chosen UI license.
 
 **References:** [Slint licensing choices](https://slint.dev/get-started), [Slint terms](https://slint.dev/terms-and-conditions).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md).
+
+**Complexity:** 3/5

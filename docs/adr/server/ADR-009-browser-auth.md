@@ -2,6 +2,8 @@
 
 **Status:** Proposed
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner after browser security review
@@ -15,6 +17,11 @@ The diagnostic browser client is accepted under ADR-104. Native clients can send
 Serve the diagnostic client and Axum API from the same origin for the first test. After invite redemption or login, set a session cookie with `Secure`, `HttpOnly`, and `SameSite=Strict`. Bind it to a server-side revocable session in PostgreSQL and rotate its credential as in ADR-002. Do not store a reusable bearer token in browser JavaScript storage.
 
 For state-changing HTTPS requests, validate a CSRF token sent in a custom header and validate the request Origin/Fetch Metadata where available. For WebSocket upgrade, require an exact allowed Origin and a valid live session cookie before subscribing to anything; recheck membership and moderation on commands and invalidate the connection when the session is revoked. Do not accept a token or session ID from the URL. Native bearer-token authentication remains a separate supported path. Keep LiveKit join tokens in browser memory and scope them to the current room.
+
+## Implementation boundary
+
+- **Owns:** proposed browser cookie/session admission, CSRF checks, WS Origin checks, and logout/revocation behavior. Server 002 owns core account/session rotation; Client 104 owns browser UI.
+- **Handoff:** publish cookie/header/error examples and hostile-origin tests. Review and accept this security design before the diagnostic browser is exposed publicly.
 
 ## Options considered
 
@@ -38,3 +45,7 @@ For state-changing HTTPS requests, validate a CSRF token sent in a custom header
 - Accept before exposing the diagnostic browser client outside an isolated test environment.
 
 **Related:** [ADR-002](ADR-002-invite-only-identity.md), [ADR-004](ADR-004-durable-chat.md), [ADR-104](../client/ADR-104-browser-test-client.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 4/5

@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -19,6 +21,11 @@ Expose LiveKit signaling through TLS and make the selected ICE UDP path reachabl
 Validate signed webhooks using the raw body and treat them as observations. Reconcile participant state after webhook loss or service restart. Never grant membership based on a webhook. Keep the LiveKit API secret server-side.
 
 Expose reconciled voice-room membership and active screen-track descriptors to authorized clients through ADR-010. Two simultaneous publishers must be independently discoverable and subscribable so the Journal client can display both, including when one view is detached. A detached window changes client rendering only; it is not a separate LiveKit room or publication.
+
+## Implementation boundary
+
+- **Owns:** LiveKit service integration, room token issuance, room admission, webhook validation, and participant/track observation. Server 006 owns old-token revocation; Server 010 owns the client-facing presence/share snapshot.
+- **Handoff:** publish scoped admission and media-state examples for Client 103/104 and Server 010. A local or disposable LiveKit instance must prove two publishers and two subscriptions.
 
 ## Options considered
 
@@ -42,3 +49,7 @@ Expose reconciled voice-room membership and active screen-track descriptors to a
 - Run the 15-person/two-screen scenario from ADR-001, verify one viewer actually receives both tracks, and reconcile voice/share presence after a dropped webhook.
 
 **References:** [LiveKit self-hosting](https://docs.livekit.io/transport/self-hosting/), [ports and firewalls](https://docs.livekit.io/transport/self-hosting/ports-firewall/), [token grants](https://docs.livekit.io/frontends/reference/tokens-grants/), [webhooks](https://docs.livekit.io/intro/basics/rooms-participants-tracks/webhooks-events/).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 5/5

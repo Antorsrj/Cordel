@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -14,7 +16,12 @@ Cordel needs native clients for Linux, macOS, and Windows. Linux is the first pr
 
 Use Rust for shared application state, REST/WS, auth flow, and LiveKit orchestration. Use Slint as the **candidate** native UI and the LiveKit Rust SDK for media. The client provides the product UI, including community-setting and member-management controls visible only to authorized admins; the headless server enforces each operation. Users may create text and voice channels but cannot manage community settings or members. Place screen capture, device handling, OS permissions, credential storage, and packaging behind platform adapters. Keep the server protocol platform-neutral. Do not assume a Linux build proves macOS or Windows support.
 
-Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct capture paths. Demonstrate a two-person voice call, publish one captured screen frame, receive and render two remote frames simultaneously in Slint, detach one into a second window, and exercise a representative long chat list with the Journal layout in ADR-107. Measure audio continuity, CPU/RAM, frame copies, text readability, scroll behavior, and accessibility. If Slint or the capture path fails the gate, record a superseding ADR before building the whole client around it. Validate macOS next and Windows later, each with its own capture and packaging gate.
+Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct capture paths. Demonstrate a two-person voice call and publish one captured screen frame. Then use two remote share publishers to receive and render both tracks simultaneously in Slint, detach one into a second window, and exercise a representative long chat list with the Journal layout in ADR-107. Measure audio continuity, CPU/RAM, frame copies, text readability, scroll behavior, and accessibility. If Slint or the capture path fails the gate, record a superseding ADR before building the whole client around it. Validate macOS next and Windows later under ADR-108/109.
+
+## Implementation boundary
+
+- **Owns:** shared Rust app shell, UI framework feasibility, Linux Phase 0, and platform adapter interfaces. Client 102 owns network/session state; Client 103 owns shared media interfaces and Linux media; Client 107 owns Journal presentation. Client 108/109 own later macOS/Windows delivery.
+- **Handoff:** use fake service/media feeds for Linux Phase 0. Publish build instructions and measured X11/Wayland two-track/multiwindow evidence before other client work depends on Slint. Keep platform interfaces stable for Client 108/109.
 
 ## Options considered
 
@@ -27,7 +34,7 @@ Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct captu
 ## Consequences
 
 - The proposed Slint UI is not a blanket promise of performance or accessibility. The Linux prototype is a stop/go test.
-- Linux support requires X11 and Wayland-specific evidence. macOS and Windows remain target platforms, but cannot be advertised as tested until their gates pass.
+- Linux support requires X11 and Wayland-specific evidence. macOS and Windows remain target platforms under ADR-108/109 and cannot be advertised as tested until their separate gates pass.
 - UI licensing and repository terms are resolved under ADR-106 before distribution.
 
 ## Verification and handoff
@@ -36,3 +43,7 @@ Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct captu
 - At each later OS gate, test microphone and screen permission prompts, device changes, sleep/wake, installer launch, and real network media.
 
 **References:** [Slint desktop](https://slint.dev/desktop), [LiveKit Rust SDK](https://github.com/livekit/rust-sdks), [XDG ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 5/5

@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Delivery stage:** First-test mandatory
+
 **Date:** 2026-10-17
 
 **Decider:** Project owner
@@ -14,9 +16,14 @@ The first version has one private community. Every participant needs a login and
 
 Disable public registration. Bootstrap the first admin through a local host-side administrative command or equivalent private procedure. An authenticated admin issues an expiring invitation with a use limit. The invitee redeems it and chooses a login and password. Consume the invite and create the account and community membership in one database transaction; store only a hash of the invitation code. Use Argon2id for password hashes and enforce a reasonable password length and rate limits without making registration lengthy.
 
-Axum issues a short-lived app access token and an opaque rotating refresh token. Store only a hash of the refresh token, bind it to a session, and detect reuse of a rotated token. Reuse revokes that session family. Logout and host-side recovery revoke affected sessions. Keep app tokens distinct from LiveKit room tokens. Native clients put refresh credentials in the OS credential store. Browser session storage is addressed in ADR-104.
+Axum issues a short-lived app access token and an opaque rotating refresh token. Store only a hash of the refresh token, bind it to a session, and detect reuse of a rotated token. Reuse revokes that session family. Logout and host-side recovery revoke affected sessions. Keep app tokens distinct from LiveKit room tokens. Native clients put refresh credentials in the OS credential store. Browser cookie/session admission is addressed in ADR-009; ADR-104 implements the diagnostic browser client.
 
 The first release needs a host-side procedure to reset a lost admin credential without email. This procedure must require authorized host access and leave an audit record. It must not be exposed as a normal public registration or password-reset endpoint.
+
+## Implementation boundary
+
+- **Owns:** account/invite/session schema, invite redemption and login/refresh/logout operations, local first-admin bootstrap, and credential recovery. Server 003 owns membership policy after identity is established; Server 009 owns browser-specific cookie/CSRF admission.
+- **Handoff:** publish versioned request/response/error examples and session fixtures for Client 102 and Server 003. Test atomic redemption, token rotation, and recovery independently with a disposable database.
 
 ## Options considered
 
@@ -39,3 +46,7 @@ The first release needs a host-side procedure to reset a lost admin credential w
 - Prove public registration is rejected and no plaintext password, invite secret, or bearer token appears in logs or database.
 
 **Related:** [ADR-003](ADR-003-community-authorization.md), [ADR-104](../client/ADR-104-browser-test-client.md).
+
+**Shared handoff:** [workstream map](../WORKSTREAMS.md); [v1 application contract](../../contracts/v1.md).
+
+**Complexity:** 4/5
