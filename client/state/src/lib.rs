@@ -1,0 +1,24 @@
+//! Client recovery for ADR-102.
+//!
+//! PostgreSQL and Axum stay authoritative. This crate tracks the disposable
+//! per-channel cursor, catch-up order, pending sends, and which credentials
+//! may survive a reconnect. Screen capture and audio devices belong to ADR-103.
+
+mod catchup;
+mod credentials;
+mod outbox;
+mod protocol;
+mod retry;
+mod session;
+
+pub use catchup::{catch_up, AppliedEvent, CatchUp};
+pub use credentials::{
+    MemoryRefreshStore, RefreshCredential, RefreshStore, StoreError, VolatileTokens,
+};
+pub use outbox::{AckResult, ClientMessageId, Outbox, PendingSend, SendState};
+pub use protocol::ChatEvent;
+pub use retry::{plan_interrupt, retry_delay, AccessBlock, Interrupt, NextAction, FIRST_RETRY};
+pub use session::{visible_bodies, ClientState, CursorCache};
+
+#[cfg(feature = "secret-service")]
+pub use credentials::SecretServiceRefreshStore;
