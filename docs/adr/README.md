@@ -8,13 +8,13 @@ Each ADR ends with a **Complexity: N/5** tag. **1** is a small, bounded task; **
 
 ## Mandatory before the first integrated product test
 
-The first product test covers the Linux native client and diagnostic browser against the single Brazil-hosted community. All ADRs in this section must be implemented, their Proposed designs accepted, and their acceptance evidence recorded before this **product-level** test begins. Technical spikes, unit tests, contract checks, and isolated integration proofs are required while building the ADRs; they are not the product test.
+The first product test covers the Linux native client and diagnostic browser against the single East US-hosted community. All ADRs in this section must be implemented, their Proposed designs accepted, and their acceptance evidence recorded before this **product-level** test begins. Technical spikes, unit tests, contract checks, and isolated integration proofs are required while building the ADRs; they are not the product test.
 
 ### Server
 
 | ADR | Status | Complexity | Area | Implementation dependency |
 | --- | --- | --- | --- | --- |
-| [001 — Single-host Brazil deployment](server/ADR-001-single-host-deployment.md) | Accepted | 3/5 | Topology, networking, sizing | Start here |
+| [001 — Single-host East US deployment](server/ADR-001-single-host-deployment.md) | Accepted | 3/5 | Topology, networking, sizing | Start here |
 | [002 — Invite-only accounts and sessions](server/ADR-002-invite-only-identity.md) | Accepted | 4/5 | Registration and authentication | 001 |
 | [003 — Community roles and moderation policy](server/ADR-003-community-authorization.md) | Accepted | 4/5 | Roles, channels, kicks and bans | 002 |
 | [004 — Durable chat and WebSocket delivery](server/ADR-004-durable-chat.md) | Accepted | 5/5 | Message order and catch-up | 002–003 |

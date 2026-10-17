@@ -4,12 +4,12 @@
 
 **Last reviewed:** 2026-10-17
 
-**Scope:** One invite-only community on one Brazil-hosted installation for the first test; 15 simultaneous users and two screen shares are a sizing example
+**Scope:** One invite-only community on one Azure East US installation for the first test; 15 simultaneous users and two screen shares are a sizing example
 **Related documents:** [Portuguese project vision](./Plano%20de%20Desenvolvimento%20-%20Revisado.md), [ADR index](./docs/adr/README.md), [implementation status](./docs/adr/STATUS.md), [independent workstreams](./docs/adr/WORKSTREAMS.md), [v1 app contract](./docs/contracts/v1.md), [Journal behavior](./docs/ux/journal.md), [parking lot](./PARKING_LOT.md)
 
 ## 1. Decision and boundaries
 
-Cordel uses one Linux host in Brazil for its first test deployment. The same design works on a cloud VM or a home server with a publicly reachable address. The host runs the Rust Axum application, PostgreSQL, LiveKit Server, and a TLS reverse proxy. The first native client target is Linux, followed by macOS and then Windows. Rust is the shared native client implementation language, Slint is the proposed UI, and LiveKit's Rust SDK carries media. Operating-system capture, permission, audio-device, and packaging code lives behind platform-specific adapters. A separate browser client exercises the system during testing; product-level browser support is a later decision.
+Cordel uses one Linux host in Azure East US for its first test deployment. The same design can later run on another cloud VM or a home server with a publicly reachable address. The host runs the Rust Axum application, PostgreSQL, LiveKit Server, and Caddy as native `systemd` services; Docker is not part of the first-test server. The first native client target is Linux, followed by macOS and then Windows. Rust is the shared native client implementation language, Slint is the proposed UI, and LiveKit's Rust SDK carries media. Operating-system capture, permission, audio-device, and packaging code lives behind platform-specific adapters. A separate browser client exercises the system during testing; product-level browser support is a later decision.
 
 The first version has one Discord-like community, with text and voice channels inside it. Its installation happens to use one physical host; the community and the host are distinct concepts. All members can create channels. The server is headless: clients provide the product UI, including admin controls for community settings and member management. Users cannot manage the community/server settings. Accounts are created only through admin-issued invitations, and each person registers a login and password. The server remains authoritative for accounts, membership, moderation, message history, and room admission. PostgreSQL stores durable state. Axum exposes HTTPS and WebSocket endpoints and signs narrowly scoped LiveKit room tokens. LiveKit is an SFU: clients send each media track once to it, and it forwards tracks to authorized subscribers. Peer-to-peer media is outside the current design. No Redis, Kubernetes, recording, or ingress is required for the first single-node installation. Approved image chat adds a private attachment volume under ADR-011 before that feature ships.
 
@@ -69,7 +69,7 @@ The arrows are trust boundaries. A client never receives a database credential o
 
 ### Public endpoints and DNS
 
-Use separate DNS names for the application, media signaling, and TURN, such as `api.cordel.example`, `media.cordel.example`, and `turn.cordel.example`. These are illustrative names; actual domains belong in deployment configuration. Each public name resolves to the cloud VM's public address or the home router's public address. The desktop application is configured with the application HTTPS URL; Axum returns the media signaling URL and a room token after authorization. Do not let arbitrary client input choose the LiveKit URL.
+The Azure first test has two Azure-provided names, `cordel-media-f77cc05e.eastus.cloudapp.azure.com` and `cordel-turn-f77cc05e.eastus.cloudapp.azure.com`, on separate public IP resources attached to one VM. The owner's 2026-10-17 Cloud Shell output verified that the names resolve to their assigned public addresses and that Ubuntu has both private IPs. The future Axum API and diagnostic browser can share the media hostname through a distinct TLS proxy route; a separate app hostname can be added when a project domain exists. The general deployment pattern can use separate names such as `api.cordel.example`, `media.cordel.example`, and `turn.cordel.example`. The desktop application is configured with the application HTTPS URL; Axum returns the media signaling URL and a room token after authorization. Do not let arbitrary client input choose the LiveKit URL. Both Azure hostnames have trusted certificates; Cloud Shell verified media HTTPS, TURN TLS, ICE/TCP, and a TURN/UDP STUN Binding response. ICE/UDP media, authenticated TURN allocations, and a second external network remain unverified.
 
 | Exposure | Purpose | Policy |
 | --- | --- | --- |
@@ -78,11 +78,11 @@ Use separate DNS names for the application, media signaling, and TURN, such as `
 | 7882/UDP **or** 50000–60000/UDP | LiveKit host media candidates | Public; choose one media-port strategy |
 | 7881/TCP | LiveKit ICE/TCP fallback | Public if enabled |
 | 3478/UDP | Embedded TURN/STUN fallback | Public if enabled |
-| TURN/TLS listener | Last-resort media path for restrictive networks | Public; follow the generated LiveKit/Caddy configuration for the exact listener and TLS routing |
+| TURN/TLS on secondary IP TCP/443 | Last-resort media path for restrictive networks | Public; native LiveKit listener with a valid certificate for the TURN hostname |
 | 22/TCP | Administration | VPN or a narrow administrator allowlist; never open to everyone by default |
 | 5432/TCP, Axum private port, LiveKit API port 7880 | Database and internal APIs | Never public |
 
-LiveKit's [port reference](https://docs.livekit.io/transport/self-hosting/ports-firewall/) documents both the normal UDP port range and optional single-port UDP mux (`rtc.udp_port`, commonly 7882). Use the mux when a home router or firewall makes a wide range impractical, then load-test it. Do not enable both the mux and port range in an ad hoc way. The official [VM deployment generator](https://docs.livekit.io/transport/self-hosting/vm/) is the starting point for production TLS and TURN routing; its generated port choices take precedence over the illustrative list above.
+LiveKit's [port reference](https://docs.livekit.io/transport/self-hosting/ports-firewall/) documents both the normal UDP port range and optional single-port UDP mux (`rtc.udp_port`, commonly 7882). The Azure first test uses UDP mux on 7882 because that is the opened NSG route; load-test it. Do not enable both the mux and port range. The official [VM deployment guide](https://docs.livekit.io/transport/self-hosting/vm/) uses Docker and assumes two names on one public IP, so its generated deployment is reference material only for the chosen native two-IP layout. Pin the LiveKit release and verify the actual `turn.bind_addresses`, certificate, and port behavior before external tests.
 
 ## 3. Client connectivity: NAT, CGNAT, and distance
 
@@ -158,11 +158,11 @@ flowchart LR
 
 ### 3.4 People in different countries
 
-One LiveKit room is hosted on one LiveKit node, even in a distributed LiveKit cluster. In the first test deployment every participant's media goes through Brazil. Axum and PostgreSQL live on the same host so chat and authorization do not add a second cross-region hop. A participant far from the host can have a higher round-trip time; adding regional application replicas alone does not shorten the media path for that room. Measure end-to-end latency and packet loss from the intended countries before considering a different region or multi-region deployment. [LiveKit's distributed deployment guide](https://docs.livekit.io/transport/self-hosting/distributed/) describes the one-node-per-room constraint.
+One LiveKit room is hosted on one LiveKit node, even in a distributed LiveKit cluster. In the first test deployment every participant's media goes through East US. Axum and PostgreSQL live on the same host so chat and authorization do not add a second cross-region hop. A participant far from the host can have a higher round-trip time; adding regional application replicas alone does not shorten the media path for that room. Measure end-to-end latency and packet loss from the intended countries before considering a different region or multi-region deployment. [LiveKit's distributed deployment guide](https://docs.livekit.io/transport/self-hosting/distributed/) describes the one-node-per-room constraint.
 
 ```mermaid
 flowchart LR
-  BR[Client in Brazil] -->|media and signaling| HOST[One LiveKit room<br/>hosted in Brazil]
+  BR[Client in Brazil] -->|media and signaling| HOST[One LiveKit room<br/>hosted in East US]
   EU[Client in Europe] -->|media and signaling| HOST
   US[Client in North America] -->|media and signaling| HOST
   HOST -->|forward subscribed tracks| BR
@@ -171,7 +171,7 @@ flowchart LR
   NOTE[Distance to this host affects each user's latency] -.-> HOST
 ```
 
-Two European participants in the same room still exchange media through Brazil. This is an architectural path statement, not a fixed latency estimate. Measure RTT and jitter from the intended countries. If international use later dominates, evaluate region selection per room and a distributed deployment; that is a separate scaling decision and requires Redis and more than one node.
+Two European participants in the same room still exchange media through East US. This is an architectural path statement, not a fixed latency estimate. Measure RTT and jitter from the intended countries. If international use later dominates, evaluate region selection per room and a distributed deployment; that is a separate scaling decision and requires Redis and more than one node.
 
 ### 3.5 Session establishment and media path
 
@@ -261,14 +261,14 @@ Store refresh credentials in macOS Keychain, Windows Credential Manager, or the 
 
 ## 5. Single-host deployment layout
 
-The maintained deployment procedure and PostgreSQL Compose service are in [`deploy/`](./deploy/README.md). Use the official LiveKit VM generator for its LiveKit/Caddy/TURN portion because that configuration depends on the actual DNS names and firewall. It may include Redis for LiveKit's single-node generated deployment; retain it if the generated config requires it. PostgreSQL listens on host loopback, and the future Axum service must remain host-local or use another private connection that is not publicly exposed. The Axum container is not present because this repository has no application source yet. The [official VM guide](https://docs.livekit.io/transport/self-hosting/vm/) supplies the generator and current firewall requirements.
+The maintained deployment procedure is in [`deploy/`](./deploy/README.md). The first-test VM runs native Ubuntu services under `systemd`: packaged PostgreSQL, Caddy, a pinned LiveKit binary, and eventually the Axum binary. Redis is omitted on the single node. PostgreSQL listens only on loopback; LiveKit signaling listens on the primary private interface for Caddy to reach it, with raw port 7880 blocked by the NSG and host firewall. The future Axum listener remains host-local behind Caddy. The Axum binary is not present because this repository has no Axum server source yet; separate client and protocol crates now exist. Each service has its own account, writable directories, restart policy, and version/rollback record. Caddy binds HTTP/HTTPS on the primary private IP; LiveKit's TURN/TLS and TURN/UDP listeners bind to the secondary private IP. The TURN Certbot staging renewal and deploy-hook path passed once. Caddy media certificate renewal and real media paths still need proof before the host is ready.
 
 ```mermaid
 flowchart TB
   WAN[Internet] --> FW[Cloud firewall or home router firewall]
   FW --> EDGE[Caddy / TLS edge]
   FW --> LK[LiveKit media listeners]
-  EDGE --> APP[Axum container]
+  EDGE --> APP[Axum systemd service]
   EDGE --> LK
   APP --> PG[(PostgreSQL and persistent data)]
   APP --> LK
@@ -276,20 +276,20 @@ flowchart TB
   PG -.-> BACKUP[Encrypted off-host backup]
 ```
 
-The host firewall and cloud firewall should agree. Bind or firewall PostgreSQL, the Axum container port, and LiveKit's raw API port so they cannot be reached from the Internet. Docker's published-port behavior must be reviewed against the host firewall; publishing a private port to `0.0.0.0` can bypass assumptions about local-only access. Use a dedicated database role for Axum with only the required schema privileges, a separate migration role, and no public PostgreSQL listener.
+The host firewall and cloud firewall should agree. Bind PostgreSQL and Axum to loopback. Bind LiveKit to the primary private interface for signaling and RTC, but block raw API port 7880 from the Internet at both firewall layers. Keep the Azure NSG limited to the selected public ports and a narrow SSH source. Use a dedicated database role for Axum with only the required schema privileges, a separate migration role, and no public PostgreSQL listener.
 
 ### Installation sequence
 
 1. Provision a supported Linux installation, time synchronization, a dedicated administrator account, automatic security updates where appropriate, and a disk with enough free space for PostgreSQL and backups in progress.
 2. Assign the public address and DNS names. For home hosting, first prove the address is inbound-reachable from a separate network; check for ISP CGNAT and double NAT.
-3. Decide on the LiveKit UDP strategy: the generated range or UDP mux. Open exactly the chosen ports in the cloud firewall or home router and host firewall.
-4. Generate the LiveKit VM configuration for the real domains. Review its Caddy, TURN, TLS, port, and Redis settings instead of assuming example defaults. Pin container versions rather than tracking `latest` in production.
-5. Add PostgreSQL with a persistent volume and private binding. Add a private image volume before enabling image chat. Configure consistent encrypted, off-host backups of both data stores before admitting real users to that feature.
+3. Use the Azure test's UDP mux on 7882 and open exactly the selected ports in the cloud firewall and host firewall. A later provider can choose a range only after changing and verifying its firewall.
+4. Install PostgreSQL from the supported Ubuntu package, Caddy from a maintained package source, and a pinned, checksum-verified LiveKit Linux release. Define native `systemd` units and service users. Configure Caddy on the primary private IP and LiveKit TURN on the secondary private IP. Issue and renew valid certificates for both names; verify TCP/443 listeners do not conflict.
+5. Keep PostgreSQL data on the host disk with loopback-only binding. Add a private image directory before enabling image chat. Configure consistent encrypted, off-host backups of both data stores before admitting real users to that feature.
 6. Deploy Axum with a database URL, JWT signing material, LiveKit API key/secret, public media URL, webhook key, and explicit proxy-trust settings. Store secrets outside the repository with restrictive file access or a host secret facility.
 7. Run versioned SQLx migrations with the migration identity. Start Axum only after PostgreSQL is healthy, and start public traffic only after Axum and LiveKit health checks pass.
 8. Add the application hostname to the TLS edge. Verify HTTPS certificates, WebSocket upgrades, LiveKit signaling, UDP media, ICE/TCP, and TURN from an external network.
 9. Bootstrap the first admin with a one-time local procedure. Have that admin issue a test invitation; create the invited user with a login and password. Exercise text, voice, and two simultaneous screen shares. Test with a client behind CGNAT and one on a restricted network.
-10. Record the versions, DNS records, firewall rules, backup location, and recovery steps in the operator runbook.
+10. Record package and binary versions, checksums, DNS records, firewall rules, certificate renewal, backup location, and recovery steps in the operator runbook.
 
 ### Cloud VM versus home server
 
@@ -308,7 +308,7 @@ The initial planning envelope is 15 participants in **one** voice room, two dist
 
 Each of the two publishers sends one screen track to LiveKit. Fourteen other participants can subscribe to each track: `2 × 14 × 2.5–4 Mbps = 70–112 Mbps` of screen-share egress. If all 15 microphones transmitted continuously at 64 kbps to 14 peers, voice egress would add about `15 × 14 × 0.064 = 13.4 Mbps`; typical silence suppression should reduce it. Reserve roughly 20–30% headroom for packet overhead, retransmissions, signaling, and variation. A practical initial planning range is roughly **100–160 Mbps outbound** while everyone watches both shares. Each viewer needs roughly **5–8 Mbps download** for the two shares, plus voice and headroom.
 
-Start with **4 dedicated vCPU, 8 GB RAM, 50 GB SSD, and a 1 Gbps port** for the combined single host. The 50 GB disk figure predates image messages and must be recalculated after setting image upload limits and retention. Obtain at least **200 Mbps sustained outbound capacity** for the stated worst-case media scenario; 300 Mbps gives more room for bitrate spikes and additional services. This is an engineering starting point, not a benchmark result. For a home server, measured upload after other household traffic must meet the same requirement. At 150 Mbps for four hours every day, outbound transfer is approximately 8.1 TB per 30-day month. Check provider transfer allowances or home data caps before deployment.
+Start with **4 dedicated vCPU, 8 GB RAM, 50 GB SSD, and a 1 Gbps port** as the initial engineering estimate for the combined single host. The budget-constrained Azure first-test VM is D2s_v5 with **2 vCPU and 8 GiB RAM**; it is a provisional test choice, not evidence that the full planning load fits. Resize temporarily and measure if the target load saturates it. The 50 GB disk figure predates image messages and must be recalculated after setting image upload limits and retention. Obtain at least **200 Mbps sustained outbound capacity** for the stated worst-case media scenario; 300 Mbps gives more room for bitrate spikes and additional services. This is an engineering starting point, not a benchmark result. For a home server, measured upload after other household traffic must meet the same requirement. At 150 Mbps for four hours every day, outbound transfer is approximately 8.1 TB per 30-day month. Check provider transfer allowances or home data caps before deployment.
 
 Measure CPU, memory, actual track bitrate, packets per second, egress, packet loss, RTT, and client quality at 15 users with two screen shares. Run LiveKit's [load test](https://docs.livekit.io/transport/self-hosting/benchmark) from a **separate** adequately provisioned machine, then repeat with real desktop clients because the synthetic test may not reproduce text-heavy screen content or OS capture behavior. If egress is lower than expected, verify viewers are actually subscribed to both high-quality tracks. If it is higher, inspect simulcast layers, retransmissions, and any additional published tracks. Add capacity based on measurements, not participant count alone.
 
@@ -337,7 +337,7 @@ Measure CPU, memory, actual track bitrate, packets per second, egress, packet lo
 - TLS protects public app and signaling traffic. WebRTC provides transport encryption for media. The first test version does not require E2EE. **Before the final release, text, chat images, voice, and screen sharing must have an E2EE solution.** Reserve protocol versioning and encrypted-content envelopes for that transition; define device identity, key distribution, rotation after membership changes, recovery, and what the server can still moderate or search. Validate media E2EE support in both the native Rust SDK and browser test client before committing to an implementation. E2EE is not implied by TLS or WebRTC transport encryption. [LiveKit encryption](https://docs.livekit.io/transport/encryption/).
 - Keep database and internal service ports private. Use separate credentials for database migrations, Axum data access, and LiveKit control. Rotate secrets on a documented schedule and after suspected exposure.
 - Put limits on HTTP and WS body size, connection count, per-user and per-IP request rate, idle connections, outbound queue size, and channel subscriptions. Avoid logging access tokens, refresh tokens, full chat bodies, or screen content. [OWASP WebSocket guidance](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html).
-- Pin dependency and container versions. Scan dependencies and images during CI; apply security fixes on a maintenance cadence. Make authenticated database backups and test restores.
+- Pin application dependencies and downloaded binaries, record host package versions, and scan dependencies during CI; apply security fixes on a maintenance cadence. Make authenticated database backups and test restores.
 
 ## 8. Reliability, backup, and operations
 
@@ -377,8 +377,8 @@ These checks complete mandatory ADRs; they are not the user-facing integrated pr
 
 | Decision | Why it matters | Gate |
 | --- | --- | --- |
-| Long-term host and region | The first test host is in Brazil; later regions need measured demand | Before changing deployment |
-| Public DNS names and IPv4/IPv6 reachability | Needed for TLS, ICE, and TURN | Before external test |
+| Long-term host and region | The first test host is in Azure East US; later regions need measured demand | Before changing deployment |
+| Public DNS and reachability evidence | Azure-provided media and TURN names are selected for the first test; assigned addresses, secondary guest IP, TLS, ICE, and TURN still need verification | Before external test |
 | UDP port range versus UDP mux | Changes firewall/router mapping and load profile | Before final LiveKit config |
 | Screen-share codec, resolution, frame rate, and bitrate cap | Dominates egress and text readability | Cross-platform media prototype |
 | Enforceable moderation revocation design | Self-hosted tokens have a rejoin window despite an active kick or ban | Before moderation release |

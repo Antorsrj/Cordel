@@ -1,4 +1,4 @@
-# ADR-106: Resolve UI and repository licensing before code publication
+# ADR-106: Resolve UI and repository licensing before further publication
 
 **Status:** Proposed
 
@@ -10,11 +10,11 @@
 
 ## Context
 
-The owner has created an intended official GitHub repository, but has not chosen Cordel's license. The proposed native UI is Slint. Its current official licensing paths include GPLv3 and a royalty-free desktop/mobile/web license with attribution conditions; a paid path also exists. Repository visibility and publication terms cannot be inferred from a URL.
+The official public GitHub repository now contains the Linux Phase 0 client, client state, and shared protocol source, but the owner has not chosen Cordel's license. The proposed native UI is Slint. Its current official licensing paths include GPLv3 and a royalty-free desktop/mobile/web license with attribution conditions; a paid path also exists. Repository visibility and publication terms cannot be inferred from a URL.
 
 ## Proposed decision
 
-Before publishing application code or binaries, choose the intended license for Cordel and a compatible Slint license path. For a public repository that should permit broad reuse without requiring the whole binary to be GPLv3, evaluate Slint's current royalty-free terms and required attribution against the owner's distribution plan. If the owner wants GPLv3 distribution, the GPL path may be suitable. Record the exact dependency versions, license notices, attribution location, and any non-code assets' terms. Have the final selection reviewed against the current official terms before release.
+Before further publishing application code or binaries, choose the intended license for Cordel and a compatible Slint license path. For a public repository that should permit broad reuse without requiring the whole binary to be GPLv3, evaluate Slint's current royalty-free terms and required attribution against the owner's distribution plan. If the owner wants GPLv3 distribution, the GPL path may be suitable. Record the exact dependency versions, license notices, attribution location, and any non-code assets' terms. Have the final selection reviewed against the current official terms before release.
 
 Until the owner selects a license, do not label Cordel as MIT, Apache-2.0, GPLv3, proprietary, or “open source” merely because a GitHub repository exists. This ADR does not decide repository visibility, release channel, signing, or package format.
 
@@ -34,14 +34,14 @@ Until the owner selects a license, do not label Cordel as MIT, Apache-2.0, GPLv3
 
 ## Consequences
 
-- The license choice is a publication gate, not a blocker for drafting ADRs or private prototypes.
+- Client and protocol code was published before this gate was resolved. Resolve the license choice before further publication; drafting ADRs and private prototypes may continue.
 - A successful Slint technical spike does not settle distribution rights.
-- The owner-selected repository URL is configured as local `origin`, and the first documentation batch was published. Repository state and license terms must be inspected again before publishing application code or binaries. No push/deployment is authorized by this ADR.
+- The owner-selected repository URL is configured as local `origin`, and client/protocol source is already public. Repository state and license terms must be inspected before further code or binary publication. No push/deployment is authorized by this ADR.
 
 ## Acceptance and handoff
 
 - Owner chooses Cordel's license and confirms desired repository visibility and distribution model.
-- Review current Slint terms, source/binary obligations, attribution, and third-party notices; add the chosen license and notice files before publishing code.
+- Review current Slint terms, source/binary obligations, attribution, and third-party notices; add the chosen license and notice files before further code publication.
 - Confirm package artifacts and About screen satisfy the chosen UI license.
 
 **References:** [Slint licensing choices](https://slint.dev/get-started), [Slint terms](https://slint.dev/terms-and-conditions).

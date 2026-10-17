@@ -14,7 +14,7 @@ The first deployment has one host and one PostgreSQL database. Loss of a VM, dis
 
 ## Proposed decision
 
-Use pinned container images, health checks, versioned SQLx migrations, private service networks, structured logs, resource metrics, and documented upgrade/rollback procedures. Back up PostgreSQL consistently, encrypt copies, and store them outside the host's failure domain. Keep the host configuration and secret-recovery instructions under separate restricted backup. Before inviting real users, restore a backup into an isolated host and verify login and message history.
+Use versioned host packages and checksum-verified application/LiveKit binaries, `systemd` health and restart policies, versioned SQLx migrations, loopback-only internal listeners, structured logs, resource metrics, and documented upgrade/rollback procedures. Back up PostgreSQL consistently, encrypt copies, and store them outside the host's failure domain. Keep the host configuration and secret-recovery instructions under separate restricted backup. Before inviting real users, restore a backup into an isolated host and verify login and message history.
 
 For the initial test, propose a **24-hour recovery point target** and a **4-hour recovery time target** as planning assumptions, with a nightly logical database backup, seven daily copies, and four weekly copies. These are targets to approve and prove in a drill, not guarantees. If losing up to a day of messages is unacceptable, add more frequent backups or WAL archiving. Before image chat is enabled under ADR-011, include attachment bytes and PostgreSQL metadata in a consistent backup set; verify both in the restore drill.
 

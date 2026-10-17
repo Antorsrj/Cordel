@@ -16,7 +16,7 @@ The first test needs voice rooms and two simultaneous screen shares in a group o
 
 Use self-hosted LiveKit as an SFU. Axum remains the authorization authority and issues a short-lived LiveKit JWT for one user, one currently active voice-room name, and minimum publish/subscribe grants after checking ADR-003's membership and moderation state. A logical voice channel maps to a LiveKit room; its current physical room name may include a generation under ADR-006. Clients send microphone and screen tracks directly to LiveKit. Chat messages stay on Axum/PostgreSQL under ADR-004, not on LiveKit data tracks.
 
-Expose LiveKit signaling through TLS and make the selected ICE UDP path reachable from the Internet. Configure and test ICE/TCP and TURN/TLS fallback for restrictive networks using the actual host's generated configuration. Client-side CGNAT requires outbound connectivity, not inbound port forwarding at each home. Server-side CGNAT requires a reachable public deployment.
+Expose LiveKit signaling through Caddy TLS and make the selected ICE UDP path reachable from the Internet. Configure and test ICE/TCP and TURN/TLS fallback for restrictive networks using the native LiveKit service and the test host's primary and secondary IPs. The TURN/TLS listener must bind only to the secondary private IP so Caddy can use TCP/443 on the primary IP. Select and pin a LiveKit release that supports this bind configuration, then verify the actual listeners and advertised ICE candidates before external tests. Client-side CGNAT requires outbound connectivity, not inbound port forwarding at each home. Server-side CGNAT requires a reachable public deployment.
 
 Validate signed webhooks using the raw body and treat them as observations. Reconcile participant state after webhook loss or service restart. Never grant membership based on a webhook. Keep the LiveKit API secret server-side.
 
@@ -37,7 +37,7 @@ Expose reconciled voice-room membership and active screen-track descriptors to a
 
 ## Consequences
 
-- The Brazil host carries the group media load, including relay traffic. Latency for distant users follows that route.
+- The East US first-test host carries the group media load, including relay traffic. Latency for distant users follows that route.
 - TLS and WebRTC transport encryption do not fulfill future E2EE; see ADR-008 and ADR-105.
 - Removing a participant does **not** revoke an already issued token on self-hosted LiveKit. ADR-006 is required for kick/ban enforcement in voice.
 - The first test excludes camera video, recording, transcoding, and ingress unless separately accepted.

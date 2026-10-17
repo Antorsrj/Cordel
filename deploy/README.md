@@ -1,99 +1,45 @@
-# Linux single-host deployment
+# Native Linux single-host deployment
 
-This directory contains Cordel's host-local PostgreSQL Compose service and the operator procedure for the official LiveKit VM deployment generator. The selected platform is Linux and the planned deployment country is Brazil. The provider, cloud VM versus home host, city/region, DNS names, public-address arrangement, firewall rules, media-port strategy, and final capacity remain deployment inputs; this repository does not select them. A home installation behind server-side CGNAT cannot expose LiveKit with ordinary port forwarding, so its public-reachability approach must be resolved before choosing that host.
+The first-test server is one Ubuntu 24.04 VM in Azure East US. The owner selected native Linux services; **Docker and Compose are not part of this deployment**. PostgreSQL, Caddy, and LiveKit run under `systemd`; the Rust Axum service joins them when its source exists. This directory currently contains the Azure foundation scripts and deployment record, not a completed application installer.
 
-The application server is not included yet because this repository has no Axum source or image. Add it here when its listener, health endpoint, database roles, migrations, and LiveKit webhook/token configuration are implemented under the corresponding server ADRs. Do not mark Server 001 complete until deployment inputs are selected and the actual external connectivity and load evidence in `records/deployment-record.md` has been filled from a deployed host.
+## Current Azure state
 
-## Open deployment inputs
+Subscription `f77cc05e-0316-4c39-9ee2-74b5d9078f0a` contains the dedicated test resource group `rg-cordel-test-eastus`. The 2026-10-17 [control-plane verification](azure-verify-test.sh) showed a running Standard_D2s_v5 VM, two Standard public IPs, the planned NSG rules, a subscription-wide monthly 100 budget, and private LRS backup storage. The [guest inventory](azure-guest-inventory.sh) showed Ubuntu 24.04 with both private IPs configured and no Docker installed. The subscription display name still appeared as `arleylambert-site`; the owner can use Azure Portal **Subscriptions → Overview → Rename** if the API continues to reject the rename. The budget sends alerts but does not cap spending. The owner reports a $150 subscription credit limit; verify its enforcement in Azure Billing before relying on it as a hard stop.
 
-Resolve these for the actual environment and record the choices in [`records/deployment-record.md`](records/deployment-record.md):
-
-- Cloud provider and Brazil region, or home-host location and ISP.
-- Cloud VM versus home server; public IPv4 or globally reachable IPv6; CGNAT and double-NAT findings.
-- Domain ownership and the app, LiveKit signaling, and TURN DNS names.
-- Cloud firewall and host/router rules, including the selected ICE/UDP range or mux and fallback routes.
-- Final CPU, RAM, disk, outbound bandwidth, and data-transfer budget after a real workload measurement.
-- Exact container versions and image digests selected for that deployment.
-
-The initial sizing numbers below are planning estimates, not selected infrastructure or guarantees. Do not treat example hostnames, ports, provider settings, or resource sizes as production values.
-
-## Requirements
-
-- Linux host in Brazil with a public IPv4 address or a proven reachable dual-stack setup, once that deployment input is selected.
-- Docker Engine and the Docker Compose v2 plugin.
-- A domain you control, with DNS records for the LiveKit signaling hostname and TURN hostname.
-- Cloud firewall rules or router forwarding, plus a host firewall.
-- At least 4 dedicated vCPU, 8 GB RAM, 50 GB SSD, and 200 Mbps sustained outbound capacity as the initial sizing estimate. These values need measurement with the real workload; image storage is not sized by this estimate.
-- `curl`, `dig` (or `host`), and a second client network for acceptance evidence.
-
-## 1. Prepare PostgreSQL
-
-From the repository root:
-
-```sh
-cp deploy/.env.example deploy/.env
-```
-
-Replace `POSTGRES_PASSWORD` with a unique secret generated locally. Keep `deploy/.env` out of Git and do not reuse the bootstrap database credential for Axum. The database listens only on host loopback because this Linux-only Compose service uses host networking. Axum will connect to `127.0.0.1:5432` when its service is added.
-
-Start and inspect PostgreSQL:
-
-```sh
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
-docker compose --env-file deploy/.env -f deploy/compose.yaml ps
-docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail=100 postgres
-```
-
-The named volume `cordel-postgres` persists across container replacement. `docker compose down` keeps the volume. Do not use `docker compose down --volumes` on a host with data that must be retained.
-
-## 2. Generate the LiveKit and TLS edge configuration
-
-Use LiveKit's [official VM deployment guide](https://docs.livekit.io/transport/self-hosting/vm/) on an operator workstation. It generates the LiveKit YAML, Caddy TLS/SNI routing, Redis config, Compose file, and Linux startup files for the real domain names. This generated portion is deployment-specific and may contain credentials; keep it in a restricted directory on the host and out of this repository.
-
-The official guide currently runs the interactive generator with:
-
-```sh
-docker pull livekit/generate
-mkdir -p "$HOME/cordel-livekit-config"
-cd "$HOME/cordel-livekit-config"
-docker run --rm -it -v "$PWD:/output" livekit/generate
-```
-
-Review the generated configuration before deployment. Pin all runtime container images to explicit versions before starting the host; never deploy `latest`. The generator currently supplies a Docker Compose deployment and startup script. Use its Caddy/TURN routing as generated rather than replacing it with a plain HTTP reverse-proxy example. Keep generated secrets private.
-
-## 3. DNS and firewall
-
-Both the LiveKit signaling name and TURN name must resolve to the host's public address before Caddy can obtain certificates. If the app API uses a separate name, point that name at the same host and add the API route to the generated Caddy configuration when Axum is implemented.
-
-Open only the ports required by the generated configuration, in both provider/router and host firewalls. The current LiveKit VM guide lists:
-
-| Port | Protocol | Purpose |
+| Role | Azure public IP and DNS | Ubuntu private IP |
 | --- | --- | --- |
-| 80 | TCP | ACME certificate issuance |
-| 443 | TCP | HTTPS, signaling, and TURN/TLS routing |
-| 7881 | TCP | ICE/TCP fallback |
-| 3478 | UDP | TURN/UDP, when enabled |
-| 50000–60000 | UDP | ICE media range when selected by the generator |
+| App HTTPS and LiveKit signaling | `20.124.106.190`, `cordel-media-f77cc05e.eastus.cloudapp.azure.com` | `10.77.1.4` |
+| Embedded LiveKit TURN | `52.188.118.158`, `cordel-turn-f77cc05e.eastus.cloudapp.azure.com` | `10.77.1.5` |
 
-The generated configuration is authoritative if its selected ports differ. PostgreSQL (5432), Axum's private listener, and LiveKit's internal API (7880) must remain unreachable from the public Internet. Do not publish these ports in Docker. SSH administration should use a VPN or narrow administrator allowlist.
+Both names resolved to their intended public IPs from Cloud Shell. Ubuntu has `10.77.1.5/24` and the DHCP primary `10.77.1.4/24` on `eth0`; do not rewrite netplan. The Azure NSG allows TCP 80/443/7881, UDP 3478/7882, and SSH only from the Cloud Shell IP captured during provisioning. Recheck that SSH source before relying on it because Cloud Shell egress addresses can change. The native bootstrap, TURN certificate issuance, and LiveKit v1.13.10 installation ran on the VM. PostgreSQL, Caddy, and LiveKit are active with local listeners verified, including after one reboot. Media HTTPS, TURN TLS handshake, ICE/TCP reachability, and an unauthenticated TURN/UDP STUN response passed from Cloud Shell. ICE/UDP media, authenticated TURN allocation, second-network reachability, backup jobs, and capacity still require tests.
 
-## 4. Start and operate the generated LiveKit stack
+The original [provisioning script](azure-provision-test.sh) and [targeted finish script](azure-finish-test.sh) document how the foundation was made. **Do not rerun the provisioner** against the populated resource group. The [external smoke script](azure-external-smoke.sh) checks public DNS/TLS/TCP reachability from Cloud Shell without changing Azure. The [TURN UDP STUN probe](azure-turn-udp-smoke.py) sends one unauthenticated Binding Request from an external network; a response proves UDP reachability but not a TURN allocation or media path. An optional [rollback script](azure-rollback-test.sh) has a read-only `--plan` mode. Its `--apply` mode deletes the Cordel test resource group and subscription-wide budget, then requests the display name `Subscription Available`; it has not been run and requires a typed confirmation. It does not touch the four pre-existing unrelated resource groups. The [native host package](native/README.md) describes the stages run on the VM. The [cold replacement runbook](native/cold-replacement-runbook.md) describes how to rebuild a failed VM while retaining its network identity; it has not been exercised.
 
-Follow the generated Linux startup script or Compose instructions from the official guide. Before start, inspect every image reference and replace floating tags with the chosen explicit version. Save the image versions and checksums in the deployment record. Confirm that the generator did not enable optional ingress, egress, recording, or SIP services; those are outside the first-test baseline.
+## Native service layout
 
-For troubleshooting, use the generated Compose project directory:
+| Service | Installation and process | Listener and data | Owner |
+| --- | --- | --- | --- |
+| PostgreSQL 16 | Supported Ubuntu 24.04 package, `postgresql` systemd unit | `127.0.0.1:5432`; distro-managed data directory on the OS disk | `postgres` |
+| Caddy | Maintained package, `caddy` systemd unit | Bind HTTP/HTTPS to `10.77.1.4` only; ACME for media hostname; proxy app and LiveKit signaling | `caddy` |
+| LiveKit Server | Pinned Linux v1.13.10 release with verified SHA-256, `cordel-livekit` systemd unit | Signaling on `10.77.1.4:7880`, blocked from the Internet by NSG and host firewall; ICE/TCP wildcard port 7881, ICE/UDP mux 7882 on both private IPs; embedded TURN bound to `10.77.1.5` on UDP 3478 and TLS TCP 443. UFW allows ICE ingress only to `10.77.1.4` | `livekit` |
+| Axum | Pinned project release, `cordel-api` systemd unit | Loopback-only HTTP/WebSocket behind Caddy; private database connection | `cordel` |
 
-```sh
-docker compose ps
-docker compose logs --tail=200
-```
+Use separate service accounts and restrict writable directories and secret files. Do not add service users to privileged groups. Redis, Kubernetes, recording, ingress, and SIP are outside the first-test baseline. The current repository has no Axum source or binary, so `cordel-api` cannot be installed yet. Do not advertise the host as a working Cordel server until the mandatory ADRs are complete.
 
-Do not paste logs containing credentials into issues or chat. After host reboot, verify the generated service manager starts LiveKit and Caddy, and verify PostgreSQL starts with its persistent volume.
+## TLS and media wiring
 
-## 5. Acceptance evidence
+Caddy and TURN/TLS both need TCP/443. Caddy binds to the primary private IP (`10.77.1.4`) and LiveKit's embedded TURN/TLS listener to the secondary (`10.77.1.5`). The pinned LiveKit release includes the separate `turn.bind_addresses` setting, introduced by [LiveKit PR #4315](https://github.com/livekit/livekit/pull/4315). Actual sockets were checked with `ss`: ICE/TCP listens on wildcard port 7881 despite the top-level bind address, and UDP mux 7882 listens on both private IPs. The host firewall allows those ICE ports only to `10.77.1.4`; external packet paths and advertised ICE candidates still need testing. LiveKit signaling is on the primary private interface so Caddy can reach it; block raw port 7880 at the NSG and host firewall. Route `cordel-media-f77cc05e.eastus.cloudapp.azure.com` through Caddy to this private LiveKit listener and, when implemented, to Axum. Keep PostgreSQL, Axum, and LiveKit's raw API unreachable from the Internet.
 
-Record the selected host/provider and Brazil region, Linux distribution/kernel, container versions, domain names (no secrets), exact firewall rules, and results in [`records/deployment-record.md`](records/deployment-record.md). From a separate network, verify DNS, HTTPS certificate chain, WSS/signaling, ICE/UDP, ICE/TCP, TURN/UDP, and TURN/TLS paths. Include at least one client behind client-side CGNAT and one restrictive network where available.
+The TURN hostname needs a trusted certificate for `cordel-turn-f77cc05e.eastus.cloudapp.azure.com`. Use an ACME HTTP-01 client bound to the secondary private IP on TCP/80. Caddy must bind its own TCP/80 redirect/challenge listener only to the primary private IP; otherwise the two services conflict. Renewal must run automatically and make LiveKit pick up the renewed certificate. Validate this renewal path before inviting test users. The [LiveKit port reference](https://docs.livekit.io/transport/self-hosting/ports-firewall/), [LiveKit configuration sample](https://github.com/livekit/livekit/blob/master/config-sample.yaml), [Caddy bind guidance](https://caddyserver.com/docs/caddyfile/directives/bind), and [Certbot documentation](https://eff-certbot.readthedocs.io/) are the sources for the final native configuration. LiveKit's standard [VM generator](https://docs.livekit.io/transport/self-hosting/vm/) emits Docker Compose files and assumes owner-controlled subdomains, so it is reference material rather than an installation script for these Azure names.
 
-Run the 15-participant/two-screen-share measurement from a separate load-test machine, then repeat with real clients. Record CPU, RAM, outbound bitrate, packet loss, RTT, and client download quality. These measurements validate the host sizing example; they do not set a product limit.
+The Azure NSG opens UDP mux 7882, not the default 50000–60000 media range. Configure `rtc.udp_port: 7882` and omit `rtc.port_range_start`/`rtc.port_range_end`. Set and verify the advertised media public IP, TCP fallback, TURN/UDP, and TURN/TLS with clients on separate networks. A client behind CGNAT needs outbound connectivity; the server's public reachability and fallback paths still require real tests.
 
-The deployment is not complete until all tests above pass, public scans confirm private ports are closed, and a reviewer can reproduce the manifest using only this repository and the deployment-specific generated files.
+## Persistence, recovery, and version control
+
+Keep PostgreSQL data on the VM disk with a distinct migration role and a least-privilege app role. Store image attachments in a private host directory when ADR-011 is implemented. Use the VM's managed identity for access to the private `backups` blob container; do not create shared storage keys. ADR-007 still needs an accepted recovery target, an encrypted off-host backup job, retention, and a restore drill. The storage container alone is not a backup.
+
+Record PostgreSQL and Caddy package versions, the LiveKit release URL and SHA-256, and each Cordel binary revision in [the deployment record](records/deployment-record.md). Keep the previous binary and matching configuration for rollback. Run one service per `systemd` unit, require the database and network before dependent services where appropriate, and inspect `journalctl` plus each service's health endpoint after a restart. Back up data before upgrades. A native package or binary installation procedure must be committed and tested before Server ADR-001 can be marked Done.
+
+## Acceptance evidence
+
+From outside Azure, verify DNS, public certificate chains, HTTPS/WSS, direct ICE/UDP, ICE/TCP, TURN/UDP, and TURN/TLS. Include a residential client behind CGNAT and a restrictive network when available. Confirm that port 5432, the Axum private listener, and LiveKit's raw API are closed publicly. Reboot the VM and verify each service returns without manual action. Measure the 15-participant/two-screen-share example from another machine and record CPU, RAM, outbound bitrate, packet loss, RTT, and client quality. Record findings in [the deployment record](records/deployment-record.md). These are ADR completion proofs; user-facing integrated product testing starts only when all first-test mandatory ADRs are Done.

@@ -31,7 +31,7 @@ The initial interface is in [docs/contracts/v1.md](../contracts/v1.md). Machine-
 
 | Owner | Owns | Can start independently with | Integration gate |
 | --- | --- | --- | --- |
-| Server 001 | Single-host topology, Compose/network configuration and capacity test plan | Deployment assumptions and disposable host config | External ICE/TURN reachability and measured two-share load |
+| Server 001 | Single-host topology, native `systemd` service/network configuration and capacity test plan | Deployment assumptions and disposable host config | External ICE/TURN reachability and measured two-share load |
 | Server 002 | Accounts, invites, native sessions and local bootstrap/recovery | Database migrations and auth contract draft | Client 102 login/refresh and Server 003 permission tests |
 | Server 003 | Membership, channels, roles, moderation and host-side admin changes | Server 002 identity IDs as fixtures | Policy matrix across REST/WS/media; Server 006 revocation proof |
 | Server 004 | Ordered durable chat, history and WS delivery | Server 003 permission fixture and chat contract | Client 102 gap/duplicate recovery and moderation race |

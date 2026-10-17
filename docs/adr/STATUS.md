@@ -1,6 +1,6 @@
 # ADR implementation status and product-test gate
 
-**Status as of 2026-10-17:** this repository contains architecture and handoff documents, not application source. Accepted means a design direction is selected; it does **not** mean code exists or the ADR is implemented. Every workstream below starts as `Not started`. Update this ledger in the same change that supplies completion evidence.
+**Status as of 2026-10-17:** this repository contains architecture and handoff documents plus Linux Phase 0 client, client state, and shared protocol Rust crates merged from GitHub contributions. It has no Axum server source or integrated product. Accepted means a design direction is selected; it does **not** mean an ADR is implemented. Update this ledger in the same change that supplies completion evidence.
 
 ## Definition of done for one ADR
 
@@ -18,21 +18,21 @@ Technical spikes, unit tests, contract checks, security proofs, and isolated int
 
 | ADR | Decision | Implementation | Evidence required to mark Done |
 | --- | --- | --- | --- |
-| [Server 001](server/ADR-001-single-host-deployment.md) | Accepted | In progress | Linux PostgreSQL Compose and LiveKit host procedure added; still requires host deployment, external network checks, and capacity measurements |
+| [Server 001](server/ADR-001-single-host-deployment.md) | Accepted | In progress | Azure East US foundation exists. Native Ubuntu bootstrap ran on 2026-10-17 and reported PostgreSQL 16, Caddy 2.11.7, valid Caddy configuration, and active UFW. VM listener and firewall inventory passed. TURN certificate was issued. LiveKit v1.13.10 is active with local signaling, ICE, and TURN listeners. Media HTTPS, TURN TLS, ICE/TCP, and TURN/UDP STUN Binding passed from Cloud Shell. TURN renewal dry run and one VM reboot recovery passed. UDP media, authenticated TURN allocation, backup job, and capacity measurements remain |
 | [Server 002](server/ADR-002-invite-only-identity.md) | Accepted | Not started | Invite/session/bootstrap/recovery tests and client contract examples |
 | [Server 003](server/ADR-003-community-authorization.md) | Accepted | Not started | Role matrix, moderation races, host admin safety and reusable policy checks |
 | [Server 004](server/ADR-004-durable-chat.md) | Accepted | Not started | Ordered history, duplicate retry, WS gap and revocation tests |
-| [Server 005](server/ADR-005-livekit-media.md) | Accepted | Not started | Two-network voice/share proof, ICE/TURN routes and two-subscriber evidence |
+| [Server 005](server/ADR-005-livekit-media.md) | Accepted | In progress | Native LiveKit v1.13.10 and ICE/TURN listeners are active; two-network voice/share proof, actual UDP/TURN routes, and two-subscriber evidence remain |
 | [Server 006](server/ADR-006-media-revocation.md) | Proposed | Not started | Owner-accepted revocation design and old-token/stale-client proof |
 | [Server 007](server/ADR-007-backup-operations.md) | Proposed | Not started | Owner-accepted recovery targets and isolated DB/image restore drill |
 | [Server 009](server/ADR-009-browser-auth.md) | Proposed | Not started | Owner-accepted cookie/CSRF/Origin design and hostile-origin tests |
 | [Server 010](server/ADR-010-presence-and-share-state.md) | Accepted | Not started | Snapshot/delta/reconciliation tests after lost events and disconnects |
 | [Server 011](server/ADR-011-rich-chat-images.md) | Proposed | Not started | Owner-accepted limits/storage, protected reads, malformed-image and backup tests |
-| [Client 101](client/ADR-101-native-client-platforms.md) | Accepted | Not started | Linux X11/Wayland app shell and two-track/multiwindow Phase 0 evidence |
-| [Client 102](client/ADR-102-client-state-recovery.md) | Accepted | Not started | Session, message dedupe, fast reconnect and denial state tests |
+| [Client 101](client/ADR-101-native-client-platforms.md) | Accepted | In progress | `client/phase0` source was merged from GitHub; Linux X11/Wayland app shell and two-track/multiwindow Phase 0 evidence remain |
+| [Client 102](client/ADR-102-client-state-recovery.md) | Accepted | In progress | `client/state` and `protocol` source were merged from GitHub; session, message dedupe, fast reconnect and denial state evidence remain |
 | [Client 103](client/ADR-103-capture-playback.md) | Accepted | Not started | Linux capture/audio, two views, detach/dock and performance measurements |
 | [Client 104](client/ADR-104-browser-test-client.md) | Accepted | Not started | Diagnostic browser flow, media, reconnection and security tests |
-| [Client 106](client/ADR-106-license-distribution.md) | Proposed | Not started | Owner-selected license path, current terms review and required notices before code publication |
+| [Client 106](client/ADR-106-license-distribution.md) | Proposed | Not started | Client/protocol source is already public without a selected Cordel license. Owner-selected license path, current terms review, and required notices remain before further publication |
 | [Client 107](client/ADR-107-journal-ux.md) | Accepted | Not started | Three Journal states, roster, chat/image, accessibility and detach tests |
 
 ## Later roadmap and final-release ADRs
@@ -50,4 +50,4 @@ When the first-test table is complete, record the date, repository revision, tes
 
 The 20 ADRs, [workstream map](WORKSTREAMS.md), [v1 contract](../contracts/v1.md), [Journal specification](../ux/journal.md), project vision, deployment architecture, agent instructions, and parking lot were reviewed together. The handoff now distinguishes client-side active-speaker events from server presence, carries a presence stream ID across restarts, includes older-history pagination, binds temporary image uploads to author/channel, and defines pre-login browser CSRF bootstrap. Official [LiveKit token guidance](https://docs.livekit.io/frontends/reference/tokens-grants/) confirms self-hosted removal does not revoke old tokens; ADR-006 therefore requires strict old-token denial evidence rather than room isolation alone. [Slint's window/global guidance](https://docs.slint.dev/latest/docs/slint/reference/language/globals/) and [texture guidance](https://docs.slint.dev/latest/docs/rust/slint/struct.BorrowedOpenGLTextureBuilder) remain Phase 0 feasibility inputs.
 
-This is a documentation review, not implementation acceptance. The mandatory Proposed ADRs 006, 007, 009, 011, and Client 106 still need owner decisions and evidence. No product source, deployment, or end-to-end product test exists in this repository. The review checks validate Markdown links, ADR stage/complexity metadata, JSON fixture syntax, and Git whitespace; they do not prove runtime behavior.
+This was a documentation review, not implementation acceptance. The mandatory Proposed ADRs 006, 007, 009, 011, and Client 106 still need owner decisions and evidence. Later GitHub merges added client/protocol source, and Azure host work began under Server 001; no integrated Cordel product test exists. The original review checks validated Markdown links, ADR stage/complexity metadata, JSON fixture syntax, and Git whitespace; they did not prove runtime behavior. This checkout lacks `cargo`, so the newly merged Rust crates were not built or tested here.
