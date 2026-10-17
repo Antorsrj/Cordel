@@ -1,0 +1,141 @@
+import { Button, ListView } from "std-widgets.slint";
+
+export struct ChatLine {
+    author: string,
+    body: string,
+}
+
+export component AppWindow inherits Window {
+    title: "Cordel Phase 0";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    background: #1c1b19;
+
+    in-out property <[ChatLine]> messages;
+    in-out property <image> frame;
+    in-out property <string> status: "Starting";
+    in-out property <bool> joined: false;
+    in-out property <bool> busy: false;
+
+    callback join();
+    callback capture-frame();
+    callback leave();
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Button {
+                text: "Join and share microphone";
+                enabled: !root.joined && !root.busy;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Join the room and share the microphone";
+                clicked => { root.join(); }
+            }
+
+            Button {
+                text: "Capture one screen frame";
+                enabled: !root.busy;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Capture one screen frame after confirmation";
+                clicked => { root.capture-frame(); }
+            }
+
+            Button {
+                text: "Leave";
+                enabled: root.joined && !root.busy;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Leave the room and stop the microphone";
+                clicked => { root.leave(); }
+            }
+        }
+
+        Text {
+            text: root.status;
+            wrap: word-wrap;
+            color: #f4f1ea;
+            accessible-role: AccessibleRole.text;
+            accessible-label: root.status;
+        }
+
+        HorizontalLayout {
+            spacing: 12px;
+
+            VerticalLayout {
+                spacing: 6px;
+                alignment: start;
+
+                Text {
+                    text: "Remote or captured frame";
+                    color: #f4f1ea;
+                }
+
+                frame-image := Image {
+                    source: root.frame;
+                    width: 480px;
+                    height: 270px;
+                    image-fit: contain;
+                    accessible-role: AccessibleRole.image;
+                    accessible-label: "Captured or remote screen frame";
+                }
+            }
+
+            VerticalLayout {
+                spacing: 6px;
+                alignment: stretch;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Chat sample";
+                        color: #f4f1ea;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button {
+                        text: "End of chat";
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: "Scroll the chat sample to the last line";
+                        clicked => {
+                            chat-list.content-y = min(0px, chat-list.height - chat-list.content-height);
+                        }
+                    }
+                }
+
+                chat-list := ListView {
+                    vertical-stretch: 1;
+                    accessible-role: AccessibleRole.list;
+                    accessible-label: "Ten thousand chat lines";
+
+                    for message in root.messages: Rectangle {
+                        height: 28px;
+                        background: #282623;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 8px;
+
+                            Text {
+                                text: message.author;
+                                width: 48px;
+                                color: #e0b15a;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: message.body;
+                                color: #f4f1ea;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
