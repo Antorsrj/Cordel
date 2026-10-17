@@ -261,7 +261,7 @@ Store refresh credentials in macOS Keychain, Windows Credential Manager, or the 
 
 ## 5. Single-host deployment layout
 
-The recommended production baseline is a maintained Linux host with a public IP and a domain. Deploy the services with version-pinned containers under Docker Compose, using the official LiveKit VM generator for its LiveKit/Caddy/TURN portion. Add Axum and PostgreSQL as separate services on a private application network, with persistent PostgreSQL storage. The generator may include Redis; that can be retained if its generated configuration uses it, although Cordel's single-node chat event bus does not require Redis. The exact Compose file should be generated and reviewed once domain names, OS, and versions are known; hand-written partial TURN/TLS routing is error-prone. The [official VM guide](https://docs.livekit.io/transport/self-hosting/vm/) supplies the deployment generator and its firewall requirements.
+The maintained deployment procedure and PostgreSQL Compose service are in [`deploy/`](./deploy/README.md). Use the official LiveKit VM generator for its LiveKit/Caddy/TURN portion because that configuration depends on the actual DNS names and firewall. It may include Redis for LiveKit's single-node generated deployment; retain it if the generated config requires it. PostgreSQL listens on host loopback, and the future Axum service must remain host-local or use another private connection that is not publicly exposed. The Axum container is not present because this repository has no application source yet. The [official VM guide](https://docs.livekit.io/transport/self-hosting/vm/) supplies the generator and current firewall requirements.
 
 ```mermaid
 flowchart TB

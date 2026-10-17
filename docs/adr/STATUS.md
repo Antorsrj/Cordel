@@ -18,7 +18,7 @@ Technical spikes, unit tests, contract checks, security proofs, and isolated int
 
 | ADR | Decision | Implementation | Evidence required to mark Done |
 | --- | --- | --- | --- |
-| [Server 001](server/ADR-001-single-host-deployment.md) | Accepted | Not started | Reproducible single-host config, external connectivity and capacity measurements |
+| [Server 001](server/ADR-001-single-host-deployment.md) | Accepted | In progress | Linux PostgreSQL Compose and LiveKit host procedure added; still requires host deployment, external network checks, and capacity measurements |
 | [Server 002](server/ADR-002-invite-only-identity.md) | Accepted | Not started | Invite/session/bootstrap/recovery tests and client contract examples |
 | [Server 003](server/ADR-003-community-authorization.md) | Accepted | Not started | Role matrix, moderation races, host admin safety and reusable policy checks |
 | [Server 004](server/ADR-004-durable-chat.md) | Accepted | Not started | Ordered history, duplicate retry, WS gap and revocation tests |

@@ -18,6 +18,8 @@ Run one Linux host in Brazil, either a cloud VM or a home server with publicly r
 
 Use separate public names for app API, LiveKit signaling, and TURN where the generated configuration needs them. Prefer UDP for media and enable tested TCP/TURN fallbacks. Select either the UDP range or mux based on the actual host/router and a load test, rather than fixing an example port into the product contract. A home host behind server-side CGNAT must obtain an inbound-reachable address or move the public deployment to a VM.
 
+The deployment variables remain open until an environment is selected: cloud provider and Brazil region or home ISP/location; VM versus home host; domain names and public-address arrangement; firewall rules and UDP/TURN route; exact container image versions; and measured host capacity. Track these in the deployment record. This ADR selects Linux and one Brazil-hosted node, but does not select the provider, location within Brazil, host type, domain, or final resource allocation.
+
 ## Implementation boundary
 
 - **Owns:** host topology, DNS/TLS/media port configuration, private service wiring, and a measured capacity report. Do not implement Axum business logic or client UI here.
