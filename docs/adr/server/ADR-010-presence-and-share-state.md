@@ -14,11 +14,11 @@ The Journal interface must make connected people easy to find and show which voi
 
 ## Decision
 
-Axum serves an authorized community snapshot containing member identity/display data, online state, voice-room membership, and active screen-share descriptors. Emit versioned presence/share deltas over the existing authenticated WebSocket, with a monotonically increasing snapshot revision. On initial subscription, reconnect, a revision gap, or a suspected stale state, the client fetches a fresh snapshot before applying later deltas. A client cannot obtain a snapshot for a community it cannot access. Apply the same membership and moderation checks to event fan-out and subscriptions as in ADR-004.
+Axum serves an authorized community snapshot containing member identity/display data, online state, voice-room membership, and active screen-share descriptors. Emit versioned presence/share deltas over the existing authenticated WebSocket, with a monotonically increasing revision **within one stream epoch**. Each snapshot and delta carries an opaque `stream_id` that changes when Axum rebuilds its ephemeral presence state; a client refetches the snapshot when the ID changes. On initial subscription, reconnect, a revision gap, or a suspected stale state, the client fetches a fresh snapshot before applying later deltas. A client cannot obtain a snapshot for a community it cannot access. Apply the same membership and moderation checks to event fan-out and subscriptions as in ADR-004.
 
-Derive online state from active authenticated app sessions with heartbeat/lease expiry; do not write every heartbeat to PostgreSQL. Multiple devices for one user collapse into one member entry. Derive voice-room and share state from LiveKit participant/track observations, then reconcile against LiveKit after restart, webhook loss, and periodic checks. A webhook alone never grants membership or becomes an authorization source. A share descriptor identifies its publisher, logical voice room, and media track so the client can subscribe to the two views under ADR-103. Presence is a best-effort view of current connections, not a durable audit record. Expire stale entries and avoid asserting a member is online indefinitely after abrupt loss.
+Derive online state from the union of live authenticated app WebSocket connections with heartbeat/lease expiry and currently authorized LiveKit participants, **not** from the existence of a refresh/login session; do not write every heartbeat to PostgreSQL. Multiple devices for one user collapse into one member entry. Derive voice-room and share state from LiveKit participant/track observations, then reconcile against LiveKit after restart, webhook loss, and periodic checks. A webhook alone never grants membership or becomes an authorization source. A share descriptor identifies its publisher, logical voice room, and media track so the client can subscribe to the two views under ADR-103. Presence is a best-effort view of current connections, not a durable audit record. Expire stale entries and avoid asserting a member is online indefinitely after abrupt loss.
 
-Only expose the minimum member and media metadata needed for the current community. Keep login secrets, network addresses, device identifiers, and private LiveKit credentials out of roster events. A kick or ban invalidates app presence and media access under ADR-003 and ADR-006.
+Only expose the minimum member and media metadata needed for the current community. Keep login secrets, network addresses, device identifiers, and private LiveKit credentials out of roster events. A kick or ban invalidates app presence and media access under ADR-003 and ADR-006. **Active-speaker and microphone-mute indicators are local LiveKit room/track events in the connected client**, not authoritative Axum snapshot fields; clients outside that voice room omit those indicators rather than invent them.
 
 ## Implementation boundary
 
@@ -36,13 +36,13 @@ Only expose the minimum member and media metadata needed for the current communi
 ## Consequences
 
 - The client may briefly show a reconnecting or unknown state rather than invent a precise online status.
-- Snapshot revision is for ephemeral state recovery; it does not replace durable chat sequence numbers.
+- Stream ID plus snapshot revision is for ephemeral state recovery; it does not replace durable chat sequence numbers.
 - Voice-room access and media tokens remain controlled by ADR-003/005/006.
 
 ## Verification and handoff
 
-- Test text-only online members, voice members, two active shares, multiple devices, abrupt disconnect, stale heartbeat expiry, and return from a short network drop.
-- Drop and reorder deltas, lose a LiveKit webhook, restart Axum and LiveKit, and verify the snapshot converges to current state.
+- Test text-only online members, a voice participant whose app WS briefly drops while media remains live, two active shares, multiple devices, abrupt disconnect, stale heartbeat expiry, and return from a short network drop.
+- Drop and reorder deltas, lose a LiveKit webhook, restart Axum and LiveKit, and verify the stream ID/revision rules converge to current state.
 - Verify kicked/banned members lose protected events and are removed from the roster without using the roster itself as proof of access.
 
 **Related:** [ADR-004](ADR-004-durable-chat.md), [ADR-005](ADR-005-livekit-media.md), [ADR-107](../client/ADR-107-journal-ux.md).

@@ -18,7 +18,7 @@ Store message text as a bounded, versioned structured content format that suppor
 
 Add an authenticated image-upload flow. For the first host, store image bytes in a private directory on a persistent data volume and attachment metadata in PostgreSQL, linked to the message/channel/author. Accept only a reviewed set of raster formats, impose configurable byte and pixel limits, inspect actual content rather than trusting filename or MIME claims, and reject active content such as SVG. Process images with a maintained decoder to normalize previews and remove metadata where feasible. Serve previews and originals through an Axum endpoint that checks current channel membership and moderation status on every request; do not expose the storage directory or permanent public URLs. Use short-lived responses and cache policy that prevents a revoked user from receiving new protected bytes through stale shared caches.
 
-Treat upload and message creation as a two-step operation with temporary objects, expiration, and cleanup, so an orphaned upload cannot grow without bound. A deleted message or removed image loses API access promptly; define physical retention in the operating policy. Back up database metadata and image bytes as one recoverable set under ADR-007. Keep the attachment record able to carry a versioned encrypted payload later; pre-E2EE plaintext images must be handled by the migration policy in ADR-008/105.
+Treat upload and message creation as a two-step operation with temporary objects, expiration, and cleanup, so an orphaned upload cannot grow without bound. Bind the upload to its authenticated author and channel; only that author may attach a finalized image to one message in that channel. Recheck authorization at every upload, finalize, message-association, and read step. A deleted message or removed image loses API access promptly; define physical retention in the operating policy. Do not use a user-supplied filename as a filesystem path. Back up database metadata and image bytes as one recoverable set under ADR-007. Keep the attachment record able to carry a versioned encrypted payload later; pre-E2EE plaintext images must be handled by the migration policy in ADR-008/105. Server-side image decoding and preview generation apply only to the plaintext first test; E2EE clients will need to generate protected previews before encrypting because the server cannot inspect encrypted pixels.
 
 ## Implementation boundary
 
@@ -42,7 +42,7 @@ Treat upload and message creation as a two-step operation with temporary objects
 ## Acceptance and handoff
 
 - Approve the host-volume choice and initial upload/retention limits. Demonstrate formatted text and image messages across native and diagnostic browser clients.
-- Test invalid formats, oversized and decompression-bomb inputs, broken previews, concurrent uploads, orphan cleanup, channel revocation during download, and unauthorized direct-object access.
+- Test invalid formats, oversized and decompression-bomb inputs, broken previews, concurrent uploads, cross-channel/other-author attachment attempts, orphan cleanup, channel revocation during download, and unauthorized direct-object access.
 - Restore PostgreSQL plus image files to an isolated host and verify that no message points to a missing image after a consistent backup.
 
 **Related:** [ADR-004](ADR-004-durable-chat.md), [ADR-007](ADR-007-backup-operations.md), [ADR-107](../client/ADR-107-journal-ux.md).

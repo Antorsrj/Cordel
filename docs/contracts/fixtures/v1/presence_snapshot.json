@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "stream_id": "448aa588-0e69-4453-a03e-138664dcaac6",
   "revision": "71",
   "members": [
     {
@@ -8,8 +9,6 @@
       "display_name": "Example A",
       "online": true,
       "voice_channel_id": "0700eaa6-8204-4f0b-a45e-57d929289818",
-      "speaking": false,
-      "muted": false,
       "sharing": true
     },
     {
@@ -17,8 +16,6 @@
       "display_name": "Example B",
       "online": true,
       "voice_channel_id": null,
-      "speaking": false,
-      "muted": false,
       "sharing": false
     },
     {
@@ -26,8 +23,6 @@
       "display_name": "Example C",
       "online": true,
       "voice_channel_id": "0700eaa6-8204-4f0b-a45e-57d929289818",
-      "speaking": false,
-      "muted": false,
       "sharing": true
     }
   ],

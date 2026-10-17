@@ -16,7 +16,7 @@ The first test may use transport encryption without E2EE. Before the final relea
 
 Keep the chat wire and storage model able to carry versioned encrypted content envelopes and the minimum routing metadata separately. For the final release, clients encrypt message bodies and image attachments before upload; PostgreSQL stores ciphertext or opaque attachment metadata, message order, IDs, timestamps, and authorization metadata, while the private attachment volume stores encrypted bytes. The server checks membership and routes ciphertext but does not possess content keys. The media path uses client-side LiveKit E2EE after the native and browser SDKs prove the required support and interoperability. Key generation, distribution, rotation, and recovery belong to clients under ADR-105, with server endpoints limited to opaque public-key or encrypted-key-envelope delivery if needed.
 
-Do not silently label pre-E2EE plaintext history as encrypted. Before migration, choose whether old messages are re-encrypted by authorized clients, retained with an explicit legacy label, or removed. Reassess server-side search, moderation of content, abuse handling, backups, and support diagnostics under ciphertext.
+Do not silently label pre-E2EE plaintext history as encrypted. Before migration, choose whether old messages and images are re-encrypted by authorized clients, retained with an explicit legacy label, or removed. Server-side image decoding and preview generation from ADR-011 cannot operate on encrypted pixels; clients must prepare protected previews before encryption or adopt another reviewed keyless design. Reassess server-side search, moderation of content, abuse handling, backups, and support diagnostics under ciphertext.
 
 ## Implementation boundary
 

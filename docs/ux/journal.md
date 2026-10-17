@@ -8,7 +8,7 @@ This text is the repository handoff for the approved Journal mock direction. No 
 
 1. **Community and channel navigation:** show the active community, text channels, voice channels, and the user's current voice connection. Channel names come from server data. Every member can create channels. Admin-only community/member controls appear only when the server reports an admin role.
 2. **Conversation:** show the current text channel, ordered messages, formatted text, safe links, protected inline image previews, and composer. The user can hide and restore this area; hide does not delete a draft or change the selected channel.
-3. **People:** a visible or one-action-reachable roster shows who is online, who is in a voice room, and which confirmed members are speaking, muted, or sharing. Group people by voice room where possible and list online members outside voice separately. Never infer online status solely from a stale visual tile.
+3. **People:** a visible or one-action-reachable roster shows who is online, who is in a voice room, and who is sharing. The current room can also show speaking and mute indicators from that client's LiveKit events; omit those indicators for other rooms when unconfirmed. Group people by voice room where possible and list online members outside voice separately. Never infer online status solely from a stale visual tile.
 4. **Media:** show screen shares for the current voice room. Share identity follows the media track, not the tile position. Voice controls and the current connection state remain accessible while chat or a share is hidden.
 
 ## Required states

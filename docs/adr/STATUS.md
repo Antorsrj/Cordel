@@ -45,3 +45,9 @@ Technical spikes, unit tests, contract checks, security proofs, and isolated int
 | [Client 109](client/ADR-109-windows-platform.md) | Accepted | Not started | Real Windows evidence before claiming support |
 
 When the first-test table is complete, record the date, repository revision, test environment, and gate evidence for starting integrated product testing here. Until then, do not label a combined demo or isolated technical proof as the product test.
+
+## Documentation review — 2026-10-17
+
+The 20 ADRs, [workstream map](WORKSTREAMS.md), [v1 contract](../contracts/v1.md), [Journal specification](../ux/journal.md), project vision, deployment architecture, agent instructions, and parking lot were reviewed together. The handoff now distinguishes client-side active-speaker events from server presence, carries a presence stream ID across restarts, includes older-history pagination, binds temporary image uploads to author/channel, and defines pre-login browser CSRF bootstrap. Official [LiveKit token guidance](https://docs.livekit.io/frontends/reference/tokens-grants/) confirms self-hosted removal does not revoke old tokens; ADR-006 therefore requires strict old-token denial evidence rather than room isolation alone. [Slint's window/global guidance](https://docs.slint.dev/latest/docs/slint/reference/language/globals/) and [texture guidance](https://docs.slint.dev/latest/docs/rust/slint/struct.BorrowedOpenGLTextureBuilder) remain Phase 0 feasibility inputs.
+
+This is a documentation review, not implementation acceptance. The mandatory Proposed ADRs 006, 007, 009, 011, and Client 106 still need owner decisions and evidence. No product source, deployment, or end-to-end product test exists in this repository. The review checks validate Markdown links, ADR stage/complexity metadata, JSON fixture syntax, and Git whitespace; they do not prove runtime behavior.

@@ -18,7 +18,7 @@ Keep a `media_generation` for each logical voice channel. Mint tokens only for t
 
 Normal network loss does **not** rotate a room. The client first attempts LiveKit's normal reconnect and then requests a fresh current-generation token through Axum if needed.
 
-This cutover makes the old token incapable of joining the **current** room. It may still recreate or enter an old, isolated room. Before acceptance, prove that no authorized client continues publishing there after cutover, including on automatic SDK reconnect. If strict denial of even an empty old room is required, add a tested admission gateway or another token-revocation mechanism; do not claim the cutover provides that stronger property.
+This cutover makes the old token incapable of joining the **current** room. It may still recreate or enter an old, isolated room. That is a material gap against the owner's rule that a kick blocks rejoining. Before accepting this mandatory ADR, prove that the old room cannot be joined or recreated by a revoked token **or** add a tested admission-control mechanism that rejects it. Also prove that no authorized client continues publishing in an old room after cutover, including on automatic SDK reconnect. If the self-hosted design cannot meet both conditions, return a revised media-admission ADR for owner decision; do not mark moderation or this ADR Done based on room isolation alone.
 
 ## Implementation boundary
 
@@ -39,11 +39,11 @@ This cutover makes the old token incapable of joining the **current** room. It m
 - A moderation action can briefly interrupt voice and screen sharing for the remaining members. The UI should explain the reconnect.
 - Room generation and moderation state must be persisted and advanced atomically in PostgreSQL; Axum and clients must use the current generation.
 - WebSocket revocation under ADR-004 is separate and must happen regardless of LiveKit control success.
-- This ADR remains proposed until old-token and stale-client behavior is measured on the pinned LiveKit version.
+- This ADR remains proposed until old-token and stale-client behavior is measured on the pinned LiveKit version and strict denial is proved. A cutover that only isolates an old room does not complete the product's kick/ban rule.
 
 ## Acceptance and handoff
 
-- Prove that a banned participant with every previously received token cannot hear or publish in the current room after the moderation action completes.
+- Prove that a banned participant with every previously received token cannot join any old or current community media room, hear, or publish after the moderation action completes.
 - Exercise an active call, two screen shares, SDK auto-refresh, normal network drop, LiveKit API failure, server restart, and simultaneous moderation actions.
 - Measure disruption duration for authorized participants. If the isolation proof fails, redesign admission before shipping moderation.
 

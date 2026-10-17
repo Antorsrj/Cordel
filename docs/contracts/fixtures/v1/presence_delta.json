@@ -3,6 +3,7 @@
   "type": "presence.delta",
   "event_id": "8ac5ea22-4d03-4b82-8eb2-c39ba13721a2",
   "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "stream_id": "448aa588-0e69-4453-a03e-138664dcaac6",
   "base_revision": "71",
   "revision": "72",
   "changes": [

@@ -7,7 +7,7 @@ Assigning a Proposed ADR to an agent means researching, prototyping, and returni
 ## Required before the relevant release
 
 - **WebSocket access revocation:** Prove simultaneous fan-out and revocation under [ADR-004](./docs/adr/server/ADR-004-durable-chat.md).
-- **LiveKit moderation enforcement:** Prove the room-generation proposal or replace it under [ADR-006](./docs/adr/server/ADR-006-media-revocation.md). Old self-hosted tokens remain usable.
+- **LiveKit moderation enforcement:** Prove strict old-token denial or replace the room-generation proposal under [ADR-006](./docs/adr/server/ADR-006-media-revocation.md). Old self-hosted tokens remain usable, and isolation in an old room alone does not complete the kick/ban rule.
 - **Host-side admin management and account recovery:** Specify and test the local mechanism under [ADR-002](./docs/adr/server/ADR-002-invite-only-identity.md) and [ADR-003](./docs/adr/server/ADR-003-community-authorization.md). The policy is settled: admins cannot kick or ban admins, and at least one admin must remain.
 - **E2EE before the final release:** Resolve key lifecycle, plaintext text/image history migration, and SDK proof under [ADR-008](./docs/adr/server/ADR-008-e2ee-server-boundary.md) and [ADR-105](./docs/adr/client/ADR-105-e2ee-client-keys.md).
 - **Repository license:** Choose Cordel's license and confirm Slint terms under [ADR-106](./docs/adr/client/ADR-106-license-distribution.md) before publishing code.

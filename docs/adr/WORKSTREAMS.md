@@ -16,13 +16,13 @@ The listed owner publishes a versioned schema or interface plus valid, invalid, 
 
 | Seam | Contract owner | Consumers | Minimum frozen content |
 | --- | --- | --- | --- |
-| Identity and sessions | Server 002; Server 009 for browser cookie admission | Client 102, Client 104 | Invite redemption, login/refresh/logout, token/session lifetime, browser cookie and CSRF behavior, error codes |
+| Identity and sessions | Server 002; Server 009 for browser cookie admission | Client 102, Client 104 | Invite redemption, login/refresh/logout, token/session lifetime, pre-login browser CSRF bootstrap, cookie rotation and errors |
 | Community and moderation | Server 003 | Server 004–006/010–011; Clients 101/102/107 | Membership/role/channel operations, permissions, kick/ban timestamps, revocation event, host-only admin actions |
 | Chat transport | Server 004 | Clients 102/104/107; Server 011 | Message schema, per-channel `seq`, `client_message_id`, send ack, history cursor, WS subscription and gap recovery |
 | Media admission | Server 005 and 006 | Client 103/104/107; Server 010 | Logical voice channel, current room generation, scoped token response, join/leave/error semantics, share track identity |
-| Presence and shares | Server 010 | Client 102/103/107 | Snapshot revision, online/voice/share descriptors, deltas, expiry, reconciliation and resync trigger |
+| Presence and shares | Server 010 | Client 102/103/107 | Stream ID and revision, online/voice/share descriptors, deltas, expiry, reconciliation and resync trigger; current-room speaker/mute events stay client-side |
 | Rich content and images | Server 011, with Server 004 for message references | Client 104/107; Server 007/008 | Safe content schema, upload lifecycle, preview/original access, bounds, deletion, restore and future encrypted envelope |
-| Client state and media surfaces | Client 102/103 | Client 101/107 | Reconnect state, track-to-view identity, detach/dock operations, source-ended and permission-denied states |
+| Client state and media surfaces | Client 102/103 | Client 101/107 | Reconnect state, track-to-view identity, detach/dock operations, current-room speaker/mute events, source-ended and permission-denied states |
 | Deployment and recovery | Server 001/007 | All server workstreams | Host configuration inputs, persistence and backup volumes, health checks, restore evidence |
 
 The initial interface is in [docs/contracts/v1.md](../contracts/v1.md). Machine-readable schemas and conformance fixtures still need to be committed by each seam's owner before two teams implement the same boundary. Do not invent endpoint paths or payload shapes separately in each client.
