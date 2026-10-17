@@ -79,6 +79,58 @@ impl SessionKind {
     }
 }
 
+/// Which capturer to ask a backend for.
+///
+/// This is deliberately separate from [`TargetKind`], which describes what a
+/// listed target *is*. On Wayland the portal picker — not the application —
+/// decides whether the user shares a screen or a window, so the request and the
+/// result can differ. The explicit variants exist so the two Linux paths can be
+/// exercised separately on one session, which is what the Phase 0 gate asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureSource {
+    /// Follow the session: the portal on Wayland, the direct capturer otherwise.
+    Auto,
+    /// Force the XDG ScreenCast portal / PipeWire capturer.
+    Portal,
+    /// Force the direct X11 screen capturer.
+    Screen,
+    /// Force the direct X11 window capturer.
+    Window,
+}
+
+impl CaptureSource {
+    /// Resolves [`CaptureSource::Auto`] against the session, so a backend has one
+    /// rule to follow instead of each one guessing.
+    pub fn resolve(self, session: Option<SessionKind>) -> Self {
+        match (self, session) {
+            (CaptureSource::Auto, Some(SessionKind::Wayland)) => CaptureSource::Portal,
+            (CaptureSource::Auto, _) => CaptureSource::Screen,
+            (explicit, _) => explicit,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CaptureSource::Auto => "auto",
+            CaptureSource::Portal => "portal",
+            CaptureSource::Screen => "screen",
+            CaptureSource::Window => "window",
+        }
+    }
+
+    /// Parses the probe's `--source` values. Returns `None` for anything else so
+    /// the caller can report the accepted set.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(CaptureSource::Auto),
+            "portal" => Some(CaptureSource::Portal),
+            "screen" => Some(CaptureSource::Screen),
+            "window" => Some(CaptureSource::Window),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum CaptureError {
     /// No usable capture backend on this host or session.
@@ -131,6 +183,12 @@ pub trait ScreenCapture: Send {
     /// desktop capturer requires the caller to ask for each frame. The product UI
     /// must know which one it is talking to, so the interface states it instead of
     /// hiding it in a backend thread. Push-based backends leave this as a no-op.
+    ///
+    /// A pull-based backend may also advance a platform event loop from here. The
+    /// SDK's Wayland portal capturer needs the GLib main context pumped before its
+    /// D-Bus handshake with the desktop portal goes out, so a caller must keep
+    /// calling `tick` while it waits for the first frame, not only once frames are
+    /// arriving. `docs/spikes/media-phase0.md` records what happens otherwise.
     fn tick(&mut self) -> Result<(), CaptureError> {
         Ok(())
     }

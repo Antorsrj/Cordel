@@ -38,7 +38,10 @@ use livekit::{
     AudioProcessingOptions, PlatformAudio, PlayoutDeviceId, RecordingDeviceId, Room, RoomError,
 };
 
-use crate::capture::{CaptureError, CaptureTarget, FrameCallback, ScreenCapture, TargetKind};
+use crate::capture::{
+    CaptureError, CaptureSource, CaptureTarget, FrameCallback, ScreenCapture, SessionKind,
+    TargetKind,
+};
 use crate::devices::{AudioDevice, AudioDeviceControl, DeviceError, Direction};
 use crate::frame::{Frame, FrameError, PixelFormat};
 
@@ -160,20 +163,40 @@ impl AudioDeviceControl for SdkAudio {
 
 /// Screen or window capture through WebRTC's desktop capturer.
 ///
-/// On Linux the capturer's backend is whatever `webrtc-sys` was built with; the
-/// spike report records which one this machine actually used and whether it needs
-/// a portal.
+/// On Linux the capturer's backend is whatever `webrtc-sys` was built with, and
+/// the `DesktopCaptureSourceType` request selects between two different code
+/// paths: `Generic` is the portal-aware capturer (the XDG ScreenCast portal and
+/// PipeWire), while `Screen` and `Window` select the direct X11 capturers. The
+/// spike report records which path this machine was actually driven down.
 pub struct SdkDesktopCapture {
     capturer: DesktopCapturer,
     kind: TargetKind,
+    source: CaptureSource,
+    glib_pump: bool,
     started: bool,
 }
 
 impl SdkDesktopCapture {
+    /// Session-appropriate default: the portal on Wayland, the direct capturer
+    /// otherwise. Use [`Self::with_source`] to force one path.
     pub fn new(kind: TargetKind) -> Result<Self, CaptureError> {
-        let source_type = match kind {
-            TargetKind::Screen => DesktopCaptureSourceType::Screen,
-            TargetKind::Window => DesktopCaptureSourceType::Window,
+        Self::with_source(kind, CaptureSource::Auto)
+    }
+
+    /// Requests a specific capture path.
+    ///
+    /// Requesting the portal on an X11-only session, or the X11 capturer on a
+    /// Wayland session, is expected to fail rather than silently fall back: the
+    /// caller needs to know which path it really got, because that is the whole
+    /// distinction the Phase 0 gate is asking about.
+    pub fn with_source(kind: TargetKind, source: CaptureSource) -> Result<Self, CaptureError> {
+        let source = source.resolve(SessionKind::detect());
+        let source_type = match source {
+            // `Auto` was resolved just above; it is grouped here only to keep the
+            // match total.
+            CaptureSource::Auto | CaptureSource::Portal => DesktopCaptureSourceType::Generic,
+            CaptureSource::Screen => DesktopCaptureSourceType::Screen,
+            CaptureSource::Window => DesktopCaptureSourceType::Window,
         };
         let mut options = DesktopCapturerOptions::new(source_type);
         options.set_include_cursor(true);
@@ -181,6 +204,8 @@ impl SdkDesktopCapture {
             .map(|capturer| Self {
                 capturer,
                 kind,
+                source,
+                glib_pump: true,
                 started: false,
             })
             .ok_or_else(|| {
@@ -190,6 +215,18 @@ impl SdkDesktopCapture {
                         .to_string(),
                 )
             })
+    }
+
+    /// The capture path actually requested, after `Auto` was resolved.
+    pub fn source(&self) -> CaptureSource {
+        self.source
+    }
+
+    /// Turns the GLib main-context pump off, which reproduces the stall that
+    /// `docs/spikes/media-phase0.md` records. It exists for that demonstration;
+    /// leave it on.
+    pub fn set_glib_pump(&mut self, enabled: bool) {
+        self.glib_pump = enabled;
     }
 
     /// The capturer's own view of what is available, before any filtering.
@@ -218,16 +255,25 @@ impl ScreenCapture for SdkDesktopCapture {
         target: &CaptureTarget,
         on_frame: FrameCallback,
     ) -> Result<(), CaptureError> {
-        let source = self
-            .capturer
-            .get_source_list()
-            .into_iter()
-            .find(|s| s.id() == target.id)
-            .ok_or(CaptureError::UnknownTarget(target.id))?;
+        // On the portal path the picker chooses the surface, and the source list
+        // can be empty until a grant exists, so there is no id to select here:
+        // passing one would fail before the portal is ever asked. `None` starts
+        // the capturer's own session and lets the portal decide.
+        let selected = if self.source == CaptureSource::Portal {
+            None
+        } else {
+            Some(
+                self.capturer
+                    .get_source_list()
+                    .into_iter()
+                    .find(|s| s.id() == target.id)
+                    .ok_or(CaptureError::UnknownTarget(target.id))?,
+            )
+        };
 
         let mut on_frame = on_frame;
         self.capturer
-            .start_capture(Some(source), move |result| match result {
+            .start_capture(selected, move |result| match result {
                 Ok(frame) => {
                     let (width, height) =
                         (frame.width().max(0) as u32, frame.height().max(0) as u32);
@@ -250,6 +296,12 @@ impl ScreenCapture for SdkDesktopCapture {
 
     fn tick(&mut self) -> Result<(), CaptureError> {
         if self.started {
+            // See `pump_glib_main_context`: on Linux the portal handshake only
+            // progresses while someone iterates the GLib main context, and the
+            // host loop that calls `tick` is where that belongs.
+            if self.glib_pump {
+                pump_glib_main_context();
+            }
             // This is the call that actually asks WebRTC for a frame; the callback
             // handed to `start` runs synchronously from here on this thread.
             self.capturer.capture_frame();
@@ -407,3 +459,36 @@ pub fn received_to_frame(frame: &BoxVideoFrame) -> Option<Frame> {
 
     Frame::packed(width, height, PixelFormat::I420, data).ok()
 }
+
+/// Pumps the default GLib main context once, without blocking.
+///
+/// WebRTC's portal capturer drives the XDG ScreenCast handshake over GDBus and
+/// delivers every completion — `CreateSession`, `SelectSources`, `Start`,
+/// `OpenPipeWireRemote` — on the thread-default GLib main context. Nothing in the
+/// LiveKit SDK iterates that context, so on Linux the whole handshake is queued
+/// and never sent unless the thread that owns the capturer pumps it. The visible
+/// symptom is subtle: the capturer reports one placeholder source and every
+/// frame request returns `ERROR_TEMPORARY`, which is the "no frame yet" path, not
+/// a reported failure. `docs/spikes/media-phase0.md` records a run with and
+/// without this pump.
+///
+/// Declared by hand because the crate has no GLib binding and the library is
+/// already linked for the portal backend; see `build.rs`.
+#[cfg(target_os = "linux")]
+fn pump_glib_main_context() {
+    use std::ffi::c_void;
+
+    extern "C" {
+        fn g_main_context_iteration(context: *mut c_void, may_block: i32) -> i32;
+    }
+
+    // A null context means the global default, which is what GDBus uses when no
+    // thread-default context has been pushed.
+    unsafe {
+        g_main_context_iteration(std::ptr::null_mut(), 0);
+    }
+}
+
+/// The portal paths on other platforms live in their own adapters.
+#[cfg(not(target_os = "linux"))]
+fn pump_glib_main_context() {}

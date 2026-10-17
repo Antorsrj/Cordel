@@ -21,12 +21,14 @@ Assigning a Proposed ADR to an agent means researching, prototyping, and returni
 interface and adapters in `client/media`, and the measured evidence in
 [docs/spikes/media-phase0.md](./docs/spikes/media-phase0.md). These items are open:
 
-- **Linux screen capture backend:** The recorded capture failure used the SDK's
-  `Screen` source type, which selects the X11 capturer. Test
-  `DesktopCaptureSourceType::Generic` (the PipeWire/portal path) on Wayland with a
-  person present to accept the dialog before writing bespoke capture adapters. If
-  it fails, implement the Wayland ScreenCast portal + PipeWire and the X11
-  XShm/XDamage paths behind `ScreenCapture`.
+- **Linux screen capture backend:** The SDK's portal path works: requesting
+  `DesktopCaptureSourceType::Generic` selects WebRTC's PipeWire capturer, and it
+  produces real frames once the process pumps the GLib main context, which the
+  LiveKit SDK never does (`SdkDesktopCapture::tick` now pumps it). The direct X11
+  capturer (`Screen`/`Window`) fails on a Wayland session with XWayland, so a true
+  X11 session still has to be tested before claiming that path. Decide whether the
+  client keeps the SDK capturer or needs its own portal client for consent and
+  hot-swap control.
 - **Microphone route:** `init_recording` fails in this SDK build on the measured
   machine while the OS captures through PipeWire. Decide between fixing or working
   around the SDK and capturing with `cpal`/PipeWire into `RtcAudioSource::Native`.

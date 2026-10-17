@@ -27,7 +27,7 @@ then, change one side and check the other.
 | `capture.rs` | `ScreenCapture` adapter interface, session detection |
 | `devices.rs` | `AudioDeviceControl` adapter interface |
 | `render.rs` | Frame → `slint::Image` surface with per-frame cost accounting (`ui`) |
-| `sdk.rs` | LiveKit SDK adapters: audio devices, desktop capture, publish, receive (`sdk`) |
+| `sdk.rs` | LiveKit SDK adapters: audio devices, desktop capture (with the GLib main-context pump the portal capturer needs), publish, receive (`sdk`) |
 | `src/bin/probe.rs` | Command-line probe used to collect the evidence |
 | `../../docs/spikes/media-phase0.md` | The measured evidence and open gate items |
 
@@ -60,23 +60,29 @@ The probe writes nothing on its own and asks before capturing:
 ./target/release/probe consent
 ./target/release/probe synthetic --frames 300 --width 1920 --height 1080
 ./target/release/probe devices
-./target/release/probe targets
-./target/release/probe capture --yes --frames 60     # screen pixels; --yes required
-./target/release/probe mic --yes --seconds 3         # microphone; --yes required
+./target/release/probe targets --source portal     # the PipeWire/portal capturer
+./target/release/probe capture --yes --source portal --frames 5 --out /tmp/frame.ppm
+./target/release/probe mic --yes --seconds 3       # microphone; --yes required
 ./target/release/probe join --url wss://host --token "$CORDEL_LIVEKIT_TOKEN" --share
 ```
 
 `capture` and `mic` print what they would do and stop, unless `--yes` is given.
-Screen pixels are used for aggregate statistics only.
+`--source` is `auto | portal | screen | window` and defaults to `auto`, which means
+the portal on Wayland and the direct capturer otherwise. Screen pixels are used for
+aggregate statistics only, and no picture is written without `--out`.
 
 ## Gate notes
 
-Nothing here is a substitute for the gate. Two clients in a real room, two
-networks, a real X11 session, Wayland portal capture with a person present, and a
-window with a shared frame on screen are all still open — see
-[`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md).
+Nothing here is a substitute for the gate. Two clients in a real room, two networks,
+a true X11 session, and a window with a shared frame on screen are all still open —
+see [`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md).
 
-The first open question is cheap: capture through
-`DesktopCaptureSourceType::Generic`, which is the SDK's PipeWire/portal path. The
-recorded failure came from the `Screen` source type, which selects the X11
-capturer.
+Two things about capture are worth knowing before touching it:
+
+- On Wayland the portal handshake only leaves the process while someone pumps the
+  GLib main context, which `SdkDesktopCapture::tick` does and the LiveKit SDK does
+  not do on its own. A capture loop must keep calling `tick` from the moment a share
+  starts, not only once frames arrive; `probe capture --no-pump` shows what happens
+  otherwise.
+- The portal negotiates the stream, so the frame size is not the monitor's: read each
+  frame's width, height and stride rather than assuming the display's.

@@ -3,7 +3,8 @@
 //! instead of pretending.
 
 use cordel_media::capture::{
-    CaptureError, CaptureTarget, ScreenCapture, SessionKind, TargetKind, UnavailableCapture,
+    CaptureError, CaptureSource, CaptureTarget, ScreenCapture, SessionKind, TargetKind,
+    UnavailableCapture,
 };
 use cordel_media::devices::{AudioDeviceControl, UnavailableAudio};
 
@@ -29,6 +30,48 @@ fn session_kind_prefers_wayland_when_the_session_is_wayland() {
     );
     assert_eq!(SessionKind::from_env(None, None), None);
     assert_eq!(SessionKind::from_env(Some(""), Some("")), None);
+}
+
+#[test]
+fn auto_follows_the_session_and_explicit_paths_do_not() {
+    // This is the rule the whole capture-backend choice rests on: on Wayland
+    // `auto` must request the portal, because the direct capturer is the X11 one
+    // and would be asking XWayland to be Wayland.
+    assert_eq!(
+        CaptureSource::Auto.resolve(Some(SessionKind::Wayland)),
+        CaptureSource::Portal
+    );
+    assert_eq!(
+        CaptureSource::Auto.resolve(Some(SessionKind::X11)),
+        CaptureSource::Screen
+    );
+    assert_eq!(CaptureSource::Auto.resolve(None), CaptureSource::Screen);
+
+    // An explicit request is never rewritten, so the probe can force either path
+    // on the same machine and the evidence means what it says.
+    for requested in [
+        CaptureSource::Portal,
+        CaptureSource::Screen,
+        CaptureSource::Window,
+    ] {
+        for session in [Some(SessionKind::Wayland), Some(SessionKind::X11), None] {
+            assert_eq!(requested.resolve(session), requested);
+        }
+    }
+}
+
+#[test]
+fn the_source_words_round_trip() {
+    for source in [
+        CaptureSource::Auto,
+        CaptureSource::Portal,
+        CaptureSource::Screen,
+        CaptureSource::Window,
+    ] {
+        assert_eq!(CaptureSource::parse(source.as_str()), Some(source));
+    }
+    assert_eq!(CaptureSource::parse("x11"), None);
+    assert_eq!(CaptureSource::parse(""), None);
 }
 
 #[test]
