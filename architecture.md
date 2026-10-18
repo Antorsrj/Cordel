@@ -387,7 +387,7 @@ These checks complete mandatory ADRs; they are not the user-facing integrated pr
 | Linux package target and supported OS versions | Determines library and portal compatibility | Client release gate |
 | E2EE design for text, chat images, voice, and screen | Requirement is set for before the final release; key management and SDK feasibility remain open | Before final-release architecture |
 | Host-side admin management and recovery procedure | Admins cannot kick or ban admins; authorized host access controls admin assignment and recovery | Before moderation release |
-| Repository license and Slint compatibility | Determines permissible distribution terms | Before official repository licensing |
+| Client binary attribution and third-party notices | Cordel source uses Apache-2.0 and the desktop Slint path is royalty-free under ADR-106; a packaged About screen and complete native/dependency notice audit remain | Before client binary distribution |
 
 ## References
 

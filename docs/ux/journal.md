@@ -4,6 +4,8 @@
 
 This text is the repository handoff for the approved Journal mock direction. No mock image is required to understand or implement it. The mock files remain outside Git. UI copy, spacing, typography, and icons can be refined without changing the behavior below.
 
+The shipped desktop client must expose an About screen from its top-level menu and show Slint's `AboutSlint` widget there, as required by [ADR-106](../adr/client/ADR-106-license-distribution.md). This attribution belongs in the client shell, not in chat, rooms, or the server admin interface.
+
 ## Information hierarchy
 
 1. **Community and channel navigation:** show the active community, text channels, voice channels, and the user's current voice connection. Channel names come from server data. Every member can create channels. Admin-only community/member controls appear only when the server reports an admin role.

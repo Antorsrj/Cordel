@@ -1,50 +1,52 @@
 # ADR-106: Resolve UI and repository licensing before further publication
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Delivery stage:** First-test mandatory
 
-**Date:** 2026-10-17
+**Date:** 2026-10-18
 
 **Decider:** Project owner
 
 ## Context
 
-The official public GitHub repository now contains the Linux Phase 0 client, client state, and shared protocol source, but the owner has not chosen Cordel's license. The proposed native UI is Slint. Its current official licensing paths include GPLv3 and a royalty-free desktop/mobile/web license with attribution conditions; a paid path also exists. Repository visibility and publication terms cannot be inferred from a URL.
+The official public GitHub repository already contains Linux Phase 0 client, client state, and shared protocol source. It was published without a project license. GitHub visibility alone grants no general right to reuse the code. The native prototype uses Slint. Cordel needs an explicit license for its own source and a separate valid path for distributing Slint with a client.
 
-## Proposed decision
+## Decision
 
-Before further publishing application code or binaries, choose the intended license for Cordel and a compatible Slint license path. For a public repository that should permit broad reuse without requiring the whole binary to be GPLv3, evaluate Slint's current royalty-free terms and required attribution against the owner's distribution plan. If the owner wants GPLv3 distribution, the GPL path may be suitable. Record the exact dependency versions, license notices, attribution location, and any non-code assets' terms. Have the final selection reviewed against the current official terms before release.
+License Cordel-authored source and documentation under Apache License 2.0. Keep copyrights with their individual contributors. The owner selected this path on 2026-10-18 and confirmed that the other existing code contributor agreed. The root `LICENSE`, `NOTICE`, and Rust package `license` metadata express this choice. Keep the official repository public; this choice does not itself authorize a Git push or a binary release.
 
-Until the owner selects a license, do not label Cordel as MIT, Apache-2.0, GPLv3, proprietary, or “open source” merely because a GitHub repository exists. This ADR does not decide repository visibility, release channel, signing, or package format.
+Use Slint's royalty-free desktop/mobile/web license for the desktop client. The checked-in Phase 0 lockfile resolves `slint` and `slint-build` to 1.18.1 even though the manifest specifies `1.14` as the minimum compatible minor version. [Slint's v1.18.1 license](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md) allows desktop distribution under this path if the application displays either the `AboutSlint` widget in an About screen reachable from the top-level menu (or in a splash screen if no About screen exists), or the Slint attribution badge on a public webpage. Cordel chooses the in-app About screen. Slint keeps its own license; Cordel's Apache-2.0 grant does not cover Slint. Recheck the locked version and corresponding terms before release.
+
+Do not publish a client binary until the packaged application's About screen, attribution, and complete third-party notice inventory are checked. The present Phase 0 prototype has no About screen, so binary distribution remains open. No embedded-system use is authorized by the royalty-free path. Keep third-party assets and code under their original terms, and do not add assets with unknown rights.
 
 ## Implementation boundary
 
-- **Owns:** license research, owner decision record, third-party notice inventory, and package/About attribution requirements. It does not choose product architecture or publish code on its own.
-- **Handoff:** provide current official terms, a recommended compatible path, and the exact files/notices required before any application code or binary publication.
+- **Owns:** Cordel's source license, contributor agreement record, third-party license inventory, and package/About attribution requirements. It does not choose product architecture or publish code on its own.
+- **Handoff:** use `LICENSE`, `NOTICE`, [third-party inventory](../../legal/THIRD_PARTY.md), package metadata, and the About-screen requirement. Release packaging must generate a complete target-specific dependency and native-library inventory.
 
 ## Options considered
 
 | Option | Benefit | Cost or risk |
 | --- | --- | --- |
-| Royalty-free Slint terms plus owner-selected code license | Flexible app terms | Attribution and terms must be followed |
+| Apache-2.0 Cordel code plus royalty-free Slint **(chosen)** | Broad code reuse and a desktop binary path without GPLv3 distribution | Slint attribution, separate third-party rights, and release notices must be maintained |
 | GPLv3 path | Clear open-source distribution path | Copyleft obligations for distributed binary |
 | Paid Slint license | Different support/terms | Cost and contract decision |
 | Replace Slint after Phase 0 | Avoid Slint license constraints | New UI feasibility work |
 
 ## Consequences
 
-- Client and protocol code was published before this gate was resolved. Resolve the license choice before further publication; drafting ADRs and private prototypes may continue.
-- A successful Slint technical spike does not settle distribution rights.
-- The owner-selected repository URL is configured as local `origin`, and client/protocol source is already public. Repository state and license terms must be inspected before further code or binary publication. No push/deployment is authorized by this ADR.
+- Client and protocol code was published before a license was selected. Include this decision and its license/notice files in the next approved source publication.
+- A successful Slint technical spike does not prove packaged attribution or all transitive native-library notices.
+- The owner-selected repository URL is configured as local `origin`. Inspect remote state and obtain the owner's push approval before publication. No push or deployment is authorized by this ADR.
 
 ## Acceptance and handoff
 
-- Owner chooses Cordel's license and confirms desired repository visibility and distribution model.
-- Review current Slint terms, source/binary obligations, attribution, and third-party notices; add the chosen license and notice files before further code publication.
-- Confirm package artifacts and About screen satisfy the chosen UI license.
+- The owner's Apache-2.0 and public-repository decisions and existing contributor agreement are recorded above.
+- Verify root `LICENSE`, `NOTICE`, package metadata, and the known dependency inventory before the next code push.
+- Before any client binary release, confirm the package includes complete license/NOTICE material and that its About screen exposes `AboutSlint` from the top-level menu. Record an actual packaged-client check in [STATUS](../STATUS.md).
 
-**References:** [Slint licensing choices](https://slint.dev/get-started), [Slint terms](https://slint.dev/terms-and-conditions).
+**References:** [Slint v1.18.1 licensing choices](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSE.md), [Slint royalty-free license 2.0](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md), [GitHub's no-license guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository), [Apache-2.0 text](https://www.apache.org/licenses/LICENSE-2.0).
 
 **Shared handoff:** [workstream map](../WORKSTREAMS.md).
 

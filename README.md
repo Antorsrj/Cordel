@@ -42,4 +42,4 @@ Each Rust crate has its own build instructions. The repository does not yet prov
 
 ## Contributing
 
-Select one ADR and read its dependencies and contract handoffs before editing. Keep the change scoped, use disposable test data, and record actual format, lint, test, and platform results. Do not treat a passing component test as a completed product test. The repository has no selected Cordel license yet; [ADR-106](docs/adr/client/ADR-106-license-distribution.md) tracks that decision before further application-source publication.
+Select one ADR and read its dependencies and contract handoffs before editing. Keep the change scoped, use disposable test data, and record actual format, lint, test, and platform results. Do not treat a passing component test as a completed product test. Cordel-authored source and documentation are licensed under [Apache-2.0](LICENSE). Third-party components keep their own licenses; [ADR-106](docs/adr/client/ADR-106-license-distribution.md) and the [third-party inventory](docs/legal/THIRD_PARTY.md) define Slint attribution and binary-release checks.

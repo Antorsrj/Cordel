@@ -1,0 +1,10 @@
+Cordel
+Copyright 2026 Cordel contributors.
+
+Cordel-authored source and documentation are licensed under the Apache License,
+Version 2.0. See LICENSE. Copyright in individual contributions remains with
+their respective authors.
+
+Third-party components retain their own licenses. See
+docs/legal/THIRD_PARTY.md for the current source dependency inventory and the
+separate attribution requirements for distributed applications.
