@@ -12,13 +12,18 @@
 //!
 //! 1. **Microphone capture is driven by the SDK's platform audio module**
 //!    (`RtcAudioSource::Device`), which is also where device enumeration and
-//!    live switching live. Cordel therefore does not need its own audio device
-//!    layer on Linux; [`SdkAudio`] is the whole of it.
+//!    live switching live. [`SdkAudio`] is therefore the whole Linux audio
+//!    device layer, with two caveats the spike found and records: WebRTC's
+//!    PulseAudio ADM refuses to initialise *either* direction until a device has
+//!    been selected (see [`SdkAudio::new`]), and it reports no per-device GUIDs
+//!    on Linux, so only the backend's default entry can actually be addressed.
 //! 2. **Video capture is pull-based.** WebRTC's desktop capturer only produces a
 //!    frame when the caller asks, so [`SdkDesktopCapture::tick`] exists and the
 //!    client must drive it from the same loop that renders. A portal/PipeWire
 //!    backend will instead push frames on its own thread; the interface says so
-//!    rather than hiding the difference.
+//!    rather than hiding the difference. The portal handshake that a Wayland
+//!    session goes through needs the GLib main loop to run, which this crate gets
+//!    from the SDK's `glib-main-loop` feature instead of driving itself.
 
 use std::fmt;
 
@@ -42,7 +47,7 @@ use crate::capture::{
     CaptureError, CaptureSource, CaptureTarget, FrameCallback, ScreenCapture, SessionKind,
     TargetKind,
 };
-use crate::devices::{AudioDevice, AudioDeviceControl, DeviceError, Direction};
+use crate::devices::{default_device, AudioDevice, AudioDeviceControl, DeviceError, Direction};
 use crate::frame::{Frame, FrameError, PixelFormat};
 
 fn device_err(context: &str, error: impl fmt::Debug) -> DeviceError {
@@ -55,13 +60,66 @@ fn device_err(context: &str, error: impl fmt::Debug) -> DeviceError {
 /// `PlatformAudio`, and so a second platform can supply its own implementation.
 pub struct SdkAudio {
     audio: PlatformAudio,
+    /// Whether a microphone has been picked in this instance. WebRTC will not
+    /// initialise recording without one; see [`Self::start_recording`].
+    recording_device_selected: bool,
+    /// Whether a speaker has been picked in this instance; see [`Self::new`].
+    playout_device_selected: bool,
 }
 
 impl SdkAudio {
+    /// Opens the platform audio layer and selects the system defaults.
+    ///
+    /// Selecting here is not cosmetic. WebRTC's PulseAudio ADM fails
+    /// `InitRecording()` and `InitPlayout()` while its own "device specified"
+    /// flag is unset — it does not fall back to the backend's default device —
+    /// and it says so only in a C++ log line nothing collects. The visible
+    /// symptoms are a microphone that refuses to open (`init_recording failed`)
+    /// and remote audio that never plays, both with no explanation.
+    /// `docs/spikes/media-phase0.md` records the failing and the working run.
+    ///
+    /// A direction with no hardware at all is not an error: a machine can have
+    /// speakers and no microphone. That direction stays unselected, and opening
+    /// it later fails with a message that names the missing device.
     pub fn new() -> Result<Self, DeviceError> {
-        PlatformAudio::new()
-            .map(|audio| Self { audio })
-            .map_err(|e| device_err("initialising platform audio", e))
+        let audio =
+            PlatformAudio::new().map_err(|e| device_err("initialising platform audio", e))?;
+        let mut audio = Self {
+            audio,
+            recording_device_selected: false,
+            playout_device_selected: false,
+        };
+        audio.recording_device_selected = audio.select_default(Direction::Recording)?;
+        audio.playout_device_selected = audio.select_default(Direction::Playout)?;
+        Ok(audio)
+    }
+
+    /// Which directions have a device selected, as `(microphone, speakers)`.
+    ///
+    /// Both should be true after [`Self::new`] on a machine that has the
+    /// hardware; a `false` is why that direction would stay silent.
+    pub fn devices_selected(&self) -> (bool, bool) {
+        (self.recording_device_selected, self.playout_device_selected)
+    }
+
+    /// Picks the backend's default device for one direction.
+    ///
+    /// Returns `false` when the backend lists no device in that direction. An
+    /// error means the backend refused a device it had just listed, which is a
+    /// real failure rather than an empty machine.
+    fn select_default(&mut self, direction: Direction) -> Result<bool, DeviceError> {
+        let devices = match direction {
+            Direction::Recording => self.recording_devices()?,
+            Direction::Playout => self.playout_devices()?,
+        };
+        let Some(id) = default_device(&devices).map(|device| device.id.clone()) else {
+            return Ok(false);
+        };
+        match direction {
+            Direction::Recording => self.set_recording_device(&id)?,
+            Direction::Playout => self.set_playout_device(&id)?,
+        }
+        Ok(true)
     }
 
     /// Whether the platform can do echo cancellation, gain control and noise
@@ -127,28 +185,46 @@ impl AudioDeviceControl for SdkAudio {
         // a persisted string; the setter validates that the device exists.
         self.audio
             .set_recording_device(&RecordingDeviceId::from_unchecked_guid(id))
-            .map_err(|e| device_err("selecting recording device", e))
+            .map_err(|e| device_err("selecting recording device", e))?;
+        self.recording_device_selected = true;
+        Ok(())
     }
 
     fn switch_recording_device(&mut self, id: &str) -> Result<(), DeviceError> {
         self.audio
             .switch_recording_device(&RecordingDeviceId::from_unchecked_guid(id))
-            .map_err(|e| device_err("switching recording device", e))
+            .map_err(|e| device_err("switching recording device", e))?;
+        self.recording_device_selected = true;
+        Ok(())
     }
 
     fn set_playout_device(&mut self, id: &str) -> Result<(), DeviceError> {
         self.audio
             .set_playout_device(&PlayoutDeviceId::from_unchecked_guid(id))
-            .map_err(|e| device_err("selecting playout device", e))
+            .map_err(|e| device_err("selecting playout device", e))?;
+        self.playout_device_selected = true;
+        Ok(())
     }
 
     fn switch_playout_device(&mut self, id: &str) -> Result<(), DeviceError> {
         self.audio
             .switch_playout_device(&PlayoutDeviceId::from_unchecked_guid(id))
-            .map_err(|e| device_err("switching playout device", e))
+            .map_err(|e| device_err("switching playout device", e))?;
+        self.playout_device_selected = true;
+        Ok(())
     }
 
     fn start_recording(&mut self) -> Result<(), DeviceError> {
+        // A client can reach this without a microphone ever having been picked:
+        // it has no stored preference, or [`Self::new`] found no device and one
+        // has been plugged in since. WebRTC refuses to initialise recording
+        // without a selection, so the default is picked here rather than
+        // returning the ADM's unhelpful "init_recording failed".
+        if !self.recording_device_selected && !self.select_default(Direction::Recording)? {
+            return Err(DeviceError::Unavailable(
+                "the audio backend reports no microphone".to_string(),
+            ));
+        }
         self.audio
             .start_recording()
             .map_err(|e| device_err("starting microphone capture", e))
@@ -172,7 +248,6 @@ pub struct SdkDesktopCapture {
     capturer: DesktopCapturer,
     kind: TargetKind,
     source: CaptureSource,
-    glib_pump: bool,
     started: bool,
 }
 
@@ -205,7 +280,6 @@ impl SdkDesktopCapture {
                 capturer,
                 kind,
                 source,
-                glib_pump: true,
                 started: false,
             })
             .ok_or_else(|| {
@@ -220,13 +294,6 @@ impl SdkDesktopCapture {
     /// The capture path actually requested, after `Auto` was resolved.
     pub fn source(&self) -> CaptureSource {
         self.source
-    }
-
-    /// Turns the GLib main-context pump off, which reproduces the stall that
-    /// `docs/spikes/media-phase0.md` records. It exists for that demonstration;
-    /// leave it on.
-    pub fn set_glib_pump(&mut self, enabled: bool) {
-        self.glib_pump = enabled;
     }
 
     /// The capturer's own view of what is available, before any filtering.
@@ -296,14 +363,11 @@ impl ScreenCapture for SdkDesktopCapture {
 
     fn tick(&mut self) -> Result<(), CaptureError> {
         if self.started {
-            // See `pump_glib_main_context`: on Linux the portal handshake only
-            // progresses while someone iterates the GLib main context, and the
-            // host loop that calls `tick` is where that belongs.
-            if self.glib_pump {
-                pump_glib_main_context();
-            }
             // This is the call that actually asks WebRTC for a frame; the callback
-            // handed to `start` runs synchronously from here on this thread.
+            // handed to `start` runs synchronously from here on this thread. The
+            // portal handshake that has to complete first is driven by the GLib
+            // main loop the SDK's `glib-main-loop` feature runs; see the crate
+            // documentation and `docs/spikes/media-phase0.md`.
             self.capturer.capture_frame();
         }
         Ok(())
@@ -459,36 +523,3 @@ pub fn received_to_frame(frame: &BoxVideoFrame) -> Option<Frame> {
 
     Frame::packed(width, height, PixelFormat::I420, data).ok()
 }
-
-/// Pumps the default GLib main context once, without blocking.
-///
-/// WebRTC's portal capturer drives the XDG ScreenCast handshake over GDBus and
-/// delivers every completion — `CreateSession`, `SelectSources`, `Start`,
-/// `OpenPipeWireRemote` — on the thread-default GLib main context. Nothing in the
-/// LiveKit SDK iterates that context, so on Linux the whole handshake is queued
-/// and never sent unless the thread that owns the capturer pumps it. The visible
-/// symptom is subtle: the capturer reports one placeholder source and every
-/// frame request returns `ERROR_TEMPORARY`, which is the "no frame yet" path, not
-/// a reported failure. `docs/spikes/media-phase0.md` records a run with and
-/// without this pump.
-///
-/// Declared by hand because the crate has no GLib binding and the library is
-/// already linked for the portal backend; see `build.rs`.
-#[cfg(target_os = "linux")]
-fn pump_glib_main_context() {
-    use std::ffi::c_void;
-
-    extern "C" {
-        fn g_main_context_iteration(context: *mut c_void, may_block: i32) -> i32;
-    }
-
-    // A null context means the global default, which is what GDBus uses when no
-    // thread-default context has been pushed.
-    unsafe {
-        g_main_context_iteration(std::ptr::null_mut(), 0);
-    }
-}
-
-/// The portal paths on other platforms live in their own adapters.
-#[cfg(not(target_os = "linux"))]
-fn pump_glib_main_context() {}

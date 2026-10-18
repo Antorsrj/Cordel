@@ -185,10 +185,11 @@ pub trait ScreenCapture: Send {
     /// hiding it in a backend thread. Push-based backends leave this as a no-op.
     ///
     /// A pull-based backend may also advance a platform event loop from here. The
-    /// SDK's Wayland portal capturer needs the GLib main context pumped before its
-    /// D-Bus handshake with the desktop portal goes out, so a caller must keep
-    /// calling `tick` while it waits for the first frame, not only once frames are
-    /// arriving. `docs/spikes/media-phase0.md` records what happens otherwise.
+    /// The SDK's Wayland portal capturer only completes its D-Bus handshake with the
+    /// desktop portal while the GLib main loop runs, and the LiveKit SDK provides that
+    /// loop through the `glib-main-loop` feature this crate enables. `tick` stays the
+    /// moment a *frame is asked for*: a caller must keep calling it while it waits for
+    /// the first frame, not only once frames are arriving.
     fn tick(&mut self) -> Result<(), CaptureError> {
         Ok(())
     }

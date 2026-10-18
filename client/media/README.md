@@ -27,7 +27,7 @@ then, change one side and check the other.
 | `capture.rs` | `ScreenCapture` adapter interface, session detection |
 | `devices.rs` | `AudioDeviceControl` adapter interface |
 | `render.rs` | Frame → `slint::Image` surface with per-frame cost accounting (`ui`) |
-| `sdk.rs` | LiveKit SDK adapters: audio devices, desktop capture (with the GLib main-context pump the portal capturer needs), publish, receive (`sdk`) |
+| `sdk.rs` | LiveKit SDK adapters: audio devices (defaults selected on open), desktop capture, publish, receive (`sdk`) |
 | `src/bin/probe.rs` | Command-line probe used to collect the evidence |
 | `../../docs/spikes/media-phase0.md` | The measured evidence and open gate items |
 
@@ -44,9 +44,10 @@ cargo build --release --features full
 Features: `ui` (Slint image surface), `sdk` (LiveKit adapters), `full` (both).
 The LiveKit crate downloads its native WebRTC binary on the first build. Screen
 capture also needs the GLib, PipeWire and GBM development packages
-(`glib-2.0`/`gio-2.0`, `libpipewire-0.3`, `gbm`, `libdrm`); `build.rs` links the
-GLib stack automatically for the `sdk` feature on Linux, which WebRTC's portal
-backend otherwise leaves undefined.
+(`glib-2.0`/`gio-2.0`, `libpipewire-0.3`, `gbm`, `libdrm`). Those are required by
+the build rather than looked up at link time: the `sdk` feature turns on the
+SDK's `glib-main-loop`, which pulls in the `glib`/`gio` crates and links the GLib
+stack that WebRTC's portal backend otherwise leaves undefined.
 
 Slint resolves to 1.18.1 through `Cargo.lock`, the same version the `client/phase0`
 shell pins. Do not bump one side alone.
@@ -77,12 +78,17 @@ Nothing here is a substitute for the gate. Two clients in a real room, two netwo
 a true X11 session, and a window with a shared frame on screen are all still open —
 see [`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md).
 
-Two things about capture are worth knowing before touching it:
+Three things about capture and audio are worth knowing before touching them:
 
-- On Wayland the portal handshake only leaves the process while someone pumps the
-  GLib main context, which `SdkDesktopCapture::tick` does and the LiveKit SDK does
-  not do on its own. A capture loop must keep calling `tick` from the moment a share
-  starts, not only once frames arrive; `probe capture --no-pump` shows what happens
-  otherwise.
+- On Wayland the portal handshake only leaves the process while the GLib main loop
+  runs; the crate gets that loop from the SDK's `glib-main-loop` feature, so no
+  client code has to pump anything. A capture loop must still keep calling `tick`
+  from the moment a share starts, not only once frames arrive, because that is when
+  a frame is asked for.
 - The portal negotiates the stream, so the frame size is not the monitor's: read each
   frame's width, height and stride rather than assuming the display's.
+- Both audio directions need a device *selected* before WebRTC will initialise them,
+  so `SdkAudio::new()` picks the system defaults; without that, the microphone fails
+  with `init_recording failed` and remote audio never starts, neither with an
+  explanation. On Linux that module also reports no per-device ids, so only the
+  default microphone can be addressed — see `src/devices.rs` and Finding 2.

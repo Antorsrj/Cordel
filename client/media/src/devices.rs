@@ -21,10 +21,29 @@ pub enum Direction {
 pub struct AudioDevice {
     /// Index in the current list; may change when devices are added or removed.
     pub index: usize,
-    /// Stable identifier (GUID) to persist and to select by.
+    /// Identifier (GUID) to persist and to select by.
+    ///
+    /// Not guaranteed to be usable: WebRTC's PulseAudio ADM on Linux leaves the
+    /// GUID empty for every device, which leaves that backend able to address
+    /// only its default entry. Check for an empty `id` before offering a device
+    /// as a persistable choice; see `sdk::SdkAudio`.
     pub id: String,
     pub name: String,
     pub direction: Direction,
+}
+
+/// The device to use when the caller has no stored preference.
+///
+/// Backends put their system default first, and WebRTC's PulseAudio ADM on Linux
+/// builds its list that way by construction: entry 0 is "default", followed by
+/// one entry per source. Preferring index 0 keeps that assumption in one place,
+/// with the first entry as the fallback for a backend that orders its list
+/// differently.
+pub fn default_device(devices: &[AudioDevice]) -> Option<&AudioDevice> {
+    devices
+        .iter()
+        .find(|device| device.index == 0)
+        .or_else(|| devices.first())
 }
 
 #[derive(Debug)]
@@ -123,5 +142,34 @@ impl AudioDeviceControl for UnavailableAudio {
 
     fn stop_recording(&mut self) -> Result<(), DeviceError> {
         Err(self.fail())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(index: usize, id: &str) -> AudioDevice {
+        AudioDevice {
+            index,
+            id: id.to_string(),
+            name: format!("device {index}"),
+            direction: Direction::Recording,
+        }
+    }
+
+    #[test]
+    fn default_device_prefers_the_entry_the_backend_calls_default() {
+        // The PulseAudio ADM lists "default" first; ordering the list is not
+        // enough, because the index is what identifies it.
+        let devices = [device(1, ""), device(0, ""), device(2, "")];
+        assert_eq!(default_device(&devices).map(|d| d.index), Some(0));
+    }
+
+    #[test]
+    fn default_device_falls_back_to_the_first_entry() {
+        let devices = [device(3, "c"), device(4, "d")];
+        assert_eq!(default_device(&devices).map(|d| d.index), Some(3));
+        assert!(default_device(&[]).is_none());
     }
 }

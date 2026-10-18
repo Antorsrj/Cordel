@@ -2,7 +2,7 @@
 
 **Status:** evidence collected; the Phase 0 media gate is **not passed yet**.
 
-**Date:** 2026-10-17  **Revised:** 2026-10-17 — Finding 1 was corrected twice after review; see "Revision" at the end.
+**Date:** 2026-10-17  **Revised:** 2026-10-17 — Findings 1 and 2 were both corrected after review; see "Revision" at the end.
 
 **Code:** `client/media/` — the Client 103 media crate (Phase 0 prototype, not a product build). Probe binary: `probe`.
 
@@ -45,7 +45,7 @@ A spike crate that keeps OS behavior behind interfaces, as ADR-103 requires:
 | `render.rs` | Frame → `slint::Image` path with per-frame cost accounting | measured + tests |
 | `sdk.rs` | LiveKit SDK adapters: audio devices, desktop capture, publish, receive | compiled and exercised (see Findings 1 and 2) |
 
-Checks run: `cargo test --features full --release` (23 tests, all pass),
+Checks run: `cargo test --features full --release` (25 tests, all pass),
 `cargo clippy --all-targets --features full -- -D warnings` (clean),
 `cargo fmt --all --check` (clean), and a default-feature build (clean).
 
@@ -111,13 +111,22 @@ context, so the request never leaves the process. The symptom is quiet:
 path rather than a reported failure, so the caller sees only "the capturer produced
 nothing".
 
-### Pumping the GLib context fixes it, and the portal answers
+### Making the context run fixes it, and the portal answers
 
-`SdkDesktopCapture::tick` now runs one non-blocking turn of the default GLib context
-(`g_main_context_iteration`) before asking for a frame — a hand-declared FFI call,
-because the crate has no GLib binding and the library is already linked for the
-portal backend (Finding 4). With that, and a person accepting the KDE picker, both
-source types produce real frames:
+The SDK ships an opt-in feature for exactly this: `livekit/glib-main-loop`. It
+creates a GLib `MainLoop` on the default main context and runs it on a thread of its
+own while a capturer is alive, quitting it when the capturer is dropped (read from
+`libwebrtc` 0.3.52, `src/native/desktop_capturer.rs`). `cordel-media` enables the
+feature in `Cargo.toml`, so the fix is upstream code rather than code of ours.
+
+The first revision of this report instead pumped the context by hand, one
+non-blocking `g_main_context_iteration` call per tick, declared as bare FFI. That
+worked and is gone: an SDK feature that does the same thing is the better
+dependency, and it also links the GLib stack the crate previously linked for
+itself (Finding 4).
+
+With the loop running, and a person accepting the KDE picker, both source types
+produce real frames:
 
 ```
 $ probe capture --yes --source portal --frames 5 --patience 90
@@ -163,51 +172,111 @@ Two details worth keeping:
   each frame's width, height and stride rather than assume the display's — which is
   why `Frame` carries them.
 
-`probe capture --no-pump` turns the pump off and reproduces the stall, so the causal
-link is demonstrable in both directions on this machine.
+The `--no-pump` switch that reproduced the stall for the first revision went away
+with the hand-rolled pump, because the feature cannot be switched off at runtime.
+The causal link is still recorded from both sides: with a pump — the hand-rolled one
+then, the feature now — the handshake is sent (`CreateSession`, `SelectSources` and
+`Start` appear on the session bus within a second, as in the table above), and the
+unpumped runs of the first revision sent **none** of them (0 of 788 messages). To
+re-run the negative case, remove `features = ["glib-main-loop"]` from
+`client/media/Cargo.toml`.
 
 **Implication for ADR-103 (final):** the SDK's Linux capturer is usable on Wayland
-for the Phase 0 gate, provided the capture loop pumps the GLib main context — a
-requirement the `ScreenCapture::tick` contract now states and
-`SdkDesktopCapture::tick` implements. A bespoke portal client is therefore **not**
-needed for the gate; it stays an option only if the SDK cannot express Cordel's own
-consent and hot-swap rules. X11 still needs a real X11 session (see below), and the
-capture backend stays behind `ScreenCapture`, so this choice does not leak into the
-rest of the client.
+for the Phase 0 gate, provided the GLib main loop runs while a captured session is
+alive — now a build-time feature rather than a contract the capture loop has to
+honour, so no client code can forget it. A bespoke portal client is therefore
+**not** needed for the gate; it stays an option only if the SDK cannot express
+Cordel's own consent and hot-swap rules. X11 still needs a real X11 session (see
+below), and the capture backend stays behind `ScreenCapture`, so this choice does
+not leak into the rest of the client.
 
-## Finding 2 — microphone capture through the SDK fails on this machine
+## Finding 2 — both audio directions need a device *selection*, and Linux reports no per-device ids
 
-Device handling works; recording does not start:
+The first revision recorded "microphone capture fails with `init_recording failed`"
+and left the cause open. It is now found, and it was not a device, permission or
+busy-device problem:
 
 ```
-$ probe devices
-  [recording 0..2] three devices (USB microphone and on-board controller)
-  [playout   0..3] four devices
-
-$ probe mic --yes --seconds 1
+$ probe mic --yes --seconds 1                      # no device selected
 hardware processing available: aec=false agc=false ns=false
 audio processing configured (prefer_hardware=false)
 Error: audio error: starting microphone capture: OperationFailed("init_recording failed")
 ```
 
-`init_recording` fails with software *and* with hardware audio processing
-preference, and hardware processing is unavailable on this machine. The operating
-system, from the same shell, allows capture:
+The working run is further down.
+
+### The cause, in WebRTC's own source
+
+`webrtc-sys` creates the platform audio device module with
+`CreateAudioDeviceModule(env, kPlatformDefaultAudio)`
+(`src/adm_proxy.cpp`, `EnsurePlatformAdmCreated`), which on Linux resolves to
+WebRTC's PulseAudio ADM — confirmed here by the loader: the probe process maps
+`libpulse.so.0` and never maps `libasound.so.2`. In m137's
+`modules/audio_device/linux/audio_device_pulse_linux.cc`:
+
+```cpp
+int32_t AudioDeviceLinuxPulse::InitRecording() {
+  if (_recording) { return -1; }
+  if (!_inputDeviceIsSpecified) { return -1; }   // <- the failure, with nothing said
+  ...
+```
+
+and `InitPlayout()` carries the identical check for `_outputDeviceIsSpecified`. Only
+`SetRecordingDevice()` / `SetPlayoutDevice()` set those flags: the ADM does **not**
+fall back to the backend's default device on its own. `webrtc-sys`'s `AdmProxy` calls
+through without selecting anything, so an application that opens the microphone
+without first picking one gets a plain failure, and one that never picks a speaker
+gets a playout that never initialises — remote audio that stays silent, with nothing
+logged to explain either.
+
+### The fix, and what it now does
+
+`SdkAudio::new()` selects the system defaults for both directions, and
+`start_recording()` repairs a missing selection for a client that reached capture
+first (no stored preference, or a microphone plugged in after startup):
 
 ```
-$ parec --raw --channels=1 --rate=48000 | head -c 96000 | wc -c
-96000
+$ probe mic --yes --seconds 3
+devices selected: microphone=true speakers=true
+hardware processing available: aec=false agc=false ns=false
+audio processing configured (prefer_hardware=false)
+microphone open for 3 s
+microphone closed cleanly
 ```
 
-So this is not a permission or device-busy problem at the OS level. It is inside
-WebRTC's audio device module.
+While that run was open, the PulseAudio compatibility layer showed two
+`WEBRTC VoiceEngine` capture streams on the microphone, which is the ADM's recording
+stream actually connected. Hardware processing remains unavailable (`aec=false agc=false
+ns=false`) — see Finding 5.
 
-**Implication:** the plan to take microphone capture from
-`RtcAudioSource::Device` (the SDK's own platform audio path) is **not viable on
-this machine as measured**. Either the SDK path needs to be fixed/worked around,
-or audio capture needs its own adapter (for example a `cpal`/PipeWire capture
-feeding a `RtcAudioSource::Native`), which ADR-103's interface already allows but
-the current design did not anticipate.
+### The second half: only the default microphone can be addressed
+
+`RecordingDeviceName()` fills `name` and **never fills `guid`** (it zeroes it and
+returns), so every recording device the SDK lists has an empty id:
+
+```
+$ probe devices
+  [recording  0] default: <microphone> …
+                   id:
+  [recording  1] <on-board controller> …
+                   id:
+```
+
+`set_recording_device` is a by-GUID operation, and `webrtc-sys`'s
+`set_recording_device_by_guid` falls back to `SetRecordingDevice(0)` when no GUID
+matches. The practical result on Linux: the system default microphone opens and can be
+hot-swapped to itself, and **no other microphone can be selected** through the SDK,
+even though all of them are listed. Caching a device id is equally meaningless, since
+the ids are all the empty string.
+
+**Implication for ADR-103:** `RtcAudioSource::Device` now works for the Phase 0 gate
+(two-way audio on the default devices), and the fix belongs in the adapter, not in the
+client. But "selecting a microphone" — a phrase in the ADR's own decision text — is
+only satisfiable for the system default on Linux with this SDK. Going beyond it needs
+either an upstream fix or Cordel's own capture path (`cpal`/PipeWire feeding
+`RtcAudioSource::Native`), which the interface already allows;
+`PARKING_LOT.md` carries the item, and `client/media/src/devices.rs` documents the
+empty-id case where callers would otherwise persist a useless preference.
 
 ## Finding 3 — frame → Slint is cheap, and the allocation dominates it
 
@@ -244,8 +313,8 @@ recommendation above removes.
 ## Finding 4 — toolchain: the SDK links only with an extra GLib fix
 
 `webrtc-sys` builds WebRTC with the **xdg-desktop-portal** screen capture backend
-on Linux and does not link the GLib stack that backend uses. Any binary that
-mentions the desktop capturer then fails to link:
+on Linux. A binary that mentions the desktop capturer fails to link against a
+plain LiveKit 0.9 dependency:
 
 ```
 rust-lld: error: undefined symbol: g_variant_get_string
@@ -254,9 +323,13 @@ rust-lld: error: undefined symbol: g_dbus_proxy_new_for_bus
   >>> referenced by xdg_desktop_portal_utils.cc
 ```
 
-`build.rs` in the spike fixes this by asking `pkg-config` for `glib-2.0`,
-`gio-2.0`, `gobject-2.0` and `gmodule-2.0` when the `sdk` feature is enabled. The
-production workspace needs the same, or the same fix contributed upstream.
+The spike first fixed this with its own `build.rs`, asking `pkg-config` for
+`glib-2.0`, `gio-2.0`, `gobject-2.0` and `gmodule-2.0`. That script is now gone:
+enabling the SDK's `glib-main-loop` feature (see Finding 1) pulls in the `glib`
+and `gio` crates, which link the same stack, so the crate needs no build script
+and the four GLib development packages are a build prerequisite rather than a
+lookup. The production workspace gets the same result for free by enabling the
+feature, which it needs anyway.
 
 Build cost on this machine: full dependency build ~35 s warm, release build of the
 spike ~65 s. No `nasm` was needed.
@@ -306,24 +379,29 @@ exercised, and the spike does not claim them:
   still untested.
 - **No hotplug or permission-revocation during a live share.** The plumbing exists
   (`switch_recording_device`, `set_permission`) but was not exercised while
-  publishing, and microphone recording never started.
+  publishing. The microphone opens, but nothing has recorded through a track and no
+  sample was ever looked at, so "capture produces Cordel's audio" is not proven —
+  only that the ADM's capture stream opens and connects.
+- **No microphone other than the system default.** Finding 2: the SDK reports no
+  per-device ids on Linux.
 - **Nothing was displayed on screen.** The render path was measured headlessly; no
   window was opened, so "display of at least one screen frame" in the literal sense
   is still open.
 
 ## Verdict
 
-**The media gate is not passed, but one of its three primitives now works.** Screen
-capture succeeds on this Wayland session through the SDK (Finding 1); microphone
-capture is still blocked, and no frame has been displayed, published or received in
-a room:
+**The media gate is not passed, but two of its three primitives now work.** Screen
+capture and microphone capture both succeed on this machine through the SDK's
+adapters (Findings 1 and 2); no frame or sample has yet been published, received or
+displayed in a room:
 
 | Gate item | State |
 | --- | --- |
-| Screen capture (Wayland) | **Works** — real 2560x1440 frames, once the GLib main context is pumped; needs a person to accept the dialog |
+| Screen capture (Wayland) | **Works** — real 2560x1440 frames, with the GLib main loop running via the SDK's `glib-main-loop` feature; needs a person to accept the dialog |
 | Screen capture (X11) | **Untested** — the X11 capturer is not reached on this machine (PipeWire is present), so a true X11 session still has to be tried |
-| Microphone capture | **Blocked** — SDK reporting `init_recording failed` |
-| Device enumerate/select/hot-swap API | **Works** (3 recording, 4 playout devices) |
+| Microphone capture | **Works** for the system default — the ADM opens and connects once a device is selected; other microphones are unreachable through this SDK (Finding 2) |
+| Remote audio playout | **Selected but unproven** — it needs the same device selection to initialise at all; no room has played anything |
+| Device enumerate/select/hot-swap API | **Partial** (3 recording, 4 playout devices listed; all ids empty, so only the default is addressable) |
 | Frame → UI rendering in Slint | **Works and is cheap** (≤3.1 ms per 2560x1440 real frame) |
 | Publish/subscribe in a room | **Unverified** — no room or token was used |
 | Consent and permission rules | **Works** (tested) |
@@ -334,23 +412,28 @@ What this means for the decisions that depend on it:
   frames convert and hand off in 1–3 ms, so frame handling stays a small fraction of
   a 33 ms budget.
 - **ADR-103's "common interface plus OS adapters" decision stands, and the SDK is a
-  viable backend.** The interface is still needed — consent, hot-swap, X11 versus
-  Wayland, audio processing — but the portal handshake turned out to be a host-loop
-  requirement the `ScreenCapture` contract can state, not a reason to write a portal
-  client. Writing one stays an option, not a necessity.
-- **The microphone is now the only primitive with no working route**, and the
-  interface is already in place to put a different backend behind it.
+  viable backend for the gate.** The interface is still needed — consent, hot-swap,
+  X11 versus Wayland, per-device selection, audio processing — but both directions of
+  audio came down to adapter code, and the portal handshake to a build-time feature
+  rather than a portal client of Cordel's own.
+- **Per-device audio selection is the one requirement inside ADR-103's own decision
+  text that this SDK cannot meet on Linux.** It needs an upstream fix or Cordel's own
+  capture path, and it is recorded as an open item rather than worked around
+  silently.
 
 ## Next steps
 
-1. **Close the microphone route** (Finding 2): investigate the `init_recording`
-   failure, and if it is not fixable on this SDK version, capture with
-   `cpal`/PipeWire into `RtcAudioSource::Native` instead of `RtcAudioSource::Device`.
-2. **Keep the pump in the product loop.** `SdkDesktopCapture::tick` pumps the GLib
-   context today, so a client that calls `tick` inherits it; a client that grows its
-   own capture loop must pump from the moment a share starts, not only once frames
-   arrive.
+1. **Per-device audio selection** (Finding 2): the default microphone opens, and no
+   other one is addressable through this SDK. Fix or report it upstream, or capture
+   with `cpal`/PipeWire into `RtcAudioSource::Native` — which also brings the level
+   metering and per-device control a device picker needs.
+2. **Keep the GLib loop a build-time property.** It is now the SDK's
+   `glib-main-loop` feature rather than something the capture loop pumps, so no
+   client code can forget it. Re-check that when the SDK is upgraded.
 3. **Try a true X11 session**, which is the only way to exercise the X11 capturer.
+   Note the feature's own condition: it starts no GLib loop when `WAYLAND_DISPLAY` is
+   unset, so an X11 session that still reaches WebRTC's PipeWire/portal capturer
+   would need that gap closed (upstream, or a pump of our own as a fallback).
 4. **Display a shared frame and prove the two-track detach/dock path** the current
    ADR-103 asks for, including a portal run whose negotiated size changes mid-share.
 5. **Join a room with two clients** to close publish, subscribe and remote render. A
@@ -363,7 +446,7 @@ What this means for the decisions that depend on it:
 
 ```sh
 cd client/media
-cargo test --features full --release     # 23 tests
+cargo test --features full --release     # 25 tests
 cargo build --release --features full
 ./target/release/probe summary
 ./target/release/probe consent
@@ -371,7 +454,6 @@ cargo build --release --features full
 ./target/release/probe devices
 ./target/release/probe targets --source portal              # the portal capturer
 ./target/release/probe capture --yes --source portal --frames 5 --out /tmp/frame.ppm
-./target/release/probe capture --yes --source portal --frames 1 --no-pump   # the stall
 ./target/release/probe mic --yes --seconds 3
 ./target/release/probe join --url ws://host:7880 --token <jwt> --share
 ```
@@ -379,7 +461,10 @@ cargo build --release --features full
 `capture` and `mic` ask for `--yes` before touching a device, and `capture` writes a
 PPM only when `--out` is given. `--source` is `auto | portal | screen | window`; on
 Wayland `auto` resolves to `portal`. A portal capture needs a person at the machine
-to accept the dialog, and `--no-pump` reproduces the stall Finding 1 describes.
+to accept the dialog. To reproduce Finding 1's stall, remove
+`features = ["glib-main-loop"]` from `Cargo.toml` and re-run; to reproduce Finding 2's
+failure, call `SdkAudio::start_recording` without the default selection `new()` now
+performs.
 
 The `sdk` feature is optional: without it the crate builds and tests in seconds
 and the probe reports the adapters as unavailable rather than failing.
@@ -390,6 +475,21 @@ resolves one toolkit version.
 
 ## Revision
 
+- **2026-10-17 — Finding 2's cause was found, and Finding 1's fix was replaced by the
+  SDK's own.**
+  - The hand-rolled GLib pump (`g_main_context_iteration` called from the capture
+    tick) is gone in favour of the SDK's `glib-main-loop` feature: the same mechanism,
+    maintained upstream, and it links the GLib stack, so the crate's `build.rs` went
+    with it. The first revision declared that FFI because it had not read the SDK's
+    feature list far enough to find the option.
+  - The microphone failure is a device-selection check inside WebRTC, not a broken
+    capture path: `InitRecording()` refuses until a recording device has been
+    selected, and `InitPlayout()` does the same. `SdkAudio` now selects the system
+    defaults, so Finding 2's "not viable on this machine" conclusion is withdrawn.
+    The residual gap is narrower and different: this ADM reports no device GUIDs, so
+    only the default microphone can be addressed.
+  - `probe devices` now prints each device's id — which is how that empty-GUID gap
+    became visible — and `probe mic` reports whether each direction got a device.
 - **2026-10-17 — Finding 1 was wrong twice, and the experiment is what settled it.**
   The first version concluded, from a `Screen`-type capture attempt, that the SDK
   capturer was unusable on Wayland and that Cordel had to write its own adapters.
@@ -397,17 +497,18 @@ resolves one toolkit version.
   capturer and that `Generic` was the portal path. Both described the code correctly
   and the run incorrectly: `Screen` **and** `Generic` both reach WebRTC's PipeWire
   capturer on this machine (`rtc_use_pipewire = true`, `WEBRTC_DLOPEN_PIPEWIRE`
-  undefined so `IsSupported()` is true), and the original failure was the missing
-  GLib main-context pump. Running both source types with and without the pump, while
-  watching the session bus, is what settled it. The source-type table is kept because
-  the distinction is real where PipeWire is absent, and it is now labelled as
-  "what the code does" rather than "what happened here". Findings 2–6 are unaffected.
+  undefined so `IsSupported()` is true), and the original failure was that nothing
+  ran the GLib main context. Running both source types while watching the session bus
+  is what settled it. The source-type table is kept because the distinction is real
+  where PipeWire is absent, and it is now labelled as "what the code does" rather than
+  "what happened here". Findings 3–6 are unaffected.
 - The crate was moved from `client/phase0-media/` to `client/media/` and renamed
   `cordel-phase0-media` → `cordel-media` when Client 103 was taken up, to match the
   `client/<concern>` layout used by `client/state` and `client/phase0`.
-- `probe capture` gained `--source` and `--no-pump`, and `capture` now prints
-  aggregate statistics for the first frame, because "frames arrived" is not evidence
-  for a gate that asks for the display of a screen frame.
+- `probe capture` gained `--source` and prints aggregate statistics for the first
+  frame, because "frames arrived" is not evidence for a gate that asks for the display
+  of a screen frame. Its `--no-pump` switch existed only to demonstrate the stall and
+  was removed with the hand-rolled pump it controlled.
 
 ## Notes on method
 

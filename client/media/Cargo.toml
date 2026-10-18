@@ -13,13 +13,16 @@ anyhow = "1"
 # Same Slint minor as the client/phase0 shell, so a build that combines both
 # resolves one toolkit version. Do not bump one side alone.
 slint = { version = "1.14", optional = true }
-livekit = { version = "0.9", optional = true }
+# `glib-main-loop` is required, not a nicety. WebRTC's portal/PipeWire screen
+# capturer runs the XDG ScreenCast handshake over GDBus and completes every step
+# on the GLib main context; nothing else iterates that context, so without this
+# feature the handshake is queued and never sent and the capturer only ever
+# reports `ERROR_TEMPORARY`. Off `WAYLAND_DISPLAY` the feature starts no loop,
+# which matches the only session that reaches that backend. See
+# docs/spikes/media-phase0.md.
+livekit = { version = "0.9", optional = true, features = ["glib-main-loop"] }
 tokio = { version = "1", optional = true, features = ["macros", "rt-multi-thread", "time", "signal"] }
 tokio-stream = { version = "0.1", optional = true }
-
-[build-dependencies]
-# Only used by build.rs, and only for the `sdk` feature on Linux; see build.rs.
-pkg-config = "0.3"
 
 [features]
 default = []

@@ -23,15 +23,22 @@ interface and adapters in `client/media`, and the measured evidence in
 
 - **Linux screen capture backend:** The SDK's portal path works: requesting
   `DesktopCaptureSourceType::Generic` selects WebRTC's PipeWire capturer, and it
-  produces real frames once the process pumps the GLib main context, which the
-  LiveKit SDK never does (`SdkDesktopCapture::tick` now pumps it). The direct X11
-  capturer (`Screen`/`Window`) fails on a Wayland session with XWayland, so a true
-  X11 session still has to be tested before claiming that path. Decide whether the
-  client keeps the SDK capturer or needs its own portal client for consent and
-  hot-swap control.
-- **Microphone route:** `init_recording` fails in this SDK build on the measured
-  machine while the OS captures through PipeWire. Decide between fixing or working
-  around the SDK and capturing with `cpal`/PipeWire into `RtcAudioSource::Native`.
+  produces real frames with the GLib main loop running, which the SDK provides through
+  its `glib-main-loop` feature (enabled in `client/media/Cargo.toml`; before that the
+  crate pumped the context by hand). One caveat to re-check: that feature starts no
+  loop when `WAYLAND_DISPLAY` is unset, so an X11 session that still reaches WebRTC's
+  PipeWire/portal capturer would not get one. The direct X11 capturer (`Screen`/
+  `Window`) is not reached on a Wayland session with PipeWire present, so a true X11
+  session still has to be tested before claiming that path. Decide whether the client
+  keeps the SDK capturer or needs its own portal client for consent and hot-swap
+  control.
+- **Microphone selection beyond the default:** The microphone now opens
+  (`SdkAudio::new` selects the system defaults, which WebRTC's Linux PulseAudio ADM
+  requires before it will initialise either direction), but that ADM reports no
+  device GUIDs, so every device id is the empty string and only the default can be
+  addressed. Decide between an upstream fix and capturing with `cpal`/PipeWire into
+  `RtcAudioSource::Native`; the latter also brings the per-device control and level
+  metering a device picker needs.
 - **Audio processing:** Echo cancellation, gain control and noise suppression are
   not in ADR-103's interface, and the "voice quality beats screen frame rate"
   priority has no implementation point yet.

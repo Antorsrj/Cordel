@@ -13,7 +13,7 @@
 //! probe consent                        the capture-consent state machine, no hardware
 //! probe synthetic [--frames N] [...]   frame conversion (+ Slint image) cost, no hardware
 //! probe devices                        audio devices (needs --features sdk)
-//! probe mic --yes [--switch-to ID]      open the microphone, hot-swap it while open
+//! probe mic --yes [--device ID]          open the microphone, select/hot-swap devices
 //! probe targets [--source S]          capture sources (needs --features sdk)
 //! probe capture --yes [--source S]    capture real frames and measure them
 //! probe join --url URL --token TOKEN   join a room and publish (needs --features sdk)
@@ -25,9 +25,10 @@
 //! satisfy both, and separating them is the distinction the gate is about.
 //! `--windows` is accepted as the older spelling of `--source window`.
 //!
-//! On Linux the portal path only progresses while the GLib main context is
-//! pumped, which `capture` does by default; `--no-pump` exists to show the
-//! difference, and the report records both runs.
+//! On Linux the portal path only progresses while the GLib main context runs.
+//! The backend gets that from the LiveKit SDK's `glib-main-loop` feature, which
+//! the crate enables in `Cargo.toml`; the report records the runs before and
+//! after that was wired up, including the stall with no loop.
 
 use anyhow::{anyhow, Context, Result};
 use cordel_media::capture::{CaptureSource, CaptureTarget, SessionKind, TargetKind};
@@ -246,11 +247,29 @@ fn devices() -> Result<()> {
 
         let audio = SdkAudio::new()?;
         println!("backend: {}", audio.backend_name());
-        for device in audio.recording_devices()? {
-            println!("  [recording {:>2}] {}", device.index, device.name);
+        // The id is printed because it is the value `mic --device` and the
+        // client's stored preference take; the index is only a position in this
+        // run's list and changes when devices are added or removed.
+        let recording = audio.recording_devices()?;
+        let playout = audio.playout_devices()?;
+        for device in &recording {
+            println!(
+                "  [recording {:>2}] {}\n                   id: {}",
+                device.index, device.name, device.id
+            );
         }
-        for device in audio.playout_devices()? {
-            println!("  [playout   {:>2}] {}", device.index, device.name);
+        for device in &playout {
+            println!(
+                "  [playout   {:>2}] {}\n                   id: {}",
+                device.index, device.name, device.id
+            );
+        }
+        if recording.iter().any(|device| device.id.is_empty()) {
+            println!(
+                "note: this backend reports no per-device ids, so asking for anything\n\
+                 \x20     other than the default cannot be honoured; see\n\
+                 \x20     docs/spikes/media-phase0.md"
+            );
         }
         Ok(())
     }
@@ -283,6 +302,10 @@ fn mic(args: &[String]) -> Result<()> {
         use cordel_media::sdk::SdkAudio;
 
         let mut audio = SdkAudio::new()?;
+        // `new` already selected the system defaults; this reports what it got,
+        // because an unselected direction is silent for reasons nothing logs.
+        let (mic_selected, speakers_selected) = audio.devices_selected();
+        println!("devices selected: microphone={mic_selected} speakers={speakers_selected}");
         if let Some(id) = option(args, "--device") {
             audio.set_recording_device(&id)?;
             println!("selected recording device {id}");
@@ -364,9 +387,6 @@ fn capture(args: &[String]) -> Result<()> {
     let frames = number(args, "--frames", 60)?;
     let patience = number(args, "--patience", 10)?;
     let out = option(args, "--out");
-    // The portal handshake only progresses if the GLib main context is pumped;
-    // this is on by default and `--no-pump` exists to demonstrate the difference.
-    let pump = !flag(args, "--no-pump");
 
     if !flag(args, "--yes") {
         println!("this would capture your screen and write a file.");
@@ -394,8 +414,8 @@ fn capture(args: &[String]) -> Result<()> {
             requested.as_str(),
             source.as_str()
         );
-        // The pump lives in the backend; this only shows what happens without it.
-        backend.set_glib_pump(pump);
+        // The portal handshake runs on the GLib main loop the SDK's
+        // `glib-main-loop` feature starts; the backend no longer pumps it.
         let target = match option(args, "--target") {
             Some(id) => available
                 .iter()
@@ -486,7 +506,7 @@ fn capture(args: &[String]) -> Result<()> {
     }
     #[cfg(not(feature = "sdk"))]
     {
-        let _ = (kind, source, frames, out, patience, pump);
+        let _ = (kind, source, frames, out, patience);
         Err(anyhow!(
             "capture needs the SDK: rebuild with --features sdk"
         ))
