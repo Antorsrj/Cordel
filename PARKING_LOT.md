@@ -42,10 +42,22 @@ interface and adapters in `client/media`, and the measured evidence in
 - **Audio processing:** Echo cancellation, gain control and noise suppression are
   not in ADR-103's interface, and the "voice quality beats screen frame rate"
   priority has no implementation point yet.
-- **Two-client room evidence:** Publish, subscribe and remote render, plus the
-  two-track detach/dock path, need two clients in a real room and two networks. A
-  LiveKit server already exists under [ADR-001](./docs/adr/server/ADR-001-single-host-deployment.md),
-  so this needs a test room and a join token rather than new infrastructure.
+- **Two-client room evidence:** Two clients in a real room, on two networks, to
+  show publish, subscribe and remote render with two remote tracks at once. The
+  two-track stage, one-share emphasis, the detached native window and the
+  dock-on-close path are already driven by synthetic publishers under
+  `--fake-media` and by headless renders of the three Journal states, so what this
+  item adds is the real room and the second machine. A LiveKit server already
+  exists under [ADR-001](./docs/adr/server/ADR-001-single-host-deployment.md), so
+  it needs a test room and a join token rather than new infrastructure.
+- **Stage cost with two real shares:** the shell converts each remote frame into a
+  Slint image on the UI thread, at most one frame per share per 66 ms, and the
+  conversion is measured at 1.03 ms for a portal frame and 3.05 ms for a real
+  2560x1440 one, with a fresh buffer per frame as the pessimistic case. Two real
+  1440p shares at once, while the same process also encodes and decodes, are not
+  measured. If the UI thread turns out to be the limit, keep one panel per tile
+  and overwrite it — or read the frame through an `ImageProvider` — instead of
+  building an image per frame.
 
 ## Later versions
 

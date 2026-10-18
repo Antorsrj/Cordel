@@ -5,6 +5,193 @@ export struct ChatLine {
     body: string,
 }
 
+// A screen share the UI knows about. `key` is the media track identity, not the
+// position in the stage: a tile keeps its identity when another share ends or is
+// detached (docs/ux/journal.md, "share identity follows the media track").
+export enum ShareState {
+    Preview,
+    Live,
+    Reconnecting,
+}
+
+export struct ShareTile {
+    key: string,
+    publisher: string,
+    state: ShareState,
+    frame: image,
+    emphasized: bool,
+}
+
+// One share: who it belongs to, whether it is still live, and the frame. Marked
+// emphasized it takes more of the stage.
+//
+// There is no detached flag here: the stage model holds exactly what the main
+// window draws, and a share presented in its own window is not in it.
+component ShareTileView inherits Rectangle {
+    in property <ShareTile> tile;
+    callback emphasize();
+    callback detach();
+
+    min-height: 140px;
+    background: #000000;
+    border-radius: 4px;
+    border-width: tile.emphasized ? 2px : 1px;
+    border-color: tile.emphasized ? #e0b15a : #3a3630;
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 6px;
+
+            Text {
+                text: tile.publisher;
+                color: #f4f1ea;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            // Non-color indicator, so the state does not depend on the border.
+            Text {
+                text: tile.state == ShareState.Reconnecting ? "reconnecting"
+                    : tile.state == ShareState.Preview ? "preview, not publishing"
+                    : "sharing";
+                color: tile.state == ShareState.Reconnecting ? #e08060 : #a8a29a;
+                vertical-alignment: center;
+            }
+        }
+
+        Image {
+            source: tile.frame;
+            image-fit: contain;
+            vertical-stretch: 1;
+            accessible-role: AccessibleRole.image;
+            accessible-label: "Screen shared by " + tile.publisher;
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+
+            Button {
+                text: tile.emphasized ? "Restore size" : "Emphasize";
+                accessible-role: AccessibleRole.button;
+                accessible-label: (tile.emphasized ? "Stop emphasizing " : "Emphasize ") + tile.publisher;
+                clicked => { root.emphasize(); }
+            }
+
+            Button {
+                text: "Open in a window";
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Open the share from " + tile.publisher + " in its own window";
+                clicked => { root.detach(); }
+            }
+        }
+    }
+}
+
+// The stage. It collapses entirely when nothing is being shared, instead of
+// leaving an empty video area (docs/ux/journal.md, required state 1).
+component ShareStage inherits Rectangle {
+    in property <[ShareTile]> shares;
+    callback emphasize(string);
+    callback detach(string);
+
+    background: transparent;
+
+    VerticalLayout {
+        spacing: 6px;
+
+        if (root.shares.length > 0) : VerticalLayout {
+            spacing: 6px;
+
+            HorizontalLayout {
+                Text {
+                    text: "Screen shares";
+                    color: #f4f1ea;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: root.shares.length + (root.shares.length == 1 ? " share" : " shares");
+                    color: #a8a29a;
+                    vertical-alignment: center;
+                }
+            }
+
+            // A detached share is presented in its own window, so it takes no room
+            // here; the remaining shares keep the stage.
+            HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+
+                for tile in root.shares: ShareTileView {
+                    tile: tile;
+                    horizontal-stretch: tile.emphasized ? 2 : 1;
+                    emphasize => { root.emphasize(tile.key); }
+                    detach => { root.detach(tile.key); }
+                }
+            }
+        }
+    }
+}
+
+// The detached share. Closing this window docks the share back into the main
+// window (handled in Rust, so the close is never a way to lose a share).
+export component ShareWindow inherits Window {
+    title: "Screen share - " + tile.publisher;
+    preferred-width: 720px;
+    preferred-height: 480px;
+    min-width: 240px;
+    min-height: 180px;
+    background: #1c1b19;
+
+    in property <ShareTile> tile;
+    callback dock();
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 6px;
+
+            Text {
+                text: "Shared by " + tile.publisher;
+                color: #f4f1ea;
+                vertical-alignment: center;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Text {
+                text: tile.state == ShareState.Reconnecting ? "reconnecting"
+                    : tile.state == ShareState.Preview ? "preview, not publishing"
+                    : "sharing";
+                color: tile.state == ShareState.Reconnecting ? #e08060 : #a8a29a;
+                vertical-alignment: center;
+            }
+
+            Button {
+                text: "Dock back";
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Dock the share from " + tile.publisher + " back into the main window";
+                clicked => { root.dock(); }
+            }
+        }
+
+        Image {
+            source: tile.frame;
+            image-fit: contain;
+            vertical-stretch: 1;
+            accessible-role: AccessibleRole.image;
+            accessible-label: "Screen shared by " + tile.publisher;
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Cordel Phase 0";
     preferred-width: 1100px;
@@ -12,14 +199,25 @@ export component AppWindow inherits Window {
     background: #1c1b19;
 
     in-out property <[ChatLine]> messages;
-    in-out property <image> frame;
+    in-out property <[ShareTile]> shares;
     in-out property <string> status: "Starting";
     in-out property <bool> joined: false;
     in-out property <bool> busy: false;
+    in-out property <bool> conversation-visible: true;
+    // Set by --fake-media: the tiles below are synthetic, and the controls that
+    // add and end them only exist in this mode.
+    in-out property <bool> fake-media: false;
 
     callback join();
     callback capture-frame();
     callback leave();
+    callback emphasize-share(string);
+    callback detach-share(string);
+    callback fake-start-share();
+    callback fake-end-share();
+    callback fake-interrupt();
+
+    property <length> conversation-offset: 0px;
 
     VerticalLayout {
         padding: 12px;
@@ -62,76 +260,109 @@ export component AppWindow inherits Window {
             accessible-label: root.status;
         }
 
-        HorizontalLayout {
-            spacing: 12px;
+        if (root.fake-media) : HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
 
-            VerticalLayout {
-                spacing: 6px;
-                alignment: start;
-
-                Text {
-                    text: "Remote or captured frame";
-                    color: #f4f1ea;
-                }
-
-                frame-image := Image {
-                    source: root.frame;
-                    width: 480px;
-                    height: 270px;
-                    image-fit: contain;
-                    accessible-role: AccessibleRole.image;
-                    accessible-label: "Captured or remote screen frame";
-                }
+            Text {
+                text: "Demo data: synthetic shares, no room and no server.";
+                color: #e0b15a;
+                vertical-alignment: center;
             }
 
-            VerticalLayout {
-                spacing: 6px;
-                alignment: stretch;
+            Rectangle { horizontal-stretch: 1; }
 
-                HorizontalLayout {
-                    Text {
-                        text: "Chat sample";
-                        color: #f4f1ea;
-                        vertical-alignment: center;
+            Button {
+                text: "Start a share";
+                accessible-label: "Start another synthetic screen share";
+                clicked => { root.fake-start-share(); }
+            }
+
+            Button {
+                text: "End a share";
+                accessible-label: "End the most recent synthetic screen share";
+                clicked => { root.fake-end-share(); }
+            }
+
+            Button {
+                text: "Simulate an interruption";
+                accessible-label: "Mark the synthetic shares as reconnecting";
+                clicked => { root.fake-interrupt(); }
+            }
+        }
+
+        // With no share the stage gives its stretch to the conversation, so there
+        // is no reserved video area at all (docs/ux/journal.md, state 1). Hiding
+        // the stage instead would keep its layout space.
+        ShareStage {
+            vertical-stretch: root.shares.length > 0 ? 3 : 0;
+            shares: root.shares;
+            emphasize(key) => { root.emphasize-share(key); }
+            detach(key) => { root.detach-share(key); }
+        }
+
+        VerticalLayout {
+            vertical-stretch: 2;
+            spacing: 6px;
+
+            HorizontalLayout {
+                Text {
+                    text: "Conversation sample";
+                    color: #f4f1ea;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "End of chat";
+                    accessible-role: AccessibleRole.button;
+                    accessible-label: "Scroll the chat sample to the last line";
+                    clicked => {
+                        chat-list.content-y = min(0px, chat-list.height - chat-list.content-height);
                     }
-                    Rectangle { horizontal-stretch: 1; }
-                    Button {
-                        text: "End of chat";
-                        accessible-role: AccessibleRole.button;
-                        accessible-label: "Scroll the chat sample to the last line";
-                        clicked => {
-                            chat-list.content-y = min(0px, chat-list.height - chat-list.content-height);
+                }
+                Button {
+                    text: root.conversation-visible ? "Hide conversation" : "Show conversation";
+                    accessible-role: AccessibleRole.button;
+                    accessible-label: root.conversation-visible ? "Hide the conversation and give the share the space" : "Show the conversation again";
+                    clicked => {
+                        if (root.conversation-visible) {
+                            root.conversation-offset = chat-list.content-y;
+                            root.conversation-visible = false;
+                        } else {
+                            root.conversation-visible = true;
+                            chat-list.content-y = root.conversation-offset;
                         }
                     }
                 }
+            }
 
-                chat-list := ListView {
-                    vertical-stretch: 1;
-                    accessible-role: AccessibleRole.list;
-                    accessible-label: "Ten thousand chat lines";
+            chat-list := ListView {
+                visible: root.conversation-visible;
+                vertical-stretch: 1;
+                accessible-role: AccessibleRole.list;
+                accessible-label: "Ten thousand chat lines";
 
-                    for message in root.messages: Rectangle {
-                        height: 28px;
-                        background: #282623;
+                for message in root.messages: Rectangle {
+                    height: 28px;
+                    background: #282623;
 
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 8px;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
 
-                            Text {
-                                text: message.author;
-                                width: 48px;
-                                color: #e0b15a;
-                                vertical-alignment: center;
-                            }
+                        Text {
+                            text: message.author;
+                            width: 48px;
+                            color: #e0b15a;
+                            vertical-alignment: center;
+                        }
 
-                            Text {
-                                text: message.body;
-                                color: #f4f1ea;
-                                vertical-alignment: center;
-                                overflow: elide;
-                            }
+                        Text {
+                            text: message.body;
+                            color: #f4f1ea;
+                            vertical-alignment: center;
+                            overflow: elide;
                         }
                     }
                 }
