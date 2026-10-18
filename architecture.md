@@ -379,8 +379,8 @@ These checks complete mandatory ADRs; they are not the user-facing integrated pr
 | Decision | Why it matters | Gate |
 | --- | --- | --- |
 | Long-term host and region | The first test host is in Azure East US; later regions need measured demand | Before changing deployment |
-| Public DNS and reachability evidence | Azure-provided media and TURN names are selected for the first test; assigned addresses, secondary guest IP, TLS, ICE, and TURN still need verification | Before external test |
-| UDP port range versus UDP mux | Changes firewall/router mapping and load profile | Before final LiveKit config |
+| External media reachability evidence | Azure public DNS, guest IPs, HTTPS, TURN TLS, ICE/TCP reachability, and unauthenticated TURN/UDP STUN passed from Cloud Shell; ICE/UDP media, authenticated TURN allocation, and clients on separate networks still need verification | Before media test completion |
+| UDP port range versus UDP mux at larger scale | The first-test VM uses UDP mux `7882`; its load profile and any later port-range change need measurement | Before changing LiveKit media config |
 | Screen-share codec, resolution, frame rate, and bitrate cap | Dominates egress and text readability | Cross-platform media prototype |
 | Enforceable moderation revocation design | Self-hosted tokens have a rejoin window despite an active kick or ban | Before moderation release |
 | Backup recovery targets and retention | Determines backup frequency and WAL need | Before real users |

@@ -43,6 +43,31 @@ Keep a community ID in persisted records even though only one community can be c
 
 ## Verification and handoff
 
+The local implementation uses `policy::authorize` for current account, session,
+membership, and management-grant checks. Writes call `policy::lock_write` inside
+their transaction. The current role/action matrix is:
+
+| Action | Active user | Active admin with app token | Active admin with grant |
+| --- | --- | --- | --- |
+| Read community and channels; create text/voice channel | Allow | Allow | Use the app token |
+| Update community name/description; issue invitation; moderate a user | Deny | Deny | Allow |
+| Assign or remove admin | Host command only | Host command only | Host command only |
+
+Migration `3` adds channels, an authorization revision, and a community audit.
+Kick and ban revoke the target's sessions in the same transaction. Moderation
+and host role changes increment the revision and emit a transactional
+`cordel_authorization` PostgreSQL notification containing only IDs and the
+revision. WS and media services must consume the signal and recheck the
+database; their integration has not been built. The normal host demotion
+command rejects removal of the last active admin.
+
+The local source passed Azure Cloud Shell Rust 1.99.1 formatting, Clippy with
+`-D warnings`, unit tests, both disposable PostgreSQL flows, and a restricted
+runtime-role row-lock probe after the final module split. The Azure VM still
+runs the ADR-002 binary and schema through migration `2`. Live moderation and
+host role-change checks, WS/media policy consumers, and old-token revocation
+evidence remain.
+
 - Test a matrix of both roles for channel creation, community-setting changes, inviting, kicking, banning, unbanning, read/write, and media admission. Direct API requests from a `user` must fail for admin operations even if the client UI hides them.
 - Test that an `admin` using only an ordinary app access token also fails management calls, while a current session-bound admin grant succeeds. Expiry, explicit lock, logout, role removal, and host recovery must deny later management requests. Check that audit records identify the account and session, never a shared password holder.
 - Test 30-minute and longer kicks, expiry, indefinite bans, an admin as the attempted target, and zero-admin prevention.
