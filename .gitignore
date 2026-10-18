@@ -17,5 +17,8 @@ target/
 # Temporary Cloud Shell transfer archives.
 /cordel-adr002-source.tar.gz
 /cordel-adr002-tested.tar.gz
+/cordel-adr003-source.tar.gz
+/cordel-adr003-split-source.tar.gz
+/cordel-adr003-tested.tar.gz
 /cordel-admin-grant-source.tar.gz
 /cordel-client102-source*.tar.gz

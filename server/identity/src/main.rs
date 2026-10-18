@@ -1,4 +1,4 @@
-use cordel_identity::{bootstrap_admin, recover_admin, router, AppState};
+use cordel_identity::{bootstrap_admin, change_admin_role, recover_admin, router, AppState};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::net::SocketAddr;
@@ -9,9 +9,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = args.get(1).map(String::as_str).unwrap_or("");
     if !matches!(
         command,
-        "migrate" | "serve" | "bootstrap-admin" | "recover-admin"
+        "migrate" | "serve" | "bootstrap-admin" | "recover-admin" | "grant-admin" | "revoke-admin"
     ) {
-        return Err("Usage: cordel-identity migrate | serve | bootstrap-admin <login> <community-name> | recover-admin <login>".into());
+        return Err("Usage: cordel-identity migrate | serve | bootstrap-admin <login> <community-name> | recover-admin <login> | grant-admin <login> | revoke-admin <login>".into());
     }
     let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
     let pool = PgPoolOptions::new()
@@ -52,14 +52,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() != expected_args {
         return Err("Incorrect command arguments".into());
     }
+    let operator = env::var("SUDO_USER")
+        .or_else(|_| env::var("USER"))
+        .unwrap_or_else(|_| "host-operator".to_owned());
+    if command == "grant-admin" || command == "revoke-admin" {
+        change_admin_role(&pool, login, command == "grant-admin", &operator).await?;
+        println!("Host admin role changed; audit record written.");
+        return Ok(());
+    }
     let password = rpassword::prompt_password("New admin password: ")?;
     let confirmation = rpassword::prompt_password("Confirm password: ")?;
     if password != confirmation {
         return Err("Passwords do not match".into());
     }
-    let operator = env::var("SUDO_USER")
-        .or_else(|_| env::var("USER"))
-        .unwrap_or_else(|_| "host-operator".to_owned());
     if command == "bootstrap-admin" {
         bootstrap_admin(&pool, login, &password, &args[3], &operator).await?;
         println!("First admin created; host audit record written.");

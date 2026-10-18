@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Check the staged snapshot only; local unstaged edits do not affect this gate.
+set -euo pipefail
+
+limit_bytes=20000
+failed=0
+
+while IFS= read -r -d '' path; do
+  case "$path" in
+    Cargo.lock|*/Cargo.lock|package-lock.json|*/package-lock.json|pnpm-lock.yaml|*/pnpm-lock.yaml|yarn.lock|*/yarn.lock|*.generated.*|*.g.rs|generated/*|*/generated/*|codegen/*|*/codegen/*|vendor/*|*/vendor/*|third_party/*|*/third_party/*)
+      continue ;;
+    *.rs|*.md|*.sql|*.sh|*.py|*.toml|*.json|*.yaml|*.yml|*.slint|*.js|*.jsx|*.ts|*.tsx|*.css|*.html|*.c|*.h|*.go|*.txt)
+      ;;
+    *) continue ;;
+  esac
+  bytes=$(git cat-file -s ":$path")
+  if (( bytes > limit_bytes )); then
+    printf 'Staged file exceeds 5,000 estimated tokens: %s (%s bytes, about %s tokens).\n' \
+      "$path" "$bytes" "$(( (bytes + 3) / 4 ))" >&2
+    failed=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+if (( failed )); then
+  cat >&2 <<'MESSAGE'
+Split each rejected hand-edited file into smaller cohesive modules or documents.
+Update imports or links to the new files, stage the split files, and retry the commit.
+Lockfiles and generated code are excluded; the check reads only staged file contents.
+MESSAGE
+  exit 1
+fi

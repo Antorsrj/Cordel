@@ -5,8 +5,9 @@ set -euo pipefail
 umask 077
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-[[ -f "$repo_root/server/identity/Cargo.toml" && -f "$repo_root/protocol/Cargo.toml" ]] || {
-  echo 'Extract the full ADR-002 source bundle before running this script.' >&2
+[[ -f "$repo_root/server/identity/Cargo.toml" && -f "$repo_root/protocol/Cargo.toml" \
+   && -f "$repo_root/docs/contracts/fixtures/v1/identity_session_response.json" ]] || {
+  echo 'Extract the source bundle with protocol contract fixtures before running this script.' >&2
   exit 1
 }
 
@@ -15,8 +16,8 @@ if [[ "${1:-}" == '--cleanup' ]]; then
   echo 'Temporary ADR-002 Rust toolchain and build cache removed from Cloud Shell.'
   exit 0
 fi
-[[ $# -eq 0 || "${1:-}" == '--with-db' ]] || {
-  echo 'Usage: bash server/identity/cloud-shell-check.sh [--with-db|--cleanup]' >&2
+[[ $# -eq 0 || "${1:-}" == '--with-db' || "${1:-}" == '--adr003' ]] || {
+  echo 'Usage: bash server/identity/cloud-shell-check.sh [--with-db|--adr003|--cleanup]' >&2
   exit 2
 }
 
@@ -46,10 +47,12 @@ cargo test --manifest-path protocol/Cargo.toml --jobs 1
 cargo fmt --manifest-path server/identity/Cargo.toml
 cargo clippy --manifest-path server/identity/Cargo.toml --all-targets --jobs 1 -- -D warnings
 cargo test --manifest-path server/identity/Cargo.toml --jobs 1
-cargo fmt --manifest-path client/state/Cargo.toml
-cargo clippy --manifest-path client/state/Cargo.toml --all-targets --jobs 1 -- -D warnings
-cargo test --manifest-path client/state/Cargo.toml --jobs 1
-cargo build --manifest-path client/state/Cargo.toml --examples --jobs 1
+if [[ "${1:-}" != '--adr003' ]]; then
+  cargo fmt --manifest-path client/state/Cargo.toml
+  cargo clippy --manifest-path client/state/Cargo.toml --all-targets --jobs 1 -- -D warnings
+  cargo test --manifest-path client/state/Cargo.toml --jobs 1
+  cargo build --manifest-path client/state/Cargo.toml --examples --jobs 1
+fi
 
 test_root=''
 cleanup_db() {
@@ -60,7 +63,7 @@ cleanup_db() {
 }
 trap cleanup_db EXIT
 
-if [[ "${1:-}" == '--with-db' ]]; then
+if [[ "${1:-}" == '--with-db' || "${1:-}" == '--adr003' ]]; then
   for tool in initdb pg_ctl postgres psql pg_isready python3; do
     command -v "$tool" >/dev/null || { echo "Cloud Shell needs $tool for rootless PostgreSQL." >&2; exit 1; }
   done
@@ -78,11 +81,37 @@ if [[ "${1:-}" == '--with-db' ]]; then
     --no-psqlrc --set=ON_ERROR_STOP=1 --quiet -c "CREATE DATABASE \"$test_db\"" >/dev/null
   export CORDEL_TEST_DATABASE_URL="postgresql://cordel_pg_test@127.0.0.1:$test_port/$test_db"
   cargo test --manifest-path server/identity/Cargo.toml disposable_database_identity_flow --jobs 1 -- --ignored --nocapture
+  if [[ "${1:-}" == '--adr003' ]]; then
+    cargo test --manifest-path server/identity/Cargo.toml disposable_database_community_flow --jobs 1 -- --ignored --nocapture
+    psql -h 127.0.0.1 -p "$test_port" -U cordel_pg_test -d "$test_db" \
+      --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'
+CREATE ROLE cordel_identity_app NOLOGIN;
+GRANT USAGE ON SCHEMA public TO cordel_identity_app;
+GRANT SELECT ON communities TO cordel_identity_app;
+GRANT SELECT, INSERT ON accounts, memberships TO cordel_identity_app;
+GRANT SELECT, INSERT, UPDATE ON invitations, sessions, refresh_credentials, admin_grants TO cordel_identity_app;
+GRANT INSERT ON admin_audit TO cordel_identity_app;
+GRANT UPDATE (created_at) ON accounts TO cordel_identity_app;
+\i server/identity/runtime-grants-003.sql
+SET ROLE cordel_identity_app;
+BEGIN;
+SELECT 1 FROM accounts LIMIT 1 FOR SHARE;
+SELECT 1 FROM memberships LIMIT 1 FOR UPDATE;
+SELECT 1 FROM channels LIMIT 1;
+ROLLBACK;
+SQL
+    echo 'ADR-003 restricted-role row-lock probe passed.'
+  fi
   unset CORDEL_TEST_DATABASE_URL
 fi
 
-tar -czf "$repo_root/cordel-adr002-tested.tar.gz" -C "$repo_root" \
-  server/identity protocol client/state docs/contracts/fixtures/v1/identity_*.json \
-  docs/contracts/fixtures/v1/admin_grant_*.json
-echo 'ADR-002 and Client-102 checks passed. Download cordel-adr002-tested.tar.gz to return formatted source and Cargo.lock.'
+if [[ "${1:-}" == '--adr003' ]]; then
+  tar -czf "$repo_root/cordel-adr003-tested.tar.gz" -C "$repo_root" server/identity protocol
+  echo 'ADR-003 checks passed. Download cordel-adr003-tested.tar.gz to return formatted source and Cargo.lock.'
+else
+  tar -czf "$repo_root/cordel-adr002-tested.tar.gz" -C "$repo_root" \
+    server/identity protocol client/state docs/contracts/fixtures/v1/identity_*.json \
+    docs/contracts/fixtures/v1/admin_grant_*.json
+  echo 'ADR-002 and Client-102 checks passed. Download cordel-adr002-tested.tar.gz to return formatted source and Cargo.lock.'
+fi
 echo 'When finished, run: bash server/identity/cloud-shell-check.sh --cleanup'

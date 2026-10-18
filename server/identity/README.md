@@ -1,6 +1,6 @@
 # ADR-002 identity service
 
-This Axum crate is the first server application component. It implements invite-gated account creation, login, rotating refresh credentials, logout, `GET /v1/me`, admin-issued invitations, and host-only first-admin bootstrap and credential recovery. The standalone API is deployed on the Azure test VM with disposable `test-admin` and regular `test-user` accounts in the `Cordel-Test` community. Server ADR-003 must provide the shared authorization policy and moderation operations; Server ADR-009 must add browser cookies and CSRF. No public admin recovery, public community creation, or email reset route exists.
+This Axum crate is the first server application component. It implements invite-gated account creation, login, rotating refresh credentials, logout, `GET /v1/me`, admin-issued invitations, and host-only first-admin bootstrap and credential recovery. The standalone ADR-002 API is deployed on the Azure test VM with disposable `test-admin` and regular `test-user` accounts in the `Cordel-Test` community. Local ADR-003 source adds community and channel routes, moderation, a reusable authorization policy, and host-only admin role changes; it is not deployed. Server ADR-009 must add browser cookies and CSRF. No public admin recovery, public community creation, or email reset route exists.
 
 The source now implements a short-lived, session-bound admin grant obtained by re-entering the account's own password. The invitation route requires that grant; an ordinary admin app access token is rejected. On the Azure VM, migration `2`, runtime grants, and the new API binary are installed. The guarded local route probe passed. The row-lock privilege repair and focused disposable-admin invitation checks passed. Do not admit real users until the remaining deployment and product gates pass. See the [upgrade handoff](../../deploy/native/admin-grant-upgrade-handoff.md).
 
@@ -17,9 +17,13 @@ The host-only commands prompt for the password without placing it in process arg
 ```bash
 cargo run -- bootstrap-admin admin "Test Community"
 cargo run -- recover-admin admin
+cargo run -- grant-admin existing-user
+cargo run -- revoke-admin existing-admin
 ```
 
-Run those only through authorized host access. `bootstrap-admin` refuses a second community. `recover-admin` changes an existing admin password, revokes that account's sessions, and writes an audit row. Both commands write `host_audit` with the OS operator name; the host access log is the authoritative proof of who ran them. Avoid shell history, HTTP, and chat for credentials.
+Run those only through authorized host access. `bootstrap-admin` refuses a second community. `recover-admin` changes an existing admin password, revokes that account's sessions, and writes an audit row. The role commands reject moderated promotion and removal of the last active admin. All commands write `host_audit` with the OS operator name; the host access log is the authoritative proof of who ran them. Avoid shell history, HTTP, and chat for credentials.
+
+ADR-003 migration `3` and its routes remain local. Apply [runtime-grants-003.sql](runtime-grants-003.sql) with the PostgreSQL operator role after migration and before switching the binary. It grants only the new channel, audit, community, and membership privileges the restricted API role needs. Existing session and grant privileges remain necessary. Build and migration deployment require a separate host change; a successful source check is not a VM deployment.
 
 ## Contract and limits
 
@@ -37,6 +41,7 @@ Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo
 
 ```bash
 cargo test disposable_database_identity_flow -- --ignored --nocapture
+cargo test disposable_database_community_flow -- --ignored --nocapture
 ```
 
 The test asserts the database-name prefix before truncating its identity tables. It covers first-admin bootstrap refusal on repeat, denial of an ordinary admin token at the invitation route, password unlock, demotion and explicit lock, concurrent single-use redemption, expired and colliding redemption, refresh rotation/reuse revocation, logout, recovery, and stored hash/audit properties. Do not point it at the Azure test VM's normal Cordel database or any database with user data. `cargo test` without `--ignored` runs only unit checks, not this database proof.
