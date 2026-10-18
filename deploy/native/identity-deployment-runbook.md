@@ -96,7 +96,7 @@ az vm run-command invoke \
   --query 'value[].message' --output tsv
 ```
 
-After migration, upload `install-identity.sh` to Cloud Shell and invoke it without parameters. In this test mode it selects the pinned guest artifact path and verifies its digest before installation.
+After migration, upload the current `install-identity.sh` to Cloud Shell and invoke it without parameters. A new Cloud Shell session does not retain previously uploaded scripts, but the VM's database and build artifact persist. In this test mode the installer selects the pinned guest artifact path and verifies its digest. It also checks the empty first schema, validates both Caddy configurations before changing files, and creates `/root/Cordel.caddy.pre-identity` as a root-only rollback copy. It refuses an existing copy or partial identity install. If a later step fails, it attempts to restore Caddy and remove the binary and unit it just created; inspect the remaining service account and state directory before any retry.
 
 ```bash
 az vm run-command invoke \
@@ -118,10 +118,9 @@ The API uses the runtime role URL from `/etc/cordel/identity.env`. The host-side
 
 ## Install and start
 
-First capture safe rollback copies and current state:
+The installer creates a root-only Caddy rollback copy. Do not create that path manually before running it, because the installer refuses to overwrite an existing copy. If using an interactive host session, first inspect current services and listeners without displaying secrets:
 
 ```bash
-sudo cp -a /etc/caddy/Cordel.caddy /root/Cordel.caddy.pre-identity
 sudo systemctl is-active caddy postgresql
 sudo ss -lntp
 ```
@@ -134,7 +133,7 @@ sudo bash install-identity.sh \
   dcc97ecceda9024b6895c4331b907ae92653562f2490272d242b505a39a2f4c5
 ```
 
-The script checks checksum and preconditions, creates a dedicated `cordel` service account, installs a systemd unit, and updates Caddy. It leaves the API disabled and stopped. Review `/etc/systemd/system/cordel-api.service` and the Caddy route structure without printing `/etc/cordel/identity.env`.
+The script checks checksum, schema, and host preconditions, creates a dedicated `cordel` service account, installs a systemd unit, and updates Caddy. It leaves the API disabled and stopped. Review `/etc/systemd/system/cordel-api.service` and the Caddy route structure without printing `/etc/cordel/identity.env`.
 
 The migration script must have reported `identity_schema=applied`, `identity_tables=7`, `migrations=1`, and `accounts=0` before this installation. Verify `/etc/cordel/identity.env` is root-owned mode `0600` without displaying its contents. Then start and inspect:
 
