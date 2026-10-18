@@ -2,14 +2,14 @@
 
 This procedure installs the current `server/identity` crate on the existing Ubuntu 24.04 VM. It is a deployment gate for the standalone identity component, not an integrated Cordel release: ADR-003 authorization, ADR-009 browser admission, client session handling, backups, and first-test mandatory ADR completion remain separate. Do not expose an invitation flow to test users until those gates and a reviewed release are complete.
 
-**Current Azure state (owner-reported, 2026-10-18):** the pinned identity binary has been built. `setup-identity-postgres-empty-test.sh` created the empty `cordel_identity` database, two roles, and protected credential files. The backup/restore gate was explicitly skipped for this isolated test. The owner-reported migration applied one schema migration and verified seven identity tables with zero accounts. The API and Caddy identity route have not been installed. **Do not rerun database setup or the first migration.** The next stage is API installation after verifying this state on the VM.
+**Current Azure state (owner-reported, 2026-10-18):** the pinned identity binary has been built. `setup-identity-postgres-empty-test.sh` created the empty `cordel_identity` database, two roles, and protected credential files. The backup/restore gate was explicitly skipped for this isolated test. The owner-reported migration applied one schema migration and verified seven identity tables with zero accounts. The owner-reported installer verified its SHA-256, installed the API binary/unit and Caddy `/v1/*` route, created `/root/Cordel.caddy.pre-identity`, and initially left `cordel-api` disabled. **Do not rerun database setup, the first migration, or installation.** A later VM check found the API active on `127.0.0.1:3000` and a local HTTP 403 for public registration. A Cloud Shell request through public HTTPS returned HTTP 403 with `public_registration_disabled`; the media root still returned HTTP 200 with valid TLS. Cloud Shell TCP probes found public ports 3000, 5432, and 7880 blocked. The owner then enabled `cordel-api` for boot. After a VM reboot, PostgreSQL, Caddy, LiveKit, and the API were active, the API still listened on `127.0.0.1:3000`, and public HTTPS still returned HTTP 403 with valid TLS. The Cloud Shell SSH source changed, so the NSG allowlist was narrowed to its new `/32`. Entra SSH and administrator `sudo` worked; the SSH ED25519 fingerprint matched an independent Azure Run Command check. The owner then created the disposable `test-admin` account and `Cordel-Test` community from an interactive Entra SSH session; the host CLI reported an audit record. The database is now nonempty. Live login proof remains.
 
 ## Preconditions
 
 - Use an approved maintenance window and authorized VM access. Check the current VM, PostgreSQL health, disk space, and deployment record first.
 - Build the reviewed source commit `cf373b62dfb270badb137c20e5d380949c3e9b4d` on Ubuntu 24.04 using the procedure below. Cloud Shell runs Azure Linux 3 and must not be assumed ABI-compatible with this guest. Record the source revision, Rust version, build command, and SHA-256. Never transfer credentials with the executable.
 - The build uses the published Cordel repository and pins its full source revision. Do not build from an unreviewed source copy.
-- For a normal deployment, confirm a verified PostgreSQL backup and restore procedure before schema changes. The owner explicitly authorized skipping that gate on 2026-10-18 for this isolated first test while the identity database and roles do not exist. This exception permits a disposable technical deployment only: do not invite real users, promise recovery, or mark ADR-007 Done. Never use a production-like user database for a test.
+- For a normal deployment, confirm a verified PostgreSQL backup and restore procedure before schema changes. The owner explicitly authorized skipping that gate on 2026-10-18 for this isolated first test while the identity database and roles were absent. This exception permits a disposable technical deployment only: do not invite real users, promise recovery, or mark ADR-007 Done. Never use a production-like user database for a test.
 - Existing Caddy routes media traffic to LiveKit. The installer adds `/v1/*` to loopback Axum and keeps other paths routed to LiveKit. It validates a candidate Caddyfile before replacing the live file.
 
 ## Read-only Azure guest preflight
@@ -96,7 +96,7 @@ az vm run-command invoke \
   --query 'value[].message' --output tsv
 ```
 
-After migration, upload the current `install-identity.sh` to Cloud Shell and invoke it without parameters. A new Cloud Shell session does not retain previously uploaded scripts, but the VM's database and build artifact persist. In this test mode the installer selects the pinned guest artifact path and verifies its digest. It also checks the empty first schema, validates both Caddy configurations before changing files, and creates `/root/Cordel.caddy.pre-identity` as a root-only rollback copy. It refuses an existing copy or partial identity install. If a later step fails, it attempts to restore Caddy and remove the binary and unit it just created; inspect the remaining service account and state directory before any retry.
+For a fresh deployment after migration, upload the current `install-identity.sh` to Cloud Shell and invoke it without parameters. This stage passed on the current VM on 2026-10-18; do not rerun it there. A new Cloud Shell session does not retain previously uploaded scripts, but the VM's database and build artifact persist. In this test mode the installer selects the pinned guest artifact path and verifies its digest. It also checks the empty first schema, validates both Caddy configurations before changing files, and creates `/root/Cordel.caddy.pre-identity` as a root-only rollback copy. It refuses an existing copy or partial identity install. If a later step fails, it attempts to restore Caddy and remove the binary and unit it just created; inspect the remaining service account and state directory before any retry.
 
 ```bash
 az vm run-command invoke \
@@ -137,6 +137,25 @@ The script checks checksum, schema, and host preconditions, creates a dedicated 
 
 The migration script must have reported `identity_schema=applied`, `identity_tables=7`, `migrations=1`, and `accounts=0` before this installation. Verify `/etc/cordel/identity.env` is root-owned mode `0600` without displaying its contents. Then start and inspect:
 
+From Azure Cloud Shell, the following separate Run Command stage starts the already installed service and prints its listener for loopback review. It does not enable the service at boot or print credentials:
+
+```bash
+az vm run-command invoke \
+  --subscription f77cc05e-0316-4c39-9ee2-74b5d9078f0a \
+  --resource-group rg-cordel-test-eastus \
+  --name vm-cordel-test-01 \
+  --command-id RunShellScript \
+  --scripts 'set -eu
+systemctl start cordel-api.service
+systemctl is-active cordel-api.service
+ss -lnt | grep 3000' \
+  --query 'value[].message' --output tsv
+```
+
+Check the output before the public HTTPS proof. If the service fails to start, inspect unit status and logs on the VM without displaying environment files. Do not rerun installation or migration.
+
+For an interactive SSH session, the equivalent initial checks are:
+
 ```bash
 sudo systemctl start cordel-api.service
 sudo systemctl --no-pager --full status cordel-api.service
@@ -163,7 +182,7 @@ unset DATABASE_URL
 exit
 ```
 
-The binary prompts for the password twice and writes a `host_audit` record. This command creates the initial community as well as its first admin; run it once only. `recover-admin` also prompts and revokes sessions, and must follow the ADR-002 authorized host recovery procedure. Never put passwords in command arguments. The current Axum service is not sufficient to represent the finished Cordel product and does not implement ADR-003 authorization or ADR-009 browser controls.
+The binary prompts for the password twice and writes a `host_audit` record. This command created the initial community and first admin on the current VM on 2026-10-18; **do not run it again there**. For a fresh replacement, run it once only after verifying the target database state. `recover-admin` also prompts and revokes sessions, and must follow the ADR-002 authorized host recovery procedure. Never put passwords in command arguments. The current Axum service is not sufficient to represent the finished Cordel product and does not implement ADR-003 authorization or ADR-009 browser controls.
 
 ## Rollback
 
