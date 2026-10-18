@@ -22,3 +22,5 @@ target/
 /cordel-adr003-tested.tar.gz
 /cordel-admin-grant-source.tar.gz
 /cordel-client102-source*.tar.gz
+/cordel-phase0-login-source.tar.gz
+/cordel-phase0-sync-source.tar.gz

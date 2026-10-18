@@ -27,7 +27,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Client 103 — Capture/playback](adr/client/ADR-103-capture-playback.md) | 20% | Decision accepted | Implement Linux device paths and two-share playback |
 | [Client 104 — Browser test client](adr/client/ADR-104-browser-test-client.md) | 20% | Decision accepted | Build diagnostic client after Server 009 gate |
 | [Client 106 — Licensing](adr/client/ADR-106-license-distribution.md) | 50% | Source license and known inventory published on feature branch | Packaged About attribution and full notice audit |
-| [Client 107 — Journal UX](adr/client/ADR-107-journal-ux.md) | 30% | Written spec and uncommitted local Phase 0 controls | Build and prove three Journal states and accessibility |
+| [Client 107 — Journal UX](adr/client/ADR-107-journal-ux.md) | 30% | Written spec and provisional Phase 0 controls in source | Build and prove three Journal states and accessibility |
 
 All 16 are required before the first **user-facing integrated product test**. None is Done. Isolated code and infrastructure checks are allowed during implementation.
 

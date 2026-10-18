@@ -8,8 +8,18 @@ fn main() {
 fn link_linux_capture_libs() {
     // libwebrtc's Linux screen capturer references GLib, PipeWire, and GBM,
     // and those flags are not always carried out of the webrtc-sys archive.
-    for package in ["gio-2.0", "gobject-2.0", "glib-2.0", "libpipewire-0.3", "gbm", "libdrm"] {
-        let output = match std::process::Command::new("pkg-config").args(["--libs", package]).output() {
+    for package in [
+        "gio-2.0",
+        "gobject-2.0",
+        "glib-2.0",
+        "libpipewire-0.3",
+        "gbm",
+        "libdrm",
+    ] {
+        let output = match std::process::Command::new("pkg-config")
+            .args(["--libs", package])
+            .output()
+        {
             Ok(output) => output,
             Err(err) => {
                 println!("cargo:warning=pkg-config failed for {package}: {err}");
