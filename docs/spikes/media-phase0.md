@@ -1,10 +1,16 @@
 # Phase 0 media spike — Linux (ADR-103)
 
-**Status:** evidence collected; the Phase 0 media gate is **not passed yet**.
+**Status:** the **Wayland half** of the Phase 0 media gate is met: a real room with three
+clients, capture, publication, reception and on-screen display of two remote screen
+shares at once. Open: the X11 half, a *live* capture stream (the shell currently
+re-pushes one captured frame), two-network behavior, hotplug, and permission denial.
 
-**Date:** 2026-10-17  **Revised:** 2026-10-17 — Findings 1 and 2 were both corrected after review; see "Revision" at the end.
+**Date:** 2026-10-17  **Revised:** 2026-10-18 — the room test was added, and the
+sections that claimed a room had never been joined were corrected; see "Revision".
 
-**Code:** `client/media/` — the Client 103 media crate (Phase 0 prototype, not a product build). Probe binary: `probe`.
+**Code:** `client/media/` — the Client 103 media crate (Phase 0 prototype, not a product
+build). Probe binary: `probe`. The room test additionally ran the shell,
+`client/phase0`, which drives this crate through the product's own UI.
 
 ## What the gate asks for
 
@@ -356,70 +362,222 @@ and takes the indicator down.
 The probe follows the same rule at the command line: `probe capture` and
 `probe mic` do nothing without `--yes`, and print what they would do instead.
 
+## Room test — three clients, one local LiveKit server (2026-10-18)
+
+Findings 1–6 came from the crate and the probe. This section is the shell
+(`client/phase0`, commit `07d7555`) on top of the crate, against a real server: the
+"publish, receive and display in a room" half of the gate, plus ADR-103's own load test
+(two remote screen shares at once, one of them detached into its own window, with no
+rejoin and no second track).
+
+### Setup
+
+| | |
+| --- | --- |
+| Server | `livekit-server` 1.13.10 from the vendor's release, run as an unprivileged user in its documented development mode, bound to `127.0.0.1:7880`. No Docker (its daemon is not running on this machine) and no root. |
+| Room | `cordel-test`; created on the first join, deleted by the server when the last participant left |
+| Clients | three copies of one release binary, `client/media/target/release/cordel-phase0` |
+| Hosts | **one** machine and **one** network for all three clients |
+| Tokens | minted locally for the server's development mode (`roomJoin`, `canPublish`, `canSubscribe`), one per identity, read from files so they never reach a command line or a log |
+
+alice and bruno each joined, accepted one KDE portal dialog, and published a screen
+share plus their microphone; carol joined and published her microphone only.
+
+### What the server saw
+
+`RoomService/ListParticipants` during the test:
+
+```
+- carol   AUDIO/MICROPHONE sid=TR_AM3BkFHds4jyXb name='microphone'
+- alice   AUDIO/MICROPHONE sid=TR_AMEzXKdtKwTFSZ name='microphone'
+          VIDEO/SCREEN_SHARE 2560x1440 sid=TR_VSfkStsk6VRNDp name='screen-frame'
+- bruno   AUDIO/MICROPHONE sid=TR_AMGDUpTD8VJfWp name='microphone'
+          VIDEO/SCREEN_SHARE 2560x1440 sid=TR_VSMcYAKHmtHQNe name='screen-frame'
+```
+
+and the last `rtp stats` sample for each screen track:
+
+| Track | Codec | Frame rate | Bitrate | Packet loss | RTT |
+| --- | --- | --- | --- | --- | --- |
+| alice `screen-frame` 2560x1440 | VP8 | 2.29 fps | 339 kbps | 0.00% | 1 ms |
+| bruno `screen-frame` 2560x1440 | VP8 | 1.39 fps | 204 kbps | 0.00% | 1 ms |
+
+carol's window showed what the gate asks for: **two independent remote shares at once**,
+labelled `alice` and `bruno`, both rendering real desktop pixels on a stage that takes the
+room when shares exist — and no local tile, because she was not capturing.
+
+### The sequence ADR-103 asks for
+
+| UTC | Step | What was observed |
+| --- | --- | --- |
+| 02:21:29Z | carol joins (her second join; see "Stop and restart") | `connection setup took 28 ms` |
+| 02:22:28Z | carol's subscriber attaches to both screen tracks | `switching feed … layer 1` for `TR_VSfkStsk6VRNDp` and `TR_VSMcYAKHmtHQNe` |
+| ~02:29:30Z | **detach** alice's share into its own window | carol's stage drops to 1 share; a native window titled `Screen share - alice` renders it, with `Dock back` |
+| 02:29:43Z–02:35:48Z | while detached | both shares keep arriving at carol: alice 2.4–2.6, bruno 2.4–2.5 packets/s (server `connectionquality` samples) |
+| ~02:36:30Z | **dock** | carol's stage is back to 2 shares; the detached window is gone |
+| 02:44:58Z | **end one source**: alice presses Leave | `Disconnected from room "cordel-test" with reason: ClientInitiated`; the server lists 2 participants, and carol's window shows `alice stopped sharing.` with only bruno's tile, still rendering |
+| 02:45Z–02:54:08Z | after alice leaves | bruno's share still arriving at carol, 2.4–2.7 packets/s |
+
+### Finding 7 — the shell publishes a captured still, not a live capture
+
+`client/phase0/src/session.rs` captures one frame when the share starts and re-pushes
+that same frame every 500 ms (`PUBLISH_INTERVAL`), so the remote side receives a 2 fps
+stream of a still image — deliberately, since the re-push is what lets a subscriber who
+arrives later receive anything at all. The receive side hands at most one frame every
+66 ms (`SHARE_FRAME_INTERVAL`) to the UI thread. Everything downstream of the frame is
+real — encode, publish, subscribe, decode, render, detach — but *continuous* capture is
+not, and the rate the server measured says so out loud: 1.4–2.3 fps and 200–340 kbps
+against the negotiated 3 Mbps budget for the 2560x1440 layer. There is also no "stop
+sharing" control; only Leave ends a share.
+
+That is the next real piece of work rather than a measurement gap. The capturer already
+delivers frames on its own cadence (Finding 1's probe run received a continuous stream),
+so this is plumbing those frames into the track instead of re-pushing one, plus deciding
+what happens to frame rate and bitrate when the call also carries voice — which is the
+"voice beats screen" behavior ADR-103 requires.
+
+### Finding 8 — the SDK applies AEC, AGC and noise suppression by default
+
+Every client logged this at join:
+
+```
+Audio processing configured: AEC=true, AGC=true, NS=true, prefer_hw=false
+```
+
+So Finding 5's concern is narrower than it looked: the processing is already **on**, and
+`PlatformAudio` exposes the switches. Cordel's gap is that ADR-103's interface has no way
+to configure it or show it to the user — nothing needs building to get the behavior, but
+a default nobody chose is not a decision.
+
+### Finding 9 — detaching a share does not disturb the session
+
+ADR-103 asks that detach/dock cost neither a rejoin nor a duplicate track, and that the
+feed keep coming while a share is detached. Measured across the detach and dock above:
+
+- carol's participant id (`PA_EWwNmPPL4uBY`) never changed, and her log recorded no new
+  connection — two for the whole session, the second being her own deliberate Leave/Join;
+- she published exactly one track throughout (`AUDIO/MICROPHONE`, `TR_AM3BkFHds4jyXb`), so
+  a detached view added no track and no re-publication;
+- alice's and bruno's track sids were unchanged before, during and after the detach; and
+- both video downlinks to carol held 2.4–2.6 packets/s with 0.00% loss and 1 ms RTT
+  through the whole detached period.
+
+The detach is UI state, not media state: the `ShareTile` holding the decoded frame moves
+between the stage model and the detached window, and Slint shares those pixels rather
+than copying them, so a detached view re-decodes nothing.
+
+### Simulcast came for free, and Cordel does not choose a layer
+
+The published track negotiated `simulcast: true` with two VP8 layers — `LOW` 1280x720 at
+150 kbps and `MEDIUM` 2560x1440 at 3 Mbps — although `client/media` sets no encoding:
+`TrackPublishOptions` is left at its defaults with only the screen-share source chosen.
+The server then sent carol the higher layer (`currentLayer: VideoLayer{s: 1, t: 0}`,
+`maxLayer: VideoLayer{s: 1, t: 3}`) without the client asking for anything. ADR-103 asks
+for lower receive layers when a share is small or hidden while keeping an enlarged view
+readable; the machinery exists and is running, and no Cordel code drives it yet.
+
+### Client cost, two real shares
+
+Ten-second averages taken during the run, from `/proc/<pid>/status` (`VmRSS`) and
+`/proc/<pid>/stat` (`utime`+`stime`), with the clients matched to identities by their
+join tokens:
+
+| Client | RSS | CPU |
+| --- | --- | --- |
+| carol (decodes two remote shares, captures nothing) | 437 MiB | 11.8% of one core |
+| alice (decodes one, publishes its own) | 591 MiB | 11.0% of one core |
+| bruno (decodes one, publishes its own) | 607 MiB | 10.9% of one core |
+
+On this machine (an 8-core/16-thread Ryzen 7 9800X3D) that is under 2% of the whole CPU
+per client. **It is a floor, not the cost of a live share**: Finding 7 means each client
+encodes or decodes a still at 2 fps, and a 30 fps live share is not measured by this.
+All three clients and the server shared one machine, which also inflates the CPU share
+each one appears to use.
+
+### Stop and restart
+
+carol pressed Leave mid-test and joined again. The leave released the platform ADM
+(`PlatformAdmHandle: released Platform ADM (ref_count now: 0)`) and the room recorded
+`Disconnected from room "cordel-test" with reason: ClientInitiated`; the rejoin came back
+as a new participant with the same identity and re-subscribed to both shares. No
+reconnection path was exercised: the connection never dropped on its own, so the SDK's
+`Reconnecting`/`Reconnected` events were not run.
+
 ## What this does not prove
 
-The gate needs two people, two directions and a real room. Those parts were **not**
-exercised, and the spike does not claim them:
+The gate asks for two people, both directions, and a real room. The room test closed
+the room part on one machine; what remains is:
 
-- **No room was joined.** A LiveKit server exists from ADR-001 (`deploy/`), but no
-  test room or join token was used here, so publish/subscribe in a room and the
-  receive → render loop end to end are unverified. `probe join --url … --token …`
-  implements that path and is untested against a server.
-- **No second client, no second network.** Two-way audio, echo, jitter and TURN
-  behavior are unmeasured.
-- **No window sharing.** `probe targets --windows` would list the user's open
-  window titles; that was deliberately not run, because window titles are private
-  content and this machine's screenshot evidence did not require them.
-- **Wayland portal capture was closed by hand, not by the client.** It now produces
-  real frames (Finding 1), but every run was driven from the probe with a person
-  accepting the KDE dialog; the client's own consent flow has not been exercised
-  end to end, and no share has been started or stopped through the UI.
-- **No real X11 session.** This machine is Wayland with XWayland, and the X11
-  capturer is only reached on a machine where PipeWire is absent, so that path is
-  still untested.
-- **No hotplug or permission-revocation during a live share.** The plumbing exists
-  (`switch_recording_device`, `set_permission`) but was not exercised while
-  publishing. The microphone opens, but nothing has recorded through a track and no
-  sample was ever looked at, so "capture produces Cordel's audio" is not proven —
-  only that the ADM's capture stream opens and connects.
+- **No second network, and no second machine.** All three clients and the server shared
+  one host, one session and one network, so jitter, loss, TURN behavior and echo are
+  unmeasured — the 1 ms RTT in the table above is what a loopback looks like.
+- **Audio was delivered, not listened to.** Every subscriber received the other
+  participants' audio at 30–50 packets/s with 0.00% loss (server `connectionquality`
+  samples), and the ADM opened a playout device, but no person asserted that a voice was
+  intelligible, and echo behavior on speakers (rather than headphones) was not tried.
+- **No real X11 session.** This machine is Wayland with XWayland, and the X11 capturer is
+  only reached on a machine where PipeWire is absent, so that path is still untested.
+- **No window sharing as distinct from screen sharing.** `probe targets --windows` would
+  list the user's open window titles; that was deliberately not run, because window
+  titles are private content and this machine's screenshot evidence did not require them.
+  The shell's capture path asks the portal for a screen, so "share one window" is
+  unexercised.
+- **No denial path.** A share was started through the shell's own UI (click → KDE dialog →
+  frames published), but the portal dialog was always accepted. Cancel/deny, an OS-level
+  permission revocation during a live share, and hotplug are still untested; the state
+  machine for them is covered by tests, not by a run.
 - **No microphone other than the system default.** Finding 2: the SDK reports no
   per-device ids on Linux.
-- **Nothing was displayed on screen.** The render path was measured headlessly; no
-  window was opened, so "display of at least one screen frame" in the literal sense
-  is still open.
+- **No live capture stream.** Finding 7: what was published is one captured frame,
+  re-pushed, so a 30 fps share, its CPU cost, and its interaction with voice have not
+  been measured.
+- **No reconnection.** The SDK's `Reconnecting`/`Reconnected` events were never
+  exercised; the only disconnect was deliberate (Leave).
+
 
 ## Verdict
 
-**The media gate is not passed, but two of its three primitives now work.** Screen
-capture and microphone capture both succeed on this machine through the SDK's
-adapters (Findings 1 and 2); no frame or sample has yet been published, received or
-displayed in a room:
+**The Wayland half of the Phase 0 media gate is passed.** Capture, publication,
+reception and on-screen display now all happen in a real room: three clients, two remote
+2560x1440 shares rendered at once by a client that captured nothing. The X11 half is
+still untested, and what was shared is one captured frame re-pushed at 2 fps rather than
+a live capture stream, so the gate is met on the platform it was run on and claimed
+nowhere else.
 
 | Gate item | State |
 | --- | --- |
 | Screen capture (Wayland) | **Works** — real 2560x1440 frames, with the GLib main loop running via the SDK's `glib-main-loop` feature; needs a person to accept the dialog |
 | Screen capture (X11) | **Untested** — the X11 capturer is not reached on this machine (PipeWire is present), so a true X11 session still has to be tried |
 | Microphone capture | **Works** for the system default — the ADM opens and connects once a device is selected; other microphones are unreachable through this SDK (Finding 2) |
-| Remote audio playout | **Selected but unproven** — it needs the same device selection to initialise at all; no room has played anything |
+| Remote audio playout | **Delivered** — every subscriber received 30–50 packets/s of the others' audio with 0.00% loss; intelligibility and echo were not verified by ear |
+| Screen share: publish → subscribe → display | **Works** — two independent remote 2560x1440 shares displayed at once by a third client, over a real server |
+| Two shares, one detached, then docked | **Works** — no rejoin, no extra track, no re-publication, and the feed kept arriving while detached (Finding 9) |
+| Stop and restart | **Works** — Leave released the ADM and the rejoin re-subscribed; a dropped connection was never exercised |
 | Device enumerate/select/hot-swap API | **Partial** (3 recording, 4 playout devices listed; all ids empty, so only the default is addressable) |
-| Frame → UI rendering in Slint | **Works and is cheap** (≤3.1 ms per 2560x1440 real frame) |
-| Publish/subscribe in a room | **Unverified** — no room or token was used |
-| Consent and permission rules | **Works** (tested) |
+| Frame → UI rendering in Slint | **Works and is cheap** — ≤3.1 ms per 2560x1440 real frame, and two live remote shares stayed under 12% of one core on the receiving client |
+| Live capture | **Not implemented** — the shell re-pushes one captured frame (Finding 7) |
+| Receive-layer selection | **Present but unused** — the publisher negotiated two simulcast layers and the server picked one; no Cordel code asks for a layer |
+| Consent and permission rules | **Works** (tested), and the shell starts a share through the portal; the deny/cancel path was never taken |
 
 What this means for the decisions that depend on it:
 
 - **ADR-101's Slint commitment is not threatened by the render path.** Real captured
-  frames convert and hand off in 1–3 ms, so frame handling stays a small fraction of
+  frames convert and hand off in 1–3 ms, and the room test's cost table shows two live
+  remote shares fitting inside a UI budget, so frame handling stays a small fraction of
   a 33 ms budget.
 - **ADR-103's "common interface plus OS adapters" decision stands, and the SDK is a
   viable backend for the gate.** The interface is still needed — consent, hot-swap,
-  X11 versus Wayland, per-device selection, audio processing — but both directions of
-  audio came down to adapter code, and the portal handshake to a build-time feature
-  rather than a portal client of Cordel's own.
+  X11 versus Wayland, per-device selection, audio processing, receive-layer choice — but
+  both directions of audio and the whole room path came down to adapter code, and the
+  portal handshake to a build-time feature rather than a portal client of Cordel's own.
 - **Per-device audio selection is the one requirement inside ADR-103's own decision
   text that this SDK cannot meet on Linux.** It needs an upstream fix or Cordel's own
   capture path, and it is recorded as an open item rather than worked around
   silently.
+- **The largest remaining functional gap is live capture, not the platform.** Everything
+  downstream of a frame is proven; feeding the track a real capture stream, letting a
+  user stop sharing without leaving the room, and choosing a receive layer are all inside
+  the interface ADR-103 already describes.
 
 ## Next steps
 
@@ -434,13 +592,22 @@ What this means for the decisions that depend on it:
    Note the feature's own condition: it starts no GLib loop when `WAYLAND_DISPLAY` is
    unset, so an X11 session that still reaches WebRTC's PipeWire/portal capturer
    would need that gap closed (upstream, or a pump of our own as a fallback).
-4. **Display a shared frame and prove the two-track detach/dock path** the current
-   ADR-103 asks for, including a portal run whose negotiated size changes mid-share.
-5. **Join a room with two clients** to close publish, subscribe and remote render. A
-   LiveKit server already exists from ADR-001 (`deploy/`), so this needs a test room
-   and a join token, not a new server.
-6. **Add audio processing (AEC/NS/AGC)** to ADR-103's interface, and the "voice beats
-   screen" implementation hint (Finding 5).
+4. **Publish a live capture stream instead of a re-pushed still** (Finding 7), and give
+   the user a way to stop sharing without leaving the room. The capturer already delivers
+   frames on its own cadence; the work is in `session.rs` and in deciding the frame rate
+   and bitrate policy when a call also carries voice — ADR-103's "voice beats screen".
+   Re-measure the two-share cost table afterwards, since it is a floor today.
+5. **Choose receive layers** (`set_video_quality` on the SDK's remote tracks): the
+   publisher already offers two simulcast layers and the server picks one by itself
+   (the simulcast note above), so ADR-103's "lower layers for small or hidden shares,
+   readable when enlarged" is wiring, not research.
+6. **Add audio processing (AEC/NS/AGC) to ADR-103's interface.** Finding 8 shows the SDK
+   applies them by default, so the interface's job is to configure, expose and report
+   them rather than to build them. The "voice beats screen" hint (Finding 5) is still
+   unimplemented.
+7. **Re-run the room test across two machines** — a second network is what would exercise
+   jitter, loss, TURN and echo — and take the deny/cancel path in the portal dialog and a
+   device hotplug while a share is live.
 
 ## Reproducing
 
@@ -473,7 +640,75 @@ The `ui` feature resolves Slint to 1.18.1, the same version pinned by
 `client/phase0/Cargo.lock`, so a build that combines the shell and this crate
 resolves one toolkit version.
 
+### Reproducing the room test
+
+No Cordel server is needed: a stock `livekit-server` run in its documented development
+mode is enough, and it prints the key pair it will accept on startup. It was run on
+loopback with its administrative API available on the same port:
+
+```sh
+livekit-server --dev --bind 127.0.0.1        # serve on 127.0.0.1:7880
+```
+
+Mint one join token per identity — any JWT tool will do, HS256 over the key pair the
+server printed, with `sub`/`name` set to the identity and:
+
+```json
+{ "video": { "room": "cordel-test", "roomJoin": true, "canPublish": true, "canSubscribe": true } }
+```
+
+Then start one shell per identity, pointing it at the server. The shell reads its URL and
+token from the environment and takes the room and identity from the token, so **the token
+never has to appear in a command line or a log**:
+
+```sh
+cd client/media && cargo build --release           # the shared target dir for both crates
+CORDEL_LIVEKIT_URL=ws://127.0.0.1:7880 \
+CORDEL_LIVEKIT_TOKEN="$(cat /path/to/token-alice.jwt)" \
+  RUST_LOG=info ./target/release/cordel-phase0
+```
+
+`RUST_LOG=info` is what produced the log lines quoted above (`connection setup took`,
+`Audio processing configured`, `Disconnected … with reason`). Join, press the capture
+button, and accept the KDE portal dialog once per capturing client.
+
+What the server saw was read back over its own Twirp API against the same port — no
+client code involved:
+
+```sh
+curl -s -X POST http://127.0.0.1:7880/twirp/livekit.RoomService/ListParticipants \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"room":"cordel-test"}'
+```
+
+`ListParticipants` gives the tracks and resolutions in the tables above. The packet-rate
+and RTP figures come from the server's own debug log: `connectionquality … updating pps
+mode` every ~2 minutes per subscriber track, and `rtp stats` with bitrate, frame rate and
+packet loss. `ListRooms`/`ListParticipants` need an admin token whose `video` grant
+includes `roomList` and `roomAdmin` — a token with only `roomJoin` is rejected as
+unauthenticated.
+
+A `--fake-media` switch exists on the shell for UI work without a room: it feeds the same
+event queue with synthetic publishers. It proves nothing about the media path and was not
+used for any figure above.
+
 ## Revision
+
+- **2026-10-18 — the room test was run, and the report's claims about rooms were
+  corrected.** The earlier revisions said no room had been joined and that nothing had
+  been displayed on screen; both were true of the crate-level spike and both are now
+  past. The room test added Findings 7–9 (the shell publishes a still, the SDK turns
+  audio processing on by default, and detach/dock leaves the session untouched), a
+  measured client-cost table, and a "Reproducing the room test" section. The Verdict
+  table, "What this does not prove" and "Next steps" were rewritten to match: items 4
+  and 5 of the old next steps are done, and the gaps that remain are named.
+  - The audio-processing correction is the most consequential: Finding 5 implied Cordel
+    would have to build AEC/NS/AGC, and the client log says the SDK already applies all
+    three. What is missing is a way to configure and show them, not the behavior.
+  - The sharper gap is Finding 7: what was published and displayed is real media
+    downstream of a frame, but the frame itself is a still re-pushed at 2 fps. The
+    earlier text described the gate as "one screen frame in both directions", which is
+    exactly what this is — and it is not yet live screen sharing.
 
 - **2026-10-17 — Finding 2's cause was found, and Finding 1's fix was replaced by the
   SDK's own.**
@@ -513,8 +748,16 @@ resolves one toolkit version.
 ## Notes on method
 
 - No secrets, tokens, or real user data are in this crate or this report. Device
-  model names and window titles were deliberately left out.
-- The screen frames captured during development were used only for aggregate
-  statistics and were deleted; the pixel content was not inspected.
+  model names and window titles were deliberately left out. The join tokens used by the
+  room test were read from files rather than passed on a command line, so they never
+  reached a shell history, a log, or this document.
+- The screen frames captured during the crate spike were used only for aggregate
+  statistics and were deleted; the pixel content was not inspected. The room test is
+  different by design: it displayed the capturing clients' real desktop pixels to the
+  operator, which is what the gate asks for. Those pixels are the operator's own screen,
+  so no screenshot or captured frame from the room test is committed here; the images
+  used while writing this report were left in the session's temporary directory.
 - Timings are single-machine measurements, not guarantees. They say "not a
-  bottleneck here", not "fast enough everywhere".
+  bottleneck here", not "fast enough everywhere". The room test ran all three clients and
+  the server on one host and one network, so its cost table and 1 ms RTT say nothing
+  about a real call across the internet.

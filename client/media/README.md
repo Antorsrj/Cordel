@@ -74,9 +74,11 @@ aggregate statistics only, and no picture is written without `--out`.
 
 ## Gate notes
 
-Nothing here is a substitute for the gate. Two clients in a real room, two networks,
-a true X11 session, and a window with a shared frame on screen are all still open —
-see [`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md).
+Nothing here is a substitute for the gate. The room path is now exercised — three
+clients against a local `livekit-server`, two remote 2560x1440 shares displayed at once,
+detach/dock, and one source ending with the session untouched — but a second network, a
+true X11 session, and a live capture stream (the shell re-pushes one captured frame) are
+still open. See [`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md).
 
 Three things about capture and audio are worth knowing before touching them:
 

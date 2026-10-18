@@ -34,4 +34,11 @@ The chat list is 10,000 local lines. **End of chat** jumps to the last line.
 
 ## Gate notes
 
-Record which capture path the status line reports (`wayland` or `x11`). A run on one session does not cover the other. Two-way audio, remote frame rendering, scroll readability, and CPU/RAM under a real call still need two clients and a LiveKit room.
+Record which capture path the status line reports (`wayland` or `x11`). A run on one
+session does not cover the other. The real-room path was exercised on 2026-10-18 with
+three clients against a local `livekit-server`: two remote 2560x1440 shares displayed at
+once, one detached into its own window and docked back, and one source ending while the
+other stayed live, with no rejoin and no extra track
+([`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md)). What remains for a
+real call: a second machine and network, a live capture stream instead of one frame
+re-pushed every 500 ms, a stop-sharing control, and a true X11 session.
