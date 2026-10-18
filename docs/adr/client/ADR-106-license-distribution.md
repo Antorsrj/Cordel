@@ -36,14 +36,14 @@ Do not publish a client binary until the packaged application's About screen, at
 
 ## Consequences
 
-- Client and protocol code was published before a license was selected. Include this decision and its license/notice files in the next approved source publication.
+- Client and protocol code was published before a license was selected. The decision and its license/notice files were subsequently published on `feature/adr-002-identity`; `main` has not received them.
 - A successful Slint technical spike does not prove packaged attribution or all transitive native-library notices.
 - The owner-selected repository URL is configured as local `origin`. Inspect remote state and obtain the owner's push approval before publication. No push or deployment is authorized by this ADR.
 
 ## Acceptance and handoff
 
 - The owner's Apache-2.0 and public-repository decisions and existing contributor agreement are recorded above.
-- Verify root `LICENSE`, `NOTICE`, package metadata, and the known dependency inventory before the next code push.
+- Root `LICENSE`, `NOTICE`, package metadata, and the known dependency inventory are present on the feature branch. Recheck them when merging or preparing a release.
 - Before any client binary release, confirm the package includes complete license/NOTICE material and that its About screen exposes `AboutSlint` from the top-level menu. Record an actual packaged-client check in [STATUS](../STATUS.md).
 
 **References:** [Slint v1.18.1 licensing choices](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSE.md), [Slint royalty-free license 2.0](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md), [GitHub's no-license guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository), [Apache-2.0 text](https://www.apache.org/licenses/LICENSE-2.0).

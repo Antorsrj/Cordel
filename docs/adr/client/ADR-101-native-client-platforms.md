@@ -10,7 +10,7 @@
 
 ## Context
 
-Cordel needs native clients for Linux, macOS, and Windows. Linux is the first priority, macOS second, and Windows later. Capture, audio devices, permissions, and packaging are OS-specific. A web test client exists separately; it does not justify making the native client a webview.
+Cordel needs native clients for Linux, macOS, and Windows. Linux is the first priority, macOS second, and Windows later. Capture, audio devices, permissions, and packaging are OS-specific. A separate browser test client is planned under ADR-104; it does not justify making the native client a webview.
 
 ## Decision
 

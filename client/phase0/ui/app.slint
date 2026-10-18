@@ -1,4 +1,4 @@
-import { Button, ListView } from "std-widgets.slint";
+import { Button, LineEdit, ListView } from "std-widgets.slint";
 
 export struct ChatLine {
     author: string,
@@ -16,14 +16,145 @@ export component AppWindow inherits Window {
     in-out property <string> status: "Starting";
     in-out property <bool> joined: false;
     in-out property <bool> busy: false;
+    in-out property <bool> logged-in: false;
+    in-out property <bool> identity-busy: false;
+    in-out property <bool> identity-ready: false;
+    in-out property <bool> settings-open: false;
+    in-out property <bool> management-unlocked: false;
+    in-out property <int> management-remaining: 0;
+    in-out property <string> account-login: "";
+    in-out property <string> account-role: "";
+    in-out property <string> identity-status: "Sign in to the test community.";
 
     callback join();
     callback capture-frame();
     callback leave();
+    callback identity-login(string, string);
+    callback identity-check-profile();
+    callback identity-unlock(string);
+    callback identity-lock();
+    callback identity-logout();
 
     VerticalLayout {
         padding: 12px;
         spacing: 8px;
+
+        if !root.logged-in : HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            login-input := LineEdit {
+                placeholder-text: "Login";
+                accessible-label: "Account login";
+                width: 170px;
+            }
+            login-password := LineEdit {
+                placeholder-text: "Password";
+                input-type: password;
+                accessible-label: "Account password";
+                width: 210px;
+            }
+            Button {
+                text: "Sign in";
+                enabled: root.identity-ready && !root.identity-busy && login-input.text != "" && login-password.text != "";
+                clicked => {
+                    root.identity-busy = true;
+                    root.identity-login(login-input.text, login-password.text);
+                    login-password.text = "";
+                }
+            }
+        }
+
+        if root.logged-in : HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Text {
+                text: root.account-login + " · " + root.account-role + " · ordinary view";
+                color: #f4f1ea;
+                vertical-alignment: center;
+            }
+            Button {
+                text: root.settings-open ? "Close Settings" : "Settings";
+                enabled: !root.identity-busy;
+                clicked => {
+                    root.settings-open = !root.settings-open;
+                    if root.settings-open {
+                        root.identity-busy = true;
+                        root.identity-check-profile();
+                    }
+                }
+            }
+            Button {
+                text: "Sign out";
+                enabled: !root.identity-busy;
+                clicked => {
+                    root.identity-busy = true;
+                    root.settings-open = false;
+                    root.identity-logout();
+                }
+            }
+        }
+
+        if root.logged-in && root.settings-open : VerticalLayout {
+            spacing: 6px;
+            Text {
+                text: "Settings";
+                color: #f4f1ea;
+            }
+            if root.account-role == "admin" && !root.management-unlocked : HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                admin-password := LineEdit {
+                    placeholder-text: "Your admin account password";
+                    input-type: password;
+                    accessible-label: "Your password for Management Mode";
+                    width: 240px;
+                }
+                Button {
+                    text: "Enter Management Mode";
+                    enabled: !root.identity-busy && admin-password.text != "";
+                    clicked => {
+                        root.identity-busy = true;
+                        root.identity-unlock(admin-password.text);
+                        admin-password.text = "";
+                    }
+                }
+            }
+            if root.account-role == "admin" && root.management-unlocked : HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Text {
+                    text: "Management Mode · " + root.management-remaining + "s left";
+                    color: #e0b15a;
+                    vertical-alignment: center;
+                }
+                Button {
+                    text: "Leave Management Mode";
+                    enabled: !root.identity-busy;
+                    clicked => {
+                        root.identity-busy = true;
+                        root.identity-lock();
+                    }
+                }
+            }
+            if root.account-role == "user" : Text {
+                text: "Community settings are managed by an admin.";
+                color: #f4f1ea;
+            }
+        }
+
+        Text {
+            text: root.identity-status;
+            wrap: word-wrap;
+            color: #e0b15a;
+            accessible-role: AccessibleRole.text;
+            accessible-label: root.identity-status;
+        }
+
+        Text {
+            text: "Media controls below are an independent Phase 0 test and still require a separate LiveKit token.";
+            wrap: word-wrap;
+            color: #f4f1ea;
+        }
 
         HorizontalLayout {
             spacing: 8px;

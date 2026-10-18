@@ -1,6 +1,6 @@
 # Cordel architecture decision records
 
-These ADRs turn the [project vision](../../Plano%20de%20Desenvolvimento%20-%20Revisado.md) and [deployment architecture](../../architecture.md) into server and client decisions. Use the [workstream and interface map](WORKSTREAMS.md) to assign them and the [implementation ledger](STATUS.md) to track completion. The official repository is [Antorsrj/Cordel](https://github.com/Antorsrj/Cordel); inspect remote state before publishing. The local documentation commit is not a deployment or evidence that application code exists.
+These ADRs turn the [project vision](../../Plano%20de%20Desenvolvimento%20-%20Revisado.md) and [deployment architecture](../../architecture.md) into server and client decisions. Use the [workstream and interface map](WORKSTREAMS.md) to assign them, the [implementation ledger](STATUS.md) to track completion, and the [2026-10-18 review](REVIEW-2026-10-18.md) to see open cross-ADR gates. The [documentation overview](../README.md) gives rough progress percentages. The official repository is [Antorsrj/Cordel](https://github.com/Antorsrj/Cordel); inspect remote state before publishing. Source exists on `feature/adr-002-identity`, but a documentation or source commit is not deployment evidence.
 
 **Accepted** means the project direction is settled. **Proposed** means the document recommends a concrete design but must pass its stated acceptance gate before an agent can claim that feature or deployment is complete. No ADR authorizes creating a remote repository, pushing, deploying, or publishing.
 
@@ -33,7 +33,7 @@ The first product test covers the Linux native client and diagnostic browser aga
 | [102 — Client session and state recovery](client/ADR-102-client-state-recovery.md) | Accepted | 4/5 | Auth, WS catch-up, network drops | 002, 004 |
 | [103 — Media devices and screen capture](client/ADR-103-capture-playback.md) | Accepted | 5/5 | OS adapters and media spike | 005, 101 |
 | [104 — Browser diagnostic client](client/ADR-104-browser-test-client.md) | Accepted | 3/5 | Test-only web surface | 002, 004, 005, 009 |
-| [106 — Client license and distribution](client/ADR-106-license-distribution.md) | Accepted | 3/5 | Apache-2.0 source and Slint attribution | 101; source notices before push, About/package proof before binaries |
+| [106 — Client license and distribution](client/ADR-106-license-distribution.md) | Accepted | 3/5 | Apache-2.0 source and Slint attribution | 101; source notices on feature branch, About/package proof before binaries |
 | [107 — Journal interface](client/ADR-107-journal-ux.md) | Accepted | 4/5 | Presence, collapsible conversation, integrated and detached shares | Fake 010–011 and 103 view interface for UI; live integration later |
 
 ## Later roadmap and final-release gates
@@ -62,6 +62,6 @@ These ADRs can be researched in parallel but do not block the first Linux/browse
 4. **Diagnostic browser:** Client 104 uses the same server contracts. Server 009's authentication method requires a design review before exposing it publicly.
 5. **Operations:** Server 007 defines backup and restore evidence before admitting real users. A 15-person, two-screen-share load test measures capacity; it is not a product ceiling.
 6. **First product-test gate:** finish and record evidence for all 16 mandatory ADRs above, including the four Proposed server gates (006/007/009/011) and Client 106's About/package proof. Then run the integrated Linux/browser product test. A component proof used to finish an ADR is allowed earlier.
-7. **Later platforms and final release:** Client 108 validates macOS and Client 109 validates Windows on their own OSs. Server 008 and Client 105 close E2EE before final release. Client 106's selected source license and notices must accompany the next approved code publication; binary distribution requires its separate package checks.
+7. **Later platforms and final release:** Client 108 validates macOS and Client 109 validates Windows on their own OSs. Server 008 and Client 105 close E2EE before final release. Client 106's selected source license and notices are on the feature branch; binary distribution requires its separate package checks.
 
 Each ADR has an implementation boundary. Its assignee owns that output and tests it against the corresponding versioned contract and consumer fixture in [WORKSTREAMS.md](WORKSTREAMS.md). Mark completion only through [STATUS.md](STATUS.md) with the required evidence. Proposed ADRs are reviewable recommendations, not permission to silently weaken a project requirement. Record a new decision or supersede an ADR when evidence changes the selected design.

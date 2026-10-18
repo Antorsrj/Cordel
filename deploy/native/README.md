@@ -18,19 +18,20 @@ On the guest, copy this directory to a root-owned staging location and inspect i
 
 The Azure VM has run the bootstrap, credential, TURN certificate, LiveKit install, and LiveKit start stages. Local listeners, Cloud Shell HTTPS/TURN TLS/ICE-TCP reachability and a TURN/UDP STUN Binding response, TURN renewal dry run, and one VM reboot recovery passed. The scripts also pass local Bash syntax checks. UDP media, authenticated TURN allocation, two-network client behavior, backup recovery, and capacity remain unverified; see the deployment record.
 
-The separate [ADR-002 identity deployment runbook](identity-deployment-runbook.md), [`prepare-identity-build-host.sh`](prepare-identity-build-host.sh), [`build-identity.sh`](build-identity.sh), and [`install-identity.sh`](install-identity.sh) cover the standalone identity crate. The Azure VM now has a checksum-verified binary artifact, the first identity schema, two roles, root-only credentials, and one disposable `test-admin` account in `Cordel-Test`. The owner-reported Axum installation, Caddy route, external HTTPS and blocked-port checks, reboot recovery, verified Entra SSH access, and host-only first-admin bootstrap passed. `cordel-api` is enabled and active. This is not an integrated product. Do not rerun database setup, migration, or installation on this VM. Follow the runbook's remaining acceptance and rollback steps.
+The [ADR-002 identity deployment record](identity-deployment-runbook.md) and [historical fresh-host procedure](identity-initial-install-history.md) cover the standalone identity crate. The Azure VM has migrations `1,2`, protected runtime credentials, the account-bound grant binary, and disposable `test-admin` and `test-user` accounts in `Cordel-Test`. External HTTPS, blocked-port and reboot checks, host access, focused admin unlock, and one invite redemption passed. `cordel-api` is enabled and active. ADR-003 policy source has passed isolated checks but is not on the VM. This is not an integrated product. Do not rerun database setup, migration, installation, or the admin-grant upgrade on this VM. See the [ADR ledger](../../docs/adr/STATUS.md) for remaining gates.
 
 ## Azure Cloud Shell staging
 
-If using Azure Run Command instead of SSH, upload the reviewed `.sh` files in this directory to one Cloud Shell folder. From that folder, invoke **one stage at a time** with the same subscription, resource group, VM, and `--command-id RunShellScript`, for example:
+If using Azure Run Command instead of SSH, upload the reviewed `.sh` files in this directory to the current Cloud Shell home directory. Confirm that each file is present before invoking **one stage at a time** with the same subscription, resource group, VM, and `--command-id RunShellScript`. This read-only example verifies the existing host:
 
 ```bash
+test -s "$HOME/verify-host.sh" || { echo 'Upload verify-host.sh first'; exit 1; }
 az vm run-command invoke \
   --subscription f77cc05e-0316-4c39-9ee2-74b5d9078f0a \
   --resource-group rg-cordel-test-eastus \
   --name vm-cordel-test-01 \
   --command-id RunShellScript \
-  --scripts @bootstrap.sh \
+  --scripts "@$HOME/verify-host.sh" \
   --query 'value[].message' -o tsv
 ```
 

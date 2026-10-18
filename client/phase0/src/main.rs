@@ -1,4 +1,5 @@
 mod chat;
+mod identity;
 mod pixels;
 mod screen;
 mod session;
@@ -9,6 +10,7 @@ use std::time::Instant;
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::chat::phase0_messages;
+use crate::identity::Command as IdentityCommand;
 use crate::screen::CapturePath;
 use crate::session::Command;
 
@@ -62,6 +64,46 @@ fn main() -> anyhow::Result<()> {
         let tx = tx.clone();
         move || {
             let _ = tx.send(Command::Leave);
+        }
+    });
+
+    let (identity_tx, identity_rx) = std::sync::mpsc::channel();
+    let identity_ui = ui.as_weak();
+    std::thread::spawn(move || identity::run(identity_rx, identity_ui));
+    ui.on_identity_login({
+        let tx = identity_tx.clone();
+        move |login, password| {
+            let _ = tx.send(IdentityCommand::Login {
+                login: login.to_string(),
+                password: password.to_string(),
+            });
+        }
+    });
+    ui.on_identity_check_profile({
+        let tx = identity_tx.clone();
+        move || {
+            let _ = tx.send(IdentityCommand::CheckProfile);
+        }
+    });
+    ui.on_identity_unlock({
+        let tx = identity_tx.clone();
+        move |password| {
+            let _ = tx.send(IdentityCommand::Unlock {
+                password: password.to_string(),
+            });
+        }
+    });
+    ui.on_identity_lock({
+        let tx = identity_tx.clone();
+        move || {
+            let _ = tx.send(IdentityCommand::Lock);
+        }
+    });
+    ui.on_identity_logout({
+        let media_tx = tx.clone();
+        move || {
+            let _ = media_tx.send(Command::Leave);
+            let _ = identity_tx.send(IdentityCommand::Logout);
         }
     });
 
