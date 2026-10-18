@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "user_id": "7b988930-487b-46a3-8d11-0a125c47c930",
+  "login": "TestUser",
+  "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "role": "user",
+  "session_expires_at": "2026-11-16T12:00:00Z"
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "user_id": "7b988930-487b-46a3-8d11-0a125c47c930",
+  "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "access_token": "unusable.fixture.access-token",
+  "refresh_token": "unusable-fixture-refresh-token",
+  "expires_in_secs": 300
+}

@@ -1,6 +1,6 @@
 # Independent implementation workstreams
 
-This map turns the [server and client ADRs](README.md) into work that separate contributors can own. An ADR owns a decision and its bounded implementation. It does not make another workstream's private code or test environment available. No application source exists yet, so the module names below describe ownership rather than existing directories.
+This map turns the [server and client ADRs](README.md) into work that separate contributors can own. An ADR owns a decision and its bounded implementation. It does not make another workstream's private code or test environment available. `server/identity` is a local, undeployed ADR-002 crate; the other server module names below describe ownership rather than existing directories.
 
 ## Rules for parallel work
 

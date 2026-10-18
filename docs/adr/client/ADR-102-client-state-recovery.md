@@ -36,6 +36,7 @@ For media, allow the LiveKit SDK to attempt normal session recovery first. If fu
 ## Consequences
 
 - A transport reconnect and a permission denial have different UI states and retry rules.
+- Server ADR-002 rotates refresh credentials with no replay grace in the first test. After sending a refresh request, the client must replace the stored credential only on a confirmed success. If the response is lost or the outcome is uncertain, it must clear that credential and ask for login instead of retrying the consumed token; a replay revokes the session.
 - A LiveKit token must not be reused to bypass a new Axum authorization check after full reconnection.
 - The server must provide idempotent sends and ordered history under ADR-004.
 

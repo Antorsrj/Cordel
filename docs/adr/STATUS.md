@@ -1,6 +1,6 @@
 # ADR implementation status and product-test gate
 
-**Status as of 2026-10-17:** this repository contains architecture and handoff documents plus Linux Phase 0 client, client state, and shared protocol Rust crates merged from GitHub contributions. It has no Axum server source or integrated product. Accepted means a design direction is selected; it does **not** mean an ADR is implemented. Update this ledger in the same change that supplies completion evidence.
+**Status as of 2026-10-18:** this repository contains architecture and handoff documents plus Linux Phase 0 client, client state, and shared protocol Rust crates merged from GitHub contributions. Local ADR-002 work adds an undeployed Axum identity crate, but there is no integrated product. Accepted means a design direction is selected; it does **not** mean an ADR is implemented. Update this ledger in the same change that supplies completion evidence.
 
 ## Definition of done for one ADR
 
@@ -19,7 +19,7 @@ Technical spikes, unit tests, contract checks, security proofs, and isolated int
 | ADR | Decision | Implementation | Evidence required to mark Done |
 | --- | --- | --- | --- |
 | [Server 001](server/ADR-001-single-host-deployment.md) | Accepted | In progress | Azure East US foundation exists. Native Ubuntu bootstrap ran on 2026-10-17 and reported PostgreSQL 16, Caddy 2.11.7, valid Caddy configuration, and active UFW. VM listener and firewall inventory passed. TURN certificate was issued. LiveKit v1.13.10 is active with local signaling, ICE, and TURN listeners. Media HTTPS, TURN TLS, ICE/TCP, and TURN/UDP STUN Binding passed from Cloud Shell. TURN renewal dry run and one VM reboot recovery passed. UDP media, authenticated TURN allocation, backup job, and capacity measurements remain |
-| [Server 002](server/ADR-002-invite-only-identity.md) | Accepted | Not started | Invite/session/bootstrap/recovery tests and client contract examples |
+| [Server 002](server/ADR-002-invite-only-identity.md) | Accepted | In progress | In isolated Azure Cloud Shell, Rust 1.99.1 passed protocol tests (11), identity unit/HTTP-envelope tests (5), Clippy with `-D warnings`, and the disposable PostgreSQL 16.15 identity-flow test (1). HTTP checks cover login/`me`, disabled registration, malformed JSON, 405, and 413. Client 102 must implement/review refresh loss and session response handling; no VM deployment or GitHub application-source publication |
 | [Server 003](server/ADR-003-community-authorization.md) | Accepted | Not started | Role matrix, moderation races, host admin safety and reusable policy checks |
 | [Server 004](server/ADR-004-durable-chat.md) | Accepted | Not started | Ordered history, duplicate retry, WS gap and revocation tests |
 | [Server 005](server/ADR-005-livekit-media.md) | Accepted | In progress | Native LiveKit v1.13.10 and ICE/TURN listeners are active; two-network voice/share proof, actual UDP/TURN routes, and two-subscriber evidence remain |

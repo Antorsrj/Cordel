@@ -97,6 +97,11 @@ pub enum ErrorCode {
     InviteExhausted,
     UsernameTaken,
     Unauthorized,
+    Unauthenticated,
+    InvalidInput,
+    RateLimited,
+    Conflict,
+    Expired,
     RefreshReused,
     Forbidden,
     Other(String),
@@ -111,6 +116,11 @@ impl ErrorCode {
             Self::InviteExhausted => "invite_exhausted",
             Self::UsernameTaken => "username_taken",
             Self::Unauthorized => "unauthorized",
+            Self::Unauthenticated => "unauthenticated",
+            Self::InvalidInput => "invalid_input",
+            Self::RateLimited => "rate_limited",
+            Self::Conflict => "conflict",
+            Self::Expired => "expired",
             Self::RefreshReused => "refresh_reused",
             Self::Forbidden => "forbidden",
             Self::Other(code) => code,
@@ -125,6 +135,11 @@ impl ErrorCode {
             "invite_exhausted" => Self::InviteExhausted,
             "username_taken" => Self::UsernameTaken,
             "unauthorized" => Self::Unauthorized,
+            "unauthenticated" => Self::Unauthenticated,
+            "invalid_input" => Self::InvalidInput,
+            "rate_limited" => Self::RateLimited,
+            "conflict" => Self::Conflict,
+            "expired" => Self::Expired,
             "refresh_reused" => Self::RefreshReused,
             "forbidden" => Self::Forbidden,
             other => Self::Other(other.to_owned()),
@@ -147,7 +162,14 @@ impl<'de> Deserialize<'de> for ErrorCode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
-    pub error: ErrorCode,
+    pub schema_version: u8,
+    pub error: ErrorDetail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorDetail {
+    pub code: ErrorCode,
+    pub message: String,
 }
 
 pub fn authorization_header(access_token: &str) -> String {
@@ -187,26 +209,58 @@ mod tests {
     #[test]
     fn public_registration_and_moderation_have_stable_codes() {
         let disabled = ApiError {
-            error: ErrorCode::PublicRegistrationDisabled,
+            schema_version: 1,
+            error: ErrorDetail {
+                code: ErrorCode::PublicRegistrationDisabled,
+                message: "An invitation is required".to_owned(),
+            },
         };
         let json = serde_json::to_string(&disabled).unwrap();
         assert!(json.contains("public_registration_disabled"));
         let parsed: ApiError = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.error, ErrorCode::PublicRegistrationDisabled);
+        assert_eq!(parsed.error.code, ErrorCode::PublicRegistrationDisabled);
 
         let future = ApiError {
-            error: ErrorCode::parse("future_limit"),
+            schema_version: 1,
+            error: ErrorDetail {
+                code: ErrorCode::parse("future_limit"),
+                message: "Later".to_owned(),
+            },
         };
         let parsed: ApiError =
             serde_json::from_str(&serde_json::to_string(&future).unwrap()).unwrap();
-        assert_eq!(parsed.error, ErrorCode::Other("future_limit".to_owned()));
+        assert_eq!(
+            parsed.error.code,
+            ErrorCode::Other("future_limit".to_owned())
+        );
         assert_eq!(ErrorCode::Forbidden.as_str(), "forbidden");
         assert_ne!(ErrorCode::Forbidden, ErrorCode::Unauthorized);
+        assert_eq!(
+            ErrorCode::parse("unauthenticated"),
+            ErrorCode::Unauthenticated
+        );
     }
 
     #[test]
     fn native_websocket_header_uses_the_access_token() {
         assert_eq!(authorization_header("abc"), "Bearer abc");
         assert_eq!(ACCESS_TOKEN_HEADER, "authorization");
+    }
+
+    #[test]
+    fn parses_adr_002_http_fixtures() {
+        let error: ApiError = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_error.json"
+        ))
+        .unwrap();
+        assert_eq!(error.schema_version, 1);
+        assert_eq!(error.error.code, ErrorCode::Unauthenticated);
+
+        let session: SessionTokens = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_session_response.json"
+        ))
+        .unwrap();
+        assert_eq!(session.expires_in_secs, 300);
+        assert!(!format!("{session:?}").contains("unusable-fixture-refresh-token"));
     }
 }

@@ -24,7 +24,7 @@ The original [provisioning script](azure-provision-test.sh) and [targeted finish
 | LiveKit Server | Pinned Linux v1.13.10 release with verified SHA-256, `cordel-livekit` systemd unit | Signaling on `10.77.1.4:7880`, blocked from the Internet by NSG and host firewall; ICE/TCP wildcard port 7881, ICE/UDP mux 7882 on both private IPs; embedded TURN bound to `10.77.1.5` on UDP 3478 and TLS TCP 443. UFW allows ICE ingress only to `10.77.1.4` | `livekit` |
 | Axum | Pinned project release, `cordel-api` systemd unit | Loopback-only HTTP/WebSocket behind Caddy; private database connection | `cordel` |
 
-Use separate service accounts and restrict writable directories and secret files. Do not add service users to privileged groups. Redis, Kubernetes, recording, ingress, and SIP are outside the first-test baseline. The current repository has no Axum source or binary, so `cordel-api` cannot be installed yet. Do not advertise the host as a working Cordel server until the mandatory ADRs are complete.
+Use separate service accounts and restrict writable directories and secret files. Do not add service users to privileged groups. Redis, Kubernetes, recording, ingress, and SIP are outside the first-test baseline. Local `server/identity` source is an incomplete, undeployed ADR-002 component; there is no reviewed Axum release binary or integrated API to install as `cordel-api`. Do not advertise the host as a working Cordel server until the mandatory ADRs are complete.
 
 ## TLS and media wiring
 
