@@ -51,6 +51,38 @@ pub struct EmptyResponse {
     pub schema_version: u8,
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminGrantRequest {
+    pub password: String,
+}
+
+impl fmt::Debug for AdminGrantRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdminGrantRequest")
+            .field("password", &"redacted")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminGrantResponse {
+    pub schema_version: u8,
+    pub admin_token: String,
+    pub expires_in_secs: u64,
+}
+
+impl fmt::Debug for AdminGrantResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdminGrantResponse")
+            .field("schema_version", &self.schema_version)
+            .field("admin_token", &"redacted")
+            .field("expires_in_secs", &self.expires_in_secs)
+            .finish()
+    }
+}
+
 impl fmt::Debug for SessionTokens {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -219,6 +251,25 @@ pub fn authorization_header(access_token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn management_credentials_are_redacted() {
+        let request = AdminGrantRequest {
+            password: "private-password".into(),
+        };
+        let response = AdminGrantResponse {
+            schema_version: 1,
+            admin_token: "opaque-private-token".into(),
+            expires_in_secs: 600,
+        };
+        assert!(!format!("{request:?}").contains("private-password"));
+        assert!(!format!("{response:?}").contains("opaque-private-token"));
+        assert_eq!(
+            serde_json::from_str::<AdminGrantResponse>(&serde_json::to_string(&response).unwrap())
+                .unwrap(),
+            response
+        );
+    }
 
     #[test]
     fn session_tokens_are_distinct_from_livekit_admission() {

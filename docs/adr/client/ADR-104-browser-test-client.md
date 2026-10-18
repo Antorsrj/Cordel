@@ -16,6 +16,8 @@ The owner wants a browser version for testing that might later become permanent.
 
 Build a separate small browser client that can redeem an invite, log in, send and receive text, join voice, publish and view a screen share, and display reconnect/permission errors. It calls the same Axum REST and chat WS endpoints and uses the LiveKit JavaScript SDK for media. It must safely display rich messages and protected image previews when ADR-011 is enabled, so the shared server contract is exercised. Do not make Journal layout or native detach parity with the browser a first-test gate.
 
+The browser starts in ordinary member mode even for an admin account. Admin management controls may be omitted from this diagnostic client in the first test. If added, they require that admin's own-password Management Mode unlock and the server-side cookie-session grant defined by ADR-009; a shared password or a client-only toggle cannot authorize management.
+
 Serve it from the same site as the API where practical. Use the browser-safe session and WebSocket admission contract selected in ADR-009, including pre-login CSRF bootstrap and post-login rotation. Do not put a long-lived bearer credential in a URL or localStorage. Keep LiveKit room tokens short-lived and in memory.
 
 Decide whether to maintain the browser client as a permanent product only after usability, security, and maintenance costs are measured. That later decision may change its feature and accessibility requirements.

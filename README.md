@@ -2,7 +2,7 @@
 
 Cordel is a self-hosted community app for text chat, voice rooms, and screen sharing. The first version is an invite-only community with `user` and `admin` roles. The server is headless; desktop and browser clients provide the interface, including admin controls.
 
-**Project status:** Under development. This repository contains the architecture, ADRs, shared protocol, client state library, Linux Phase 0 client, and standalone identity API. These pieces are not yet an integrated product. The Azure test host runs the media foundation and identity API; HTTPS routing, blocked private ports, and reboot recovery passed. One disposable test admin exists, but a live login and the mandatory product gates remain. The host is not ready for community use. See the [ADR status ledger](docs/adr/STATUS.md) for completion evidence and open gates.
+**Project status:** Under development. This repository contains the architecture, ADRs, shared protocol, client state library, Linux Phase 0 client, and standalone identity API. These pieces are not yet an integrated product. The Azure test host runs the media foundation and identity API; HTTPS routing, blocked private ports, reboot recovery, and an isolated external login/refresh/logout smoke test passed. One disposable test admin exists, but the mandatory product gates remain. The host is not ready for community use. See the [ADR status ledger](docs/adr/STATUS.md) for completion evidence and open gates.
 
 ## First-test scope
 
@@ -44,3 +44,5 @@ Each Rust crate has its own build instructions. The repository does not yet prov
 ## Contributing
 
 Select one ADR and read its dependencies and contract handoffs before editing. Keep the change scoped, use disposable test data, and record actual format, lint, test, and platform results. Do not treat a passing component test as a completed product test. Cordel-authored source and documentation are licensed under [Apache-2.0](LICENSE). Third-party components keep their own licenses; [ADR-106](docs/adr/client/ADR-106-license-distribution.md) and the [third-party inventory](docs/legal/THIRD_PARTY.md) define Slint attribution and binary-release checks.
+
+File every issue raised manually by a person in the official repository's [GitHub Issues](https://github.com/Antorsrj/Cordel/issues). Include the owning ADR, steps to reproduce, expected and observed results, impact, and sanitized evidence. Agents fix problems they discover during authorized work and report unresolved gates in the [ADR status ledger](docs/adr/STATUS.md); they do not open GitHub Issues on their own. Keep credentials and real user data out of reports.

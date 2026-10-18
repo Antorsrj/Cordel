@@ -3,10 +3,11 @@
 //! Blocking HTTPS calls belong on a worker thread, never the Slint UI thread.
 
 use std::io::Read;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cordel_protocol::{
-    ApiError, EmptyResponse, IdentitySession, LoginRequest, MeResponse, RefreshRequest,
+    AdminGrantRequest, AdminGrantResponse, ApiError, EmptyResponse, IdentitySession, LoginRequest,
+    MeResponse, RefreshRequest,
 };
 use serde_json::Value;
 
@@ -21,6 +22,8 @@ pub enum HttpRequest {
     Refresh,
     Me,
     Logout,
+    AdminUnlock,
+    AdminLock,
 }
 
 impl HttpRequest {
@@ -30,6 +33,7 @@ impl HttpRequest {
             Self::Refresh => "v1/sessions/refresh",
             Self::Me => "v1/me",
             Self::Logout => "v1/sessions/current",
+            Self::AdminUnlock | Self::AdminLock => "v1/sessions/admin-grant",
         }
     }
 }
@@ -108,9 +112,11 @@ impl IdentityTransport for NativeHttpsTransport {
             .join(request.path())
             .map_err(|_| TransportFailure::Network)?;
         let builder = match request {
-            HttpRequest::Login | HttpRequest::Refresh => self.client.post(url),
+            HttpRequest::Login | HttpRequest::Refresh | HttpRequest::AdminUnlock => {
+                self.client.post(url)
+            }
             HttpRequest::Me => self.client.get(url),
-            HttpRequest::Logout => self.client.delete(url),
+            HttpRequest::Logout | HttpRequest::AdminLock => self.client.delete(url),
         };
         let builder = if let Some(token) = bearer {
             builder.bearer_auth(token)
@@ -152,11 +158,16 @@ pub enum IdentityError {
 pub struct IdentityClient<S, T> {
     state: ClientState<S>,
     transport: T,
+    admin_grant: Option<(String, Instant)>,
 }
 
 impl<S: RefreshStore, T: IdentityTransport> IdentityClient<S, T> {
     pub fn new(state: ClientState<S>, transport: T) -> Self {
-        Self { state, transport }
+        Self {
+            state,
+            transport,
+            admin_grant: None,
+        }
     }
 
     pub fn state(&self) -> &ClientState<S> {
@@ -164,10 +175,70 @@ impl<S: RefreshStore, T: IdentityTransport> IdentityClient<S, T> {
     }
 
     pub fn state_mut(&mut self) -> &mut ClientState<S> {
+        self.admin_grant = None;
         &mut self.state
     }
 
+    /// Returns a volatile token only while the local grant remains live.
+    /// Callers must send it only to a management endpoint on the same origin.
+    pub fn admin_token(&self) -> Option<&str> {
+        self.admin_grant
+            .as_ref()
+            .and_then(|(token, expires)| (Instant::now() < *expires).then_some(token.as_str()))
+    }
+
+    pub fn unlock_management(&mut self, password: &str) -> Result<(), IdentityError> {
+        self.admin_grant = None;
+        let access = self
+            .state
+            .tokens()
+            .access()
+            .ok_or(IdentityError::MissingCredential)?;
+        let body = serde_json::to_value(AdminGrantRequest {
+            password: password.to_owned(),
+        })
+        .map_err(|_| IdentityError::InvalidResponse)?;
+        let response = self
+            .transport
+            .exchange(HttpRequest::AdminUnlock, Some(access), Some(&body))
+            .map_err(IdentityError::Transport)?;
+        let grant: AdminGrantResponse = decode(response)?;
+        if grant.schema_version != 1
+            || grant.expires_in_secs == 0
+            || grant.expires_in_secs > 600
+            || grant.admin_token.len() != 64
+            || !grant
+                .admin_token
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(IdentityError::InvalidResponse);
+        }
+        let expires = Instant::now() + Duration::from_secs(grant.expires_in_secs);
+        self.admin_grant = Some((grant.admin_token, expires));
+        Ok(())
+    }
+
+    /// Lock locally first, including when the revocation response is lost.
+    pub fn lock_management(&mut self) -> Result<(), IdentityError> {
+        let grant = self
+            .admin_grant
+            .take()
+            .ok_or(IdentityError::MissingCredential)?
+            .0;
+        let response = self
+            .transport
+            .exchange(HttpRequest::AdminLock, Some(&grant), None)
+            .map_err(IdentityError::Transport)?;
+        let empty: EmptyResponse = decode(response)?;
+        if empty.schema_version != 1 {
+            return Err(IdentityError::InvalidResponse);
+        }
+        Ok(())
+    }
+
     pub fn login(&mut self, login: &str, password: &str) -> Result<IdentitySession, IdentityError> {
+        self.admin_grant = None;
         self.state.clear_session().map_err(IdentityError::Store)?;
         let body = serde_json::to_value(LoginRequest {
             login: login.to_owned(),
@@ -185,6 +256,7 @@ impl<S: RefreshStore, T: IdentityTransport> IdentityClient<S, T> {
     /// The old credential is removed from durable storage *before* transmission.
     /// Any uncertain result therefore requires login; automatic replay is unsafe.
     pub fn refresh(&mut self) -> Result<IdentitySession, IdentityError> {
+        self.admin_grant = None;
         let old = self
             .state
             .refresh()
@@ -221,6 +293,7 @@ impl<S: RefreshStore, T: IdentityTransport> IdentityClient<S, T> {
         let denied = matches!(response.status, 401 | 403);
         let parsed: Result<MeResponse, IdentityError> = decode(response);
         if denied {
+            self.admin_grant = None;
             self.state.clear_session().map_err(IdentityError::Store)?;
         }
         let me = parsed?;
@@ -233,6 +306,7 @@ impl<S: RefreshStore, T: IdentityTransport> IdentityClient<S, T> {
     /// Clear the local session even when the server response is lost. Callers
     /// must report that remote revocation is uncertain on transport failure.
     pub fn logout(&mut self) -> Result<(), IdentityError> {
+        self.admin_grant = None;
         if self.state.tokens().access().is_none() && self.state.refresh().is_some() {
             self.refresh()?;
         }
@@ -341,6 +415,79 @@ mod tests {
         let output = format!("{reply:?}");
         assert!(!output.contains("unusable.fixture.access-token"));
         assert!(!output.contains("unusable-fixture-refresh-token"));
+    }
+
+    #[test]
+    fn management_grant_is_volatile_and_uses_separate_bearer() {
+        let mut state = ClientState::restore(MemoryRefreshStore::default(), None);
+        state.tokens_mut().set_access("ordinary-access");
+        let grant = "a".repeat(64);
+        let transport = FakeTransport::new(Ok(HttpReply {
+            status: 200,
+            body: format!(
+                r#"{{"schema_version":1,"admin_token":"{grant}","expires_in_secs":600}}"#
+            )
+            .into_bytes(),
+        }));
+        let mut client = IdentityClient::new(state, transport);
+        client.unlock_management("a-private-password").unwrap();
+        assert_eq!(client.admin_token(), Some(grant.as_str()));
+        assert_eq!(
+            client.transport.requests.borrow()[0].0,
+            HttpRequest::AdminUnlock
+        );
+        assert_eq!(
+            client.transport.requests.borrow()[0].1.as_deref(),
+            Some("ordinary-access")
+        );
+        assert_eq!(
+            client.transport.requests.borrow()[0].2.as_ref().unwrap()["password"],
+            "a-private-password"
+        );
+        let _ = client.transport.reply.replace(Ok(HttpReply {
+            status: 200,
+            body: br#"{"schema_version":1}"#.to_vec(),
+        }));
+        client.lock_management().unwrap();
+        assert!(client.admin_token().is_none());
+        assert_eq!(
+            client.transport.requests.borrow()[1].0,
+            HttpRequest::AdminLock
+        );
+        assert_eq!(
+            client.transport.requests.borrow()[1].1.as_deref(),
+            Some(grant.as_str())
+        );
+        let restored = IdentityClient::new(
+            ClientState::restore(MemoryRefreshStore::default(), None),
+            FakeTransport::new(Err(TransportFailure::Network)),
+        );
+        assert!(restored.admin_token().is_none());
+    }
+
+    #[test]
+    fn management_lock_clears_token_when_network_fails() {
+        let mut state = ClientState::restore(MemoryRefreshStore::default(), None);
+        state.tokens_mut().set_access("ordinary-access");
+        let grant = "b".repeat(64);
+        let transport = FakeTransport::new(Ok(HttpReply {
+            status: 200,
+            body: format!(
+                r#"{{"schema_version":1,"admin_token":"{grant}","expires_in_secs":600}}"#
+            )
+            .into_bytes(),
+        }));
+        let mut client = IdentityClient::new(state, transport);
+        client.unlock_management("password").unwrap();
+        let _ = client
+            .transport
+            .reply
+            .replace(Err(TransportFailure::Network));
+        assert_eq!(
+            client.lock_management(),
+            Err(IdentityError::Transport(TransportFailure::Network))
+        );
+        assert!(client.admin_token().is_none());
     }
 
     struct SequenceTransport {

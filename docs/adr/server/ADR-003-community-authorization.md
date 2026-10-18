@@ -18,11 +18,13 @@ Use only `user` and `admin` as in-app roles. Every active member may create text
 
 Store membership, role, `kicked_until`, and ban state durably in PostgreSQL. Check the current state for REST, WebSocket commands/subscriptions, community-setting changes, message history, and LiveKit token issuance. Hiding admin controls from a user in the client is not authorization. Apply a kick or ban to active sessions and subscriptions immediately. Authorized host access provides a separate local mechanism to add, remove, and recover admins. Host infrastructure configuration is not exposed in client admin controls. This is not a third in-app role or a public API. The normal mechanism must not leave the community with zero active admins; a replacement can be installed in the same operation.
 
+Every client starts in ordinary member mode, including clients signed in as an `admin`. Management operations require both current `admin` membership and the separate, unexpired admin grant from ADR-002. A normal app access token never authorizes invitations, community setting changes, or moderation by itself. The server checks the grant's binding to the live account, app session, and community on each request; role demotion, moderation, logout, or host recovery invalidates it immediately. Management Mode is a temporary UI state, not a durable role change. Admin assignment and removal remain host-only for version one.
+
 Keep a community ID in persisted records even though only one community can be created in version one. Do not expose a public create-community endpoint or per-channel role overrides yet.
 
 ## Implementation boundary
 
-- **Owns:** community, membership, role, channel, and moderation records plus one reusable authorization policy interface. Other server workstreams call that interface instead of copying role checks.
+- **Owns:** community, membership, role, channel, and moderation records plus one reusable authorization policy interface that requires ADR-002's admin grant for management actions. Other server workstreams call that interface instead of copying role checks.
 - **Handoff:** publish a role/action matrix, revocation signal, and channel/member fixtures. Server 004/005/010/011 consume the policy; Server 006 owns media-specific revocation mechanics; clients only display controls from authorized state.
 
 ## Options considered
@@ -42,6 +44,7 @@ Keep a community ID in persisted records even though only one community can be c
 ## Verification and handoff
 
 - Test a matrix of both roles for channel creation, community-setting changes, inviting, kicking, banning, unbanning, read/write, and media admission. Direct API requests from a `user` must fail for admin operations even if the client UI hides them.
+- Test that an `admin` using only an ordinary app access token also fails management calls, while a current session-bound admin grant succeeds. Expiry, explicit lock, logout, role removal, and host recovery must deny later management requests. Check that audit records identify the account and session, never a shared password holder.
 - Test 30-minute and longer kicks, expiry, indefinite bans, an admin as the attempted target, and zero-admin prevention.
 - Race a kick or ban with REST, a queued WebSocket fan-out, and voice admission. Deny later actions using the same authoritative policy check.
 

@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "admin_token": "unusable-fixture-admin-token",
+  "expires_in_secs": 600
+}

@@ -18,6 +18,8 @@ Serve the diagnostic client and Axum API from the same origin for the first test
 
 For state-changing HTTPS requests, validate a CSRF token sent in a custom header and validate the request Origin/Fetch Metadata where available. Provide a same-origin, pre-login `GET /v1/browser/csrf` bootstrap that returns a random CSRF value to JavaScript and sets a separate `Secure`, `HttpOnly`, `SameSite=Strict` pre-session nonce cookie. The server binds the value to that nonce and accepts it for invite redemption or login. On successful login, destroy the pre-session and create a distinct authenticated session and fresh CSRF value; never promote the pre-session identifier into an authenticated one. After login, the same endpoint can return the session-bound CSRF value without exposing the session credential. For WebSocket upgrade, require an exact allowed Origin and a valid live session cookie. Before sending protected data or accepting subscriptions, require the browser's first WS message to carry the session-bound CSRF value and validate it; limit unauthenticated time/bytes, and do not log the value. Recheck membership and moderation on commands and invalidate the connection when the session is revoked. Do not accept a token or session ID from the URL. Native bearer-token authentication remains a separate supported path. Keep LiveKit join tokens in browser memory and scope them to the current room.
 
+If the diagnostic browser later exposes Management Mode, it must recheck the designated admin's own password and bind the short-lived grant to the current cookie session on the server. The browser must not receive a reusable admin bearer in JavaScript. Unlock, lock, and management operations need the same CSRF and Origin protections as other state-changing calls. Cookie possession or an ordinary authenticated browser session alone never authorizes management. The first diagnostic browser may omit admin controls, but it must not bypass this server-side rule.
+
 ## Implementation boundary
 
 - **Owns:** proposed browser cookie/session admission, CSRF checks, WS Origin checks, and logout/revocation behavior. Server 002 owns core account/session rotation; Client 104 owns browser UI.
@@ -41,6 +43,7 @@ For state-changing HTTPS requests, validate a CSRF token sent in a custom header
 ## Acceptance and handoff
 
 - Test pre-login CSRF bootstrap, invite redemption/login, pre-session destruction, CSRF rotation, session rotation, logout, expired and revoked cookies, missing/invalid WS first-message CSRF, disallowed Origin, malicious cross-site WS attempts, and long-lived WS behavior after a kick.
+- If browser management is included, test own-password unlock, expired/revoked server-side admin grant, role removal, CSRF denial on unlock and management calls, and absence of admin tokens in JavaScript storage or responses.
 - Inspect proxy and app logs for credential leakage. Confirm secure cookies are never sent over plaintext HTTP.
 - Accept before exposing the diagnostic browser client outside an isolated test environment.
 
