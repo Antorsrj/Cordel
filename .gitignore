@@ -10,3 +10,10 @@ target/
 !.env.example
 *.pem
 *.key
+
+# Operator-only access guide. Keep it local; never force-add it to Git.
+/VM-ACCESS.local.md
+
+# Temporary Cloud Shell transfer archives.
+/cordel-adr002-source.tar.gz
+/cordel-client102-source*.tar.gz

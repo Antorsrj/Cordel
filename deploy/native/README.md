@@ -1,6 +1,6 @@
 # Native Ubuntu host package
 
-This package prepares the selected Ubuntu 24.04 Azure guest for native services. It does not provision Azure resources. `install-identity.sh` can install a separately built Axum binary after its deployment prerequisites are met; it has not been run on the VM. Run as root on the guest only after reviewing each script. Package and firewall operations can be repeated; bootstrap refuses to overwrite existing Cordel Caddy configuration and is not a rerunnable full installer.
+This package prepares the selected Ubuntu 24.04 Azure guest for native services. It does not provision Azure resources. `install-identity.sh` installed the separately built Axum binary on the test VM after its deployment prerequisites were met. Run as root on the guest only after reviewing each script. Package and firewall operations can be repeated; bootstrap refuses to overwrite existing Cordel Caddy configuration and is not a rerunnable full installer.
 
 ## Layout and ports
 
@@ -10,7 +10,7 @@ The media name and public address are `cordel-media-f77cc05e.eastus.cloudapp.azu
 
 The scripts configure Caddy on `10.77.1.4` TCP 80/443; LiveKit signaling on `10.77.1.4:7880` (UFW denies public access); ICE/TCP 7881 and UDP mux 7882 on `10.77.1.4`; TURN HTTP-01 TCP 80, TURN/UDP 3478, and TURN/TLS TCP 443 on `10.77.1.5`. LiveKit advertises `20.124.106.190` using explicit `rtc.node_ip` with `rtc.use_external_ip: false`, as described in the [pinned v1.13.10 config source](https://github.com/livekit/livekit/blob/v1.13.10/config-sample.yaml#L60-L77). The separate TURN `bind_addresses` field exists in [the pinned config type](https://github.com/livekit/livekit/blob/v1.13.10/pkg/config/config.go#L270-L280). PostgreSQL listens on loopback only. Azure NSG rules remain independently required. Verify listeners with `ss -lntup` and verify Azure network rules before external testing.
 
-The running Caddyfile routes the media hostname to LiveKit signaling. The proposed identity installer adds `/v1/*` for Axum after a reviewed install; that route is not yet on the VM. `verify-host.sh` prints service state, selected sockets, UFW rules, package versions, certificate expiry, and private-file modes without printing credentials. `verify-turn-renewal.sh` runs a Certbot staging renewal and the deploy hook, which may briefly restart LiveKit. Do not put API secrets in this repository.
+The running Caddyfile routes `/v1/*` on the media hostname to the loopback Axum API and other paths to LiveKit signaling. `verify-host.sh` prints service state, selected sockets, UFW rules, package versions, certificate expiry, and private-file modes without printing credentials. `verify-turn-renewal.sh` runs a Certbot staging renewal and the deploy hook, which may briefly restart LiveKit. Do not put API secrets in this repository.
 
 ## Use
 
@@ -18,7 +18,7 @@ On the guest, copy this directory to a root-owned staging location and inspect i
 
 The Azure VM has run the bootstrap, credential, TURN certificate, LiveKit install, and LiveKit start stages. Local listeners, Cloud Shell HTTPS/TURN TLS/ICE-TCP reachability and a TURN/UDP STUN Binding response, TURN renewal dry run, and one VM reboot recovery passed. The scripts also pass local Bash syntax checks. UDP media, authenticated TURN allocation, two-network client behavior, backup recovery, and capacity remain unverified; see the deployment record.
 
-The separate [ADR-002 identity deployment runbook](identity-deployment-runbook.md), [`prepare-identity-build-host.sh`](prepare-identity-build-host.sh), [`build-identity.sh`](build-identity.sh), and [`install-identity.sh`](install-identity.sh) cover the standalone identity crate. The Azure VM now has a checksum-verified binary artifact, the first identity schema, two roles, root-only credentials, and zero accounts. Axum installation remains. This is not an integrated product. Do not rerun database setup or the first migration on this VM. Follow the runbook's installation, acceptance, and rollback steps. The installer intentionally leaves `cordel-api` stopped.
+The separate [ADR-002 identity deployment runbook](identity-deployment-runbook.md), [`prepare-identity-build-host.sh`](prepare-identity-build-host.sh), [`build-identity.sh`](build-identity.sh), and [`install-identity.sh`](install-identity.sh) cover the standalone identity crate. The Azure VM now has a checksum-verified binary artifact, the first identity schema, two roles, root-only credentials, and one disposable `test-admin` account in `Cordel-Test`. The owner-reported Axum installation, Caddy route, external HTTPS and blocked-port checks, reboot recovery, verified Entra SSH access, and host-only first-admin bootstrap passed. `cordel-api` is enabled and active. This is not an integrated product. Do not rerun database setup, migration, or installation on this VM. Follow the runbook's remaining acceptance and rollback steps.
 
 ## Azure Cloud Shell staging
 

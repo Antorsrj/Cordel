@@ -2,7 +2,7 @@
 
 Cordel is a self-hosted community app for text chat, voice rooms, and screen sharing. The first version is an invite-only community with `user` and `admin` roles. The server is headless; desktop and browser clients provide the interface, including admin controls.
 
-**Project status:** Under development. This repository contains the architecture, ADRs, shared protocol, client state library, and a Linux Phase 0 client. These pieces are not yet an integrated product. The Azure test host runs the media foundation and has an identity database with its first schema and no accounts, but the identity API is not installed and the host is not ready for community use. See the [ADR status ledger](docs/adr/STATUS.md) for completion evidence and open gates.
+**Project status:** Under development. This repository contains the architecture, ADRs, shared protocol, client state library, Linux Phase 0 client, and standalone identity API. These pieces are not yet an integrated product. The Azure test host runs the media foundation and identity API; HTTPS routing, blocked private ports, and reboot recovery passed. One disposable test admin exists, but a live login and the mandatory product gates remain. The host is not ready for community use. See the [ADR status ledger](docs/adr/STATUS.md) for completion evidence and open gates.
 
 ## First-test scope
 
@@ -34,6 +34,7 @@ Accepted ADRs record decisions, not completed software. Proposed ADRs have gates
 | [`client/phase0`](client/phase0/README.md) | Linux UI, audio, and screen-capture feasibility work |
 | [`client/state`](client/state/README.md) | Client session and reconnect state |
 | [`protocol`](protocol/README.md) | Shared versioned Rust/JSON types |
+| [`server/identity`](server/identity/README.md) | Standalone invite-only identity API and host CLI |
 | [`docs/adr`](docs/adr/README.md) | Server and client decisions and status |
 | [`docs/contracts`](docs/contracts/v1.md) | Cross-component API and event contract |
 | [`deploy`](deploy/README.md) | Native Linux deployment scripts and runbooks |
