@@ -1,23 +1,27 @@
 # ADR-002 admin-grant upgrade handoff
 
-**Recorded state: 2026-10-18, after a stopped upgrade.** Use this note if the Codex or Cloud Shell session is lost. The owner approved the isolated test upgrade without a verified backup of the disposable `test-admin`/`Cordel-Test` data. This does not authorize admitting real users or treating ADR-007 as complete.
+**Recorded state: 2026-10-18, after the corrected upgrade completed.** Use this note if the Codex or Cloud Shell session is lost. The owner approved the isolated test upgrade without a verified backup of the disposable `test-admin`/`Cordel-Test` data. This does not authorize admitting real users or treating ADR-007 as complete.
 
 The source-verified API is commit `70bfd9f052273854f2a4db9aca9c25df420fd1ce`. The owner built it on the Ubuntu VM with Rust 1.99.1. Its revision-specific artifact is `/var/lib/cordel-identity-build/artifacts/70bfd9f052273854f2a4db9aca9c25df420fd1ce/cordel-identity`, SHA-256 `34411cc5f19717fbcda6e5082fbdc155a57fe1ea281c0b8654c25ca4152f36da`.
 
-The first upgrade invocation applied migration `0002_admin_grant.sql` and granted the runtime role its new table privileges, then stopped on a script verification bug **before the binary switch**. A separate read-only Azure Run Command confirmed all of the following:
+The first upgrade invocation applied migration `0002_admin_grant.sql` and granted the runtime role its new table privileges, then stopped on a script verification bug **before the binary switch**. At that point, a separate read-only Azure Run Command confirmed all of the following:
 
 - `cordel-api` is active with the **old** installed binary SHA-256 `dcc97ecceda9024b6895c4331b907ae92653562f2490272d242b505a39a2f4c5`.
 - Migration versions are `1,2`; both `admin_grants` and `admin_audit` exist.
 - `cordel_identity_app` has `SELECT`, `INSERT`, and `UPDATE` on `admin_grants` and `INSERT` on `admin_audit`.
 - The old-binary rollback copy does not yet exist, because the script stopped before creating it.
 
-The script concatenated PostgreSQL booleans into text and expected `t`; PostgreSQL returned `true`. The corrected script evaluates a SQL `CASE` over exact migration versions and privileges and accepts the already-applied second migration. Its SHA-256 is `c58855d1f03958ffde29d67c5d4d790afd5a87e0a8eb06efed5b8339a7d81393`. **Do not rerun the earlier script** with SHA-256 `e65f7a96fae9e3874ed5eeed14167312a47d7084a00376b43e13ac7ba3750558`.
+The script concatenated PostgreSQL booleans into text and expected `t`; PostgreSQL returned `true`. The corrected script evaluates a SQL `CASE` over exact migration versions and privileges and accepts the already-applied second migration. Its SHA-256 is `c58855d1f03958ffde29d67c5d4d790afd5a87e0a8eb06efed5b8339a7d81393`. **Do not rerun either upgrade script on the VM now.**
 
-## Safe resume
+## Completed resume and current gate
 
-Before resuming, repeat the read-only diagnostic if the VM may have changed. Confirm the old installed binary and service state, migrations `1,2`, all four privileges, and the disposable data snapshot. The corrected script also checks the old binary SHA-256, service state, artifact manifest, exact database counts, test identity, and migration ledger before touching the service. It reruns SQLx migrations as a no-op and repeats the idempotent grants, then stores the verified old binary, switches to the new binary, and probes the local admin-grant route. It restores the old binary if the new service does not stay active or the route probe fails. Migration 0002 remains additive after a binary rollback.
+The owner ran the corrected script from commit `56a379f1c098f6fdc28d638108f1869bc851f920` after Cloud Shell verified its SHA-256. Azure Run Command reported `upgrade=complete`, source revision `70bfd9f052273854f2a4db9aca9c25df420fd1ce`, new binary SHA-256 `34411cc5f19717fbcda6e5082fbdc155a57fe1ea281c0b8654c25ca4152f36da`, migrations `1,2`, and rollback copy `/usr/local/bin/cordel-identity.rollback-cf373b62dfb270badb137c20e5d380949c3e9b4d`. The script checked that the API service was active and its local unauthenticated admin-grant route returned HTTP 401. The backup exception remained explicit for disposable test data. Independent host and public HTTPS checks, own-password grant, and invitation proof remain.
 
-From Azure Cloud Shell, obtain the corrected script from the repository's feature branch, verify its digest, and invoke it under Bash. The feature branch may move, so **the SHA-256 check is mandatory**. The script has no credentials; the VM reads its protected migration URL locally.
+## Historical resume command — already completed
+
+The command below records exactly how the stopped upgrade was resumed. **Do not run it again on the completed VM.** The corrected script checked the old binary SHA-256, service state, artifact manifest, exact database counts, test identity, and migration ledger before touching the service. It reran SQLx migrations as a no-op and repeated the idempotent grants, then stored the verified old binary, switched to the new binary, and probed the local admin-grant route. Migration 0002 remains additive after a binary rollback.
+
+The owner downloaded the corrected script in Azure Cloud Shell, verified its digest, and invoked it under Bash. The feature branch can move; the SHA-256 check was mandatory. The script contained no credentials; the VM read its protected migration URL locally.
 
 ```bash
 (
@@ -42,6 +46,6 @@ CORDEL_UPGRADE_SCRIPT" \
 )
 ```
 
-Expected success output includes `upgrade=complete`, source revision `70bfd9f052273854f2a4db9aca9c25df420fd1ce`, binary SHA-256 `34411cc5f19717fbcda6e5082fbdc155a57fe1ea281c0b8654c25ca4152f36da`, and `migrations=1,2`. If it fails, **do not rerun blindly**. Inspect the installed binary digest, API service, migration ledger, privileges, and rollback path first. Record the result in `deploy/records/deployment-record.md` and `docs/adr/STATUS.md`.
+The success output above is recorded in `deploy/records/deployment-record.md` and `docs/adr/STATUS.md`.
 
-After successful replacement, verify public HTTPS still returns `public_registration_disabled` for `POST /v1/accounts`, that the unauthenticated admin-grant route returns HTTP 401, and that raw API and PostgreSQL ports remain blocked. A focused own-password grant and invitation test with the disposable admin is still required before declaring this change live. ADR-002 remains In progress until its remaining gates are complete.
+Next, independently verify public HTTPS still returns `public_registration_disabled` for `POST /v1/accounts`, that the unauthenticated admin-grant route returns HTTP 401, and that raw API and PostgreSQL ports remain blocked. A focused own-password grant and invitation test with the disposable admin is still required before declaring this change live. ADR-002 remains In progress until its remaining gates are complete.
