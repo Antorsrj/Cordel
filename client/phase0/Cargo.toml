@@ -7,6 +7,10 @@ description = "Linux Phase 0 feasibility client for ADR-101. Not a product build
 
 [dependencies]
 anyhow = "1"
+# One media implementation for the client. The shell used to carry its own copy of
+# the WebRTC capturer call and of the pixel conversions; those live here now
+# (ADR-103), so this crate inherits their fixes instead of repeating them.
+cordel-media = { path = "../media", features = ["sdk", "ui"] }
 env_logger = "0.11"
 futures-util = "0.3"
 livekit = "0.9"

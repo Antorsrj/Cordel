@@ -46,10 +46,6 @@ interface and adapters in `client/media`, and the measured evidence in
   two-track detach/dock path, need two clients in a real room and two networks. A
   LiveKit server already exists under [ADR-001](./docs/adr/server/ADR-001-single-host-deployment.md),
   so this needs a test room and a join token rather than new infrastructure.
-- **One media crate, not two:** `client/phase0/src/screen.rs` and
-  `client/phase0/src/pixels.rs` duplicate the capture call and frame conversions
-  that `client/media` now owns. Converge the shell onto the media crate before the
-  two implementations drift further.
 
 ## Later versions
 

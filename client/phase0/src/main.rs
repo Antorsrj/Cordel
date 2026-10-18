@@ -1,15 +1,13 @@
 mod chat;
-mod pixels;
-mod screen;
 mod session;
 
 use std::rc::Rc;
 use std::time::Instant;
 
+use cordel_media::capture::SessionKind;
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::chat::phase0_messages;
-use crate::screen::CapturePath;
 use crate::session::Command;
 
 slint::include_modules!();
@@ -34,7 +32,9 @@ fn main() -> anyhow::Result<()> {
         format!(
             "{line_count} chat lines built in {chat_ms} ms. RSS {} KiB. Capture path: {}. Set CORDEL_LIVEKIT_URL and CORDEL_LIVEKIT_TOKEN before joining.",
             rss_kib().unwrap_or(0),
-            CapturePath::detect().label(),
+            SessionKind::detect()
+                .map(SessionKind::as_str)
+                .unwrap_or("unknown"),
         )
         .into(),
     );
