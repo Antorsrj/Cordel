@@ -11,6 +11,46 @@ pub struct SessionTokens {
     pub expires_in_secs: u64,
 }
 
+/// Full native identity response from login, invite redemption, or refresh.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentitySession {
+    pub schema_version: u8,
+    pub user_id: String,
+    pub community_id: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in_secs: u64,
+}
+
+impl fmt::Debug for IdentitySession {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("IdentitySession")
+            .field("schema_version", &self.schema_version)
+            .field("user_id", &self.user_id)
+            .field("community_id", &self.community_id)
+            .field("access_token", &"redacted")
+            .field("refresh_token", &"redacted")
+            .field("expires_in_secs", &self.expires_in_secs)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeResponse {
+    pub schema_version: u8,
+    pub user_id: String,
+    pub login: String,
+    pub community_id: String,
+    pub role: String,
+    pub session_expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmptyResponse {
+    pub schema_version: u8,
+}
+
 impl fmt::Debug for SessionTokens {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -249,6 +289,19 @@ mod tests {
 
     #[test]
     fn parses_adr_002_http_fixtures() {
+        let identity: IdentitySession = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_session_response.json"
+        ))
+        .unwrap();
+        assert_eq!(identity.schema_version, 1);
+        assert!(!format!("{identity:?}").contains(&identity.refresh_token));
+
+        let me: MeResponse = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_me_response.json"
+        ))
+        .unwrap();
+        assert_eq!(me.role, "user");
+
         let error: ApiError = serde_json::from_str(include_str!(
             "../../docs/contracts/fixtures/v1/identity_error.json"
         ))

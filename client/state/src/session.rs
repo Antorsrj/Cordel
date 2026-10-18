@@ -66,6 +66,14 @@ impl<S: RefreshStore> ClientState<S> {
         &mut self.tokens
     }
 
+    /// Erase durable and volatile credentials before an uncertain refresh or logout.
+    /// A failed durable clear prevents a request that might consume the old token.
+    pub fn clear_session(&mut self) -> Result<(), crate::credentials::StoreError> {
+        self.store.clear()?;
+        self.tokens.begin_full_media_reconnect();
+        Ok(())
+    }
+
     pub fn cursor(&self, channel_id: &str) -> u64 {
         self.cursors.cursor(channel_id)
     }
