@@ -2,7 +2,7 @@
 
 Cordel is a self-hosted community app for text chat, voice rooms, and screen sharing. The first version is an invite-only community with `user` and `admin` roles. The server is headless; desktop and browser clients provide the interface, including admin controls.
 
-**Project status:** Under development. This repository contains the architecture, ADRs, shared protocol, client state library, Linux Phase 0 client, and standalone identity API. These pieces are not yet an integrated product. The Azure test host runs the media foundation and identity API; HTTPS routing, blocked private ports, reboot recovery, and an isolated external login/refresh/logout smoke test passed. One disposable test admin exists, but the mandatory product gates remain. The host is not ready for community use. See the [ADR status ledger](docs/adr/STATUS.md) for completion evidence and open gates.
+**Project status:** Under development. This repository contains the architecture, ADRs, shared protocol, client state library, Linux Phase 0 client, and standalone identity API. These pieces are not yet an integrated product. The Azure test host runs the media foundation and identity API; HTTPS routing, blocked private ports, reboot recovery, external login/refresh/logout, admin-grant invitation issuance, and one disposable-user invite redemption passed. The test community has disposable `test-admin` and `test-user` accounts. Backup/restore, real media paths, and client integration remain open, so the host is not ready for community use. See the [ADR status ledger](docs/adr/STATUS.md) for completion evidence and open gates.
 
 ## First-test scope
 

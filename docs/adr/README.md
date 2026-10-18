@@ -14,7 +14,7 @@ The first product test covers the Linux native client and diagnostic browser aga
 
 | ADR | Status | Complexity | Area | Implementation dependency |
 | --- | --- | --- | --- | --- |
-| [001 — Single-host East US deployment](server/ADR-001-single-host-deployment.md) | Accepted | 3/5 | Topology, networking, sizing | Start here |
+| [001 — Single-host East US deployment](server/ADR-001-single-host-deployment.md) | Accepted | 4/5 | Topology, networking, sizing | Start here |
 | [002 — Invite-only accounts and sessions](server/ADR-002-invite-only-identity.md) | Accepted | 4/5 | Registration and authentication | 001 |
 | [003 — Community roles and moderation policy](server/ADR-003-community-authorization.md) | Accepted | 4/5 | Roles, channels, kicks and bans | 002 |
 | [004 — Durable chat and WebSocket delivery](server/ADR-004-durable-chat.md) | Accepted | 5/5 | Message order and catch-up | 002–003 |
