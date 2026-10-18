@@ -6,11 +6,11 @@ This procedure installs the current `server/identity` crate on the existing Ubun
 
 ## Next upgrade: account-bound Management Mode
 
-Commit `70bfd9f052273854f2a4db9aca9c25df420fd1ce` contains the source-verified `0002_admin_grant.sql` migration and the new API. The current VM still runs the earlier binary and first schema. The initial install and migration scripts in this document are **not** the upgrade procedure. The owner ran the read-only preflight on 2026-10-18. It found all four services active, the expected old binary SHA-256, migration version `1`, no admin-grant table, one disposable `test-admin`/`Cordel-Test` account/community/membership, no invitations, one session, root-owned mode `0600` credential files, and 58 GiB free. It did not verify a backup. Recheck this state before the upgrade if it may have changed.
+Commit `70bfd9f052273854f2a4db9aca9c25df420fd1ce` contains the source-verified `0002_admin_grant.sql` migration and the new API. The VM now has migrations `1,2` and the new runtime grants, but still runs the earlier API binary. The first upgrade script stopped on a verification bug before switching the binary. **Use the [partial-upgrade handoff](admin-grant-upgrade-handoff.md) for the corrected, checksum-verified resume command. Do not use an older copy of `upgrade-admin-grant-test.sh`.** The initial install and migration scripts below are for a fresh VM and must not be rerun on this one.
 
 The database now contains one disposable account, community, membership, and session. The former backup exception applied only while the database was empty. This test-only procedure requires the explicit script argument `accept_disposable_test_data_without_backup=true`; use it only when the owner has decided that this disposable state may be lost and the lack of a verified backup is accepted. Do not use this exception for real users or a production-like database. The upgrade script independently checks the exact recorded test snapshot and the previous binary SHA-256 `dcc97ecceda9024b6895c4331b907ae92653562f2490272d242b505a39a2f4c5` before it changes anything.
 
-First upload `build-identity-admin-grant.sh` to the current Cloud Shell home directory. Run Command then builds the exact commit above on the Ubuntu 24.04 VM into a revision-specific artifact directory without installing it or changing the database. The explicit `$HOME` path avoids Azure CLI treating a missing local `@file` as script text:
+For a VM at the recorded pre-upgrade state with the earlier API and only migration `1`, first upload `build-identity-admin-grant.sh` to the current Cloud Shell home directory. The current VM has already built this artifact; **do not repeat this stage while resuming its partial upgrade**. Run Command builds the exact commit above on Ubuntu 24.04 into a revision-specific artifact directory without installing it or changing the database. The explicit `$HOME` path avoids Azure CLI treating a missing local `@file` as script text:
 
 ```bash
 (
@@ -26,12 +26,13 @@ az vm run-command invoke \
 )
 ```
 
-Review the reported revision and SHA-256. Then upload `upgrade-admin-grant-test.sh` to the current Cloud Shell home directory and invoke it with the explicit test-data acknowledgment. Pass the reviewed file to `bash -s` as a quoted here-document rather than using Azure `--parameters`: Azure may prepend `export arg1=...` before a script's shebang, causing Bash syntax to run under `/bin/sh`.
+For a VM at that exact pre-upgrade state, review the reported revision and SHA-256. Then obtain the **current corrected** `upgrade-admin-grant-test.sh`, verify its SHA-256 against the handoff, and invoke it with the explicit test-data acknowledgment. Pass the reviewed file to `bash -s` as a quoted here-document rather than using Azure `--parameters`: Azure may prepend `export arg1=...` before a script's shebang, causing Bash syntax to run under `/bin/sh`. The current VM must use the [resume handoff](admin-grant-upgrade-handoff.md).
 
 ```bash
 (
 set -e
 test -s "$HOME/upgrade-admin-grant-test.sh" || { echo 'Upload the upgrade script to this Cloud Shell session first'; exit 1; }
+printf '%s  %s\n' 'c58855d1f03958ffde29d67c5d4d790afd5a87e0a8eb06efed5b8339a7d81393' "$HOME/upgrade-admin-grant-test.sh" | sha256sum -c -
 upgrade_script=$(cat "$HOME/upgrade-admin-grant-test.sh")
 az vm run-command invoke \
   --subscription f77cc05e-0316-4c39-9ee2-74b5d9078f0a \

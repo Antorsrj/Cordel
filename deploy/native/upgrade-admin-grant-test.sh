@@ -84,13 +84,15 @@ GRANT SELECT, INSERT, UPDATE ON admin_grants TO cordel_identity_app;
 GRANT INSERT ON admin_audit TO cordel_identity_app;
 SQL
 schema_state=$(runuser -u postgres -- psql -XAt -v ON_ERROR_STOP=1 -d cordel_identity -c \
-  "SELECT (SELECT count(*) FROM _sqlx_migrations WHERE success AND version IN (1,2)) || '|' ||
-          (SELECT count(*) FROM _sqlx_migrations WHERE success) || '|' ||
-          has_table_privilege('cordel_identity_app','public.admin_grants','SELECT') || '|' ||
-          has_table_privilege('cordel_identity_app','public.admin_grants','INSERT') || '|' ||
-          has_table_privilege('cordel_identity_app','public.admin_grants','UPDATE') || '|' ||
-          has_table_privilege('cordel_identity_app','public.admin_audit','INSERT')")
-[[ $schema_state == '2|2|t|t|t|t' ]] || { echo 'Migration ledger or runtime grants verification failed.' >&2; exit 1; }
+  "SELECT CASE WHEN
+          (SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations WHERE success) = ARRAY[1::bigint,2::bigint]
+          AND (SELECT count(*) FROM _sqlx_migrations) = 2
+          AND has_table_privilege('cordel_identity_app','public.admin_grants','SELECT')
+          AND has_table_privilege('cordel_identity_app','public.admin_grants','INSERT')
+          AND has_table_privilege('cordel_identity_app','public.admin_grants','UPDATE')
+          AND has_table_privilege('cordel_identity_app','public.admin_audit','INSERT')
+          THEN 'ok' ELSE 'failed' END")
+[[ $schema_state == ok ]] || { echo 'Migration ledger or runtime grants verification failed.' >&2; exit 1; }
 
 install -o root -g root -m 0755 "$live" "$rollback"
 tmp_live="${live}.new.$$"
