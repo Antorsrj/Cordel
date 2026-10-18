@@ -6,6 +6,7 @@
 
 mod catchup;
 mod credentials;
+mod identity;
 mod outbox;
 mod protocol;
 mod retry;
@@ -14,6 +15,10 @@ mod session;
 pub use catchup::{catch_up, AppliedEvent, CatchUp};
 pub use credentials::{
     MemoryRefreshStore, RefreshCredential, RefreshStore, StoreError, VolatileTokens,
+};
+pub use identity::{
+    HttpReply, HttpRequest, IdentityClient, IdentityError, IdentityTransport, NativeHttpsTransport,
+    TransportFailure,
 };
 pub use outbox::{AckResult, ClientMessageId, Outbox, PendingSend, SendState};
 pub use protocol::ChatEvent;

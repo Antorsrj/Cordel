@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "error": {
+    "code": "unauthenticated",
+    "message": "Authentication failed"
+  }
+}

@@ -13,7 +13,8 @@ pub use chat::{
     PROTOCOL_VERSION,
 };
 pub use session::{
-    authorization_header, ApiError, ErrorCode, LiveKitAdmission, LoginRequest, RedeemInviteRequest,
-    RefreshRequest, SessionTokens, ACCESS_TOKEN_HEADER,
+    authorization_header, ApiError, EmptyResponse, ErrorCode, ErrorDetail, IdentitySession,
+    LiveKitAdmission, LoginRequest, MeResponse, RedeemInviteRequest, RefreshRequest, SessionTokens,
+    ACCESS_TOKEN_HEADER,
 };
 pub use ws::{FrameError, WsFrame};

@@ -261,7 +261,7 @@ Store refresh credentials in macOS Keychain, Windows Credential Manager, or the 
 
 ## 5. Single-host deployment layout
 
-The maintained deployment procedure is in [`deploy/`](./deploy/README.md). The first-test VM runs native Ubuntu services under `systemd`: packaged PostgreSQL, Caddy, a pinned LiveKit binary, and eventually the Axum binary. Redis is omitted on the single node. PostgreSQL listens only on loopback; LiveKit signaling listens on the primary private interface for Caddy to reach it, with raw port 7880 blocked by the NSG and host firewall. The future Axum listener remains host-local behind Caddy. The Axum binary is not present because this repository has no Axum server source yet; separate client and protocol crates now exist. Each service has its own account, writable directories, restart policy, and version/rollback record. Caddy binds HTTP/HTTPS on the primary private IP; LiveKit's TURN/TLS and TURN/UDP listeners bind to the secondary private IP. The TURN Certbot staging renewal and deploy-hook path passed once. Caddy media certificate renewal and real media paths still need proof before the host is ready.
+The maintained deployment procedure is in [`deploy/`](./deploy/README.md). The first-test VM runs native Ubuntu services under `systemd`: packaged PostgreSQL, Caddy, a pinned LiveKit binary, and eventually the Axum binary. Redis is omitted on the single node. PostgreSQL listens only on loopback; LiveKit signaling listens on the primary private interface for Caddy to reach it, with raw port 7880 blocked by the NSG and host firewall. The future Axum listener remains host-local behind Caddy. Local `server/identity` source is a partial ADR-002 component, not a reviewed release binary or integrated API; separate client and protocol crates also exist. Each service has its own account, writable directories, restart policy, and version/rollback record. Caddy binds HTTP/HTTPS on the primary private IP; LiveKit's TURN/TLS and TURN/UDP listeners bind to the secondary private IP. The TURN Certbot staging renewal and deploy-hook path passed once. Caddy media certificate renewal and real media paths still need proof before the host is ready.
 
 ```mermaid
 flowchart TB
@@ -387,7 +387,7 @@ These checks complete mandatory ADRs; they are not the user-facing integrated pr
 | Linux package target and supported OS versions | Determines library and portal compatibility | Client release gate |
 | E2EE design for text, chat images, voice, and screen | Requirement is set for before the final release; key management and SDK feasibility remain open | Before final-release architecture |
 | Host-side admin management and recovery procedure | Admins cannot kick or ban admins; authorized host access controls admin assignment and recovery | Before moderation release |
-| Repository license and Slint compatibility | Determines permissible distribution terms | Before official repository licensing |
+| Client binary attribution and third-party notices | Cordel source uses Apache-2.0 and the desktop Slint path is royalty-free under ADR-106; a packaged About screen and complete native/dependency notice audit remain | Before client binary distribution |
 
 ## References
 

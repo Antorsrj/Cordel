@@ -11,6 +11,46 @@ pub struct SessionTokens {
     pub expires_in_secs: u64,
 }
 
+/// Full native identity response from login, invite redemption, or refresh.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentitySession {
+    pub schema_version: u8,
+    pub user_id: String,
+    pub community_id: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in_secs: u64,
+}
+
+impl fmt::Debug for IdentitySession {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("IdentitySession")
+            .field("schema_version", &self.schema_version)
+            .field("user_id", &self.user_id)
+            .field("community_id", &self.community_id)
+            .field("access_token", &"redacted")
+            .field("refresh_token", &"redacted")
+            .field("expires_in_secs", &self.expires_in_secs)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeResponse {
+    pub schema_version: u8,
+    pub user_id: String,
+    pub login: String,
+    pub community_id: String,
+    pub role: String,
+    pub session_expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmptyResponse {
+    pub schema_version: u8,
+}
+
 impl fmt::Debug for SessionTokens {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -97,6 +137,11 @@ pub enum ErrorCode {
     InviteExhausted,
     UsernameTaken,
     Unauthorized,
+    Unauthenticated,
+    InvalidInput,
+    RateLimited,
+    Conflict,
+    Expired,
     RefreshReused,
     Forbidden,
     Other(String),
@@ -111,6 +156,11 @@ impl ErrorCode {
             Self::InviteExhausted => "invite_exhausted",
             Self::UsernameTaken => "username_taken",
             Self::Unauthorized => "unauthorized",
+            Self::Unauthenticated => "unauthenticated",
+            Self::InvalidInput => "invalid_input",
+            Self::RateLimited => "rate_limited",
+            Self::Conflict => "conflict",
+            Self::Expired => "expired",
             Self::RefreshReused => "refresh_reused",
             Self::Forbidden => "forbidden",
             Self::Other(code) => code,
@@ -125,6 +175,11 @@ impl ErrorCode {
             "invite_exhausted" => Self::InviteExhausted,
             "username_taken" => Self::UsernameTaken,
             "unauthorized" => Self::Unauthorized,
+            "unauthenticated" => Self::Unauthenticated,
+            "invalid_input" => Self::InvalidInput,
+            "rate_limited" => Self::RateLimited,
+            "conflict" => Self::Conflict,
+            "expired" => Self::Expired,
             "refresh_reused" => Self::RefreshReused,
             "forbidden" => Self::Forbidden,
             other => Self::Other(other.to_owned()),
@@ -147,7 +202,14 @@ impl<'de> Deserialize<'de> for ErrorCode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
-    pub error: ErrorCode,
+    pub schema_version: u8,
+    pub error: ErrorDetail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorDetail {
+    pub code: ErrorCode,
+    pub message: String,
 }
 
 pub fn authorization_header(access_token: &str) -> String {
@@ -187,26 +249,71 @@ mod tests {
     #[test]
     fn public_registration_and_moderation_have_stable_codes() {
         let disabled = ApiError {
-            error: ErrorCode::PublicRegistrationDisabled,
+            schema_version: 1,
+            error: ErrorDetail {
+                code: ErrorCode::PublicRegistrationDisabled,
+                message: "An invitation is required".to_owned(),
+            },
         };
         let json = serde_json::to_string(&disabled).unwrap();
         assert!(json.contains("public_registration_disabled"));
         let parsed: ApiError = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.error, ErrorCode::PublicRegistrationDisabled);
+        assert_eq!(parsed.error.code, ErrorCode::PublicRegistrationDisabled);
 
         let future = ApiError {
-            error: ErrorCode::parse("future_limit"),
+            schema_version: 1,
+            error: ErrorDetail {
+                code: ErrorCode::parse("future_limit"),
+                message: "Later".to_owned(),
+            },
         };
         let parsed: ApiError =
             serde_json::from_str(&serde_json::to_string(&future).unwrap()).unwrap();
-        assert_eq!(parsed.error, ErrorCode::Other("future_limit".to_owned()));
+        assert_eq!(
+            parsed.error.code,
+            ErrorCode::Other("future_limit".to_owned())
+        );
         assert_eq!(ErrorCode::Forbidden.as_str(), "forbidden");
         assert_ne!(ErrorCode::Forbidden, ErrorCode::Unauthorized);
+        assert_eq!(
+            ErrorCode::parse("unauthenticated"),
+            ErrorCode::Unauthenticated
+        );
     }
 
     #[test]
     fn native_websocket_header_uses_the_access_token() {
         assert_eq!(authorization_header("abc"), "Bearer abc");
         assert_eq!(ACCESS_TOKEN_HEADER, "authorization");
+    }
+
+    #[test]
+    fn parses_adr_002_http_fixtures() {
+        let identity: IdentitySession = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_session_response.json"
+        ))
+        .unwrap();
+        assert_eq!(identity.schema_version, 1);
+        assert!(!format!("{identity:?}").contains(&identity.refresh_token));
+
+        let me: MeResponse = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_me_response.json"
+        ))
+        .unwrap();
+        assert_eq!(me.role, "user");
+
+        let error: ApiError = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_error.json"
+        ))
+        .unwrap();
+        assert_eq!(error.schema_version, 1);
+        assert_eq!(error.error.code, ErrorCode::Unauthenticated);
+
+        let session: SessionTokens = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/v1/identity_session_response.json"
+        ))
+        .unwrap();
+        assert_eq!(session.expires_in_secs, 300);
+        assert!(!format!("{session:?}").contains("unusable-fixture-refresh-token"));
     }
 }

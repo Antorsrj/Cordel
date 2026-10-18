@@ -4,7 +4,7 @@ Shared JSON contract for [ADR-002](../docs/adr/server/ADR-002-invite-only-identi
 
 Version 1 covers:
 
-- Invite redemption, login, refresh, and logout credentials. The app access token and the refresh token are separate from a LiveKit admission token.
+- Invite redemption, login, refresh, and logout credentials. The app access token and the refresh token are separate from a LiveKit admission token. HTTP errors use the v1 `{ "schema_version": 1, "error": { "code": "...", "message": "..." } }` envelope; unknown future error codes remain parseable.
 - Native WebSocket admission through the `authorization: Bearer` header.
 - Chat sends, acknowledgements tied to `client_message_id`, and history strictly after `after_seq`.
 - Versioned WebSocket frames. Unknown kinds and extra fields still parse. A frame whose `v` is not `1` is rejected.
