@@ -23,6 +23,7 @@ use uuid::Uuid;
 const ACCESS_SECONDS: i64 = 300;
 const REFRESH_DAYS: i64 = 30;
 const AUTH_WINDOW: StdDuration = StdDuration::from_secs(600);
+const ADMIN_GRANT_SECONDS: i64 = 600;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -132,6 +133,54 @@ impl AppState {
             session_expires_at: row.get("expires_at"),
         })
     }
+
+    async fn authenticate_admin_grant(&self, headers: &HeaderMap) -> Result<Principal, ApiError> {
+        let token = bearer_token(headers).ok_or_else(ApiError::unauthenticated)?;
+        if !valid_opaque_token(token) {
+            return Err(ApiError::unauthenticated());
+        }
+        let row = sqlx::query(
+            "SELECT g.account_id,g.session_id,g.community_id,s.expires_at AS session_expires_at, \
+             m.role,m.kicked_until,m.banned_at,a.login \
+             FROM admin_grants g JOIN sessions s ON s.id=g.session_id AND s.account_id=g.account_id \
+             JOIN memberships m ON m.account_id=g.account_id AND m.community_id=g.community_id \
+             JOIN accounts a ON a.id=g.account_id \
+             WHERE g.token_hash=$1 AND g.revoked_at IS NULL AND g.expires_at>now() \
+             AND s.revoked_at IS NULL AND s.expires_at>now()",
+        )
+        .bind(code_hash(token))
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| ApiError::internal())?
+        .ok_or_else(ApiError::unauthenticated)?;
+        let kicked_until: Option<DateTime<Utc>> = row.get("kicked_until");
+        let banned_at: Option<DateTime<Utc>> = row.get("banned_at");
+        if row.get::<String, _>("role") != "admin"
+            || banned_at.is_some()
+            || kicked_until.is_some_and(|until| until > Utc::now())
+        {
+            return Err(ApiError::forbidden());
+        }
+        Ok(Principal {
+            account_id: row.get("account_id"),
+            session_id: row.get("session_id"),
+            community_id: row.get("community_id"),
+            role: "admin".to_owned(),
+            login: row.get("login"),
+            session_expires_at: row.get("session_expires_at"),
+        })
+    }
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+fn valid_opaque_token(token: &str) -> bool {
+    token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Serialize)]
@@ -247,6 +296,28 @@ pub struct InviteRequest {
     expires_in_hours: Option<i64>,
     max_uses: Option<i32>,
 }
+#[derive(Deserialize)]
+pub struct AdminGrantRequest {
+    password: String,
+}
+
+#[derive(Serialize)]
+struct AdminGrantResponse {
+    schema_version: u8,
+    admin_token: String,
+    expires_in_secs: i64,
+}
+
+impl std::fmt::Debug for AdminGrantResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AdminGrantResponse")
+            .field("schema_version", &self.schema_version)
+            .field("admin_token", &"redacted")
+            .field("expires_in_secs", &self.expires_in_secs)
+            .finish()
+    }
+}
 
 #[derive(Serialize)]
 struct SessionResponse {
@@ -312,6 +383,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sessions", post(login))
         .route("/v1/sessions/refresh", post(refresh))
         .route("/v1/sessions/current", delete(logout))
+        .route(
+            "/v1/sessions/admin-grant",
+            post(unlock_admin).delete(lock_admin),
+        )
         .route("/v1/me", get(me))
         .route(
             "/v1/communities/{community_id}/invitations",
@@ -593,11 +668,126 @@ async fn logout(
     headers: HeaderMap,
 ) -> Result<Json<EmptyResponse>, ApiError> {
     let principal = state.authenticate(&headers).await?;
+    let mut tx = state.pool.begin().await.map_err(|_| ApiError::internal())?;
+    sqlx::query(
+        "UPDATE admin_grants SET revoked_at=now() WHERE session_id=$1 AND revoked_at IS NULL",
+    )
+    .bind(principal.session_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::internal())?;
     sqlx::query("UPDATE sessions SET revoked_at=now() WHERE id=$1 AND revoked_at IS NULL")
         .bind(principal.session_id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|_| ApiError::internal())?;
+    tx.commit().await.map_err(|_| ApiError::internal())?;
+    Ok(Json(EmptyResponse { schema_version: 1 }))
+}
+
+async fn audit_admin(
+    tx: &mut Transaction<'_, Postgres>,
+    principal: &Principal,
+    action: &str,
+) -> Result<(), ApiError> {
+    sqlx::query("INSERT INTO admin_audit (id,account_id,session_id,community_id,action) VALUES ($1,$2,$3,$4,$5)")
+        .bind(Uuid::new_v4())
+        .bind(principal.account_id)
+        .bind(principal.session_id)
+        .bind(principal.community_id)
+        .bind(action)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    Ok(())
+}
+
+async fn unlock_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Result<Json<AdminGrantRequest>, JsonRejection>,
+) -> Result<Json<AdminGrantResponse>, ApiError> {
+    let principal = state.authenticate(&headers).await?;
+    let body = payload.map_err(json_error)?.0;
+    if principal.role != "admin" {
+        return Err(ApiError::forbidden());
+    }
+    state.limit(&format!("admin-unlock:{}", principal.account_id), 5)?;
+    if body.password.len() > 128 {
+        return Err(ApiError::unauthenticated());
+    }
+    let password_hash: String =
+        sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+            .bind(principal.account_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| ApiError::internal())?;
+    if !verify_password_async(body.password, password_hash.clone()).await? {
+        let mut tx = state.pool.begin().await.map_err(|_| ApiError::internal())?;
+        audit_admin(&mut tx, &principal, "grant_denied").await?;
+        tx.commit().await.map_err(|_| ApiError::internal())?;
+        return Err(ApiError::unauthenticated());
+    }
+    let mut tx = state.pool.begin().await.map_err(|_| ApiError::internal())?;
+    // Lock account, session, and membership through issuance so a concurrent
+    // password recovery, logout, or demotion cannot issue a stale grant.
+    let row = sqlx::query(
+        "SELECT a.password_hash,s.revoked_at,s.expires_at,m.role,m.kicked_until,m.banned_at \
+        FROM accounts a JOIN sessions s ON s.account_id=a.id \
+        JOIN memberships m ON m.account_id=a.id \
+        WHERE a.id=$1 AND s.id=$2 AND m.community_id=$3 FOR SHARE OF a,s,m",
+    )
+    .bind(principal.account_id)
+    .bind(principal.session_id)
+    .bind(principal.community_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::internal())?
+    .ok_or_else(ApiError::unauthenticated)?;
+    let kicked_until: Option<DateTime<Utc>> = row.get("kicked_until");
+    if row.get::<String, _>("password_hash") != password_hash
+        || row.get::<Option<DateTime<Utc>>, _>("revoked_at").is_some()
+        || row.get::<DateTime<Utc>, _>("expires_at") <= Utc::now()
+        || row.get::<String, _>("role") != "admin"
+        || row.get::<Option<DateTime<Utc>>, _>("banned_at").is_some()
+        || kicked_until.is_some_and(|until| until > Utc::now())
+    {
+        return Err(ApiError::forbidden());
+    }
+    let token = random_code();
+    sqlx::query("INSERT INTO admin_grants (token_hash,session_id,account_id,community_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval '10 minutes')")
+        .bind(code_hash(&token))
+        .bind(principal.session_id)
+        .bind(principal.account_id)
+        .bind(principal.community_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    audit_admin(&mut tx, &principal, "grant_issued").await?;
+    tx.commit().await.map_err(|_| ApiError::internal())?;
+    Ok(Json(AdminGrantResponse {
+        schema_version: 1,
+        admin_token: token,
+        expires_in_secs: ADMIN_GRANT_SECONDS,
+    }))
+}
+
+async fn lock_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<EmptyResponse>, ApiError> {
+    let principal = state.authenticate_admin_grant(&headers).await?;
+    let token = bearer_token(&headers).ok_or_else(ApiError::unauthenticated)?;
+    let mut tx = state.pool.begin().await.map_err(|_| ApiError::internal())?;
+    sqlx::query(
+        "UPDATE admin_grants SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL",
+    )
+    .bind(code_hash(token))
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::internal())?;
+    audit_admin(&mut tx, &principal, "grant_revoked").await?;
+    tx.commit().await.map_err(|_| ApiError::internal())?;
     Ok(Json(EmptyResponse { schema_version: 1 }))
 }
 
@@ -624,8 +814,8 @@ async fn create_invite(
 ) -> Result<Json<InviteResponse>, ApiError> {
     let community_id = Uuid::parse_str(&raw_community_id).map_err(|_| ApiError::invalid())?;
     let body = payload.map_err(json_error)?.0;
-    let principal = state.authenticate(&headers).await?;
-    if principal.community_id != community_id || principal.role != "admin" {
+    let principal = state.authenticate_admin_grant(&headers).await?;
+    if principal.community_id != community_id {
         return Err(ApiError::forbidden());
     }
     let hours = body.expires_in_hours.unwrap_or(24);
@@ -647,9 +837,25 @@ async fn create_invite(
     {
         return Err(ApiError::forbidden());
     }
+    let grant_token = bearer_token(&headers).ok_or_else(ApiError::unauthenticated)?;
+    let grant = sqlx::query("SELECT g.token_hash FROM admin_grants g JOIN sessions s ON s.id=g.session_id \
+        WHERE g.token_hash=$1 AND g.account_id=$2 AND g.session_id=$3 AND g.community_id=$4 \
+        AND g.revoked_at IS NULL AND g.expires_at>now() AND s.revoked_at IS NULL AND s.expires_at>now() \
+        FOR SHARE OF g,s")
+        .bind(code_hash(grant_token))
+        .bind(principal.account_id)
+        .bind(principal.session_id)
+        .bind(community_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    if grant.is_none() {
+        return Err(ApiError::unauthenticated());
+    }
     sqlx::query("INSERT INTO invitations (id,community_id,issued_by,code_hash,uses_remaining,expires_at) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(invitation_id).bind(community_id).bind(principal.account_id).bind(code_hash(&code))
         .bind(uses).bind(expires_at).execute(&mut *tx).await.map_err(|_| ApiError::internal())?;
+    audit_admin(&mut tx, &principal, "invitation_created").await?;
     tx.commit().await.map_err(|_| ApiError::internal())?;
     Ok(Json(InviteResponse {
         schema_version: 1,
@@ -879,7 +1085,7 @@ mod tests {
             "refusing to clear a non-disposable database"
         );
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        sqlx::query("TRUNCATE host_audit,refresh_credentials,sessions,invitations,memberships,accounts,communities CASCADE")
+        sqlx::query("TRUNCATE admin_audit,admin_grants,host_audit,refresh_credentials,sessions,invitations,memberships,accounts,communities CASCADE")
             .execute(&pool).await.unwrap();
         let state = AppState::new(pool.clone(), vec![9; 32]).unwrap();
         bootstrap_admin(
@@ -945,10 +1151,49 @@ mod tests {
             header::AUTHORIZATION,
             format!("Bearer {}", admin.access_token).parse().unwrap(),
         );
-        let invite = create_invite(
+        let ordinary_denied = create_invite(
             State(state.clone()),
             Path(admin.community_id.to_string()),
             headers.clone(),
+            Ok(Json(InviteRequest {
+                expires_in_hours: None,
+                max_uses: None,
+            })),
+        )
+        .await;
+        assert_eq!(
+            ordinary_denied.unwrap_err().status,
+            StatusCode::UNAUTHORIZED
+        );
+        let wrong = unlock_admin(
+            State(state.clone()),
+            headers.clone(),
+            Ok(Json(AdminGrantRequest {
+                password: "incorrect password".into(),
+            })),
+        )
+        .await;
+        assert_eq!(wrong.unwrap_err().status, StatusCode::UNAUTHORIZED);
+        let grant = unlock_admin(
+            State(state.clone()),
+            headers.clone(),
+            Ok(Json(AdminGrantRequest {
+                password: "correct horse battery staple".into(),
+            })),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(grant.expires_in_secs, ADMIN_GRANT_SECONDS);
+        let mut grant_headers = HeaderMap::new();
+        grant_headers.insert(
+            header::AUTHORIZATION,
+            format!("Bearer {}", grant.admin_token).parse().unwrap(),
+        );
+        let invite = create_invite(
+            State(state.clone()),
+            Path(admin.community_id.to_string()),
+            grant_headers.clone(),
             Ok(Json(InviteRequest {
                 expires_in_hours: Some(24),
                 max_uses: Some(1),
@@ -999,6 +1244,15 @@ mod tests {
             );
             value
         };
+        let regular_unlock = unlock_admin(
+            State(state.clone()),
+            user_headers.clone(),
+            Ok(Json(AdminGrantRequest {
+                password: "correct horse battery staple".into(),
+            })),
+        )
+        .await;
+        assert_eq!(regular_unlock.unwrap_err().status, StatusCode::FORBIDDEN);
         let denied = create_invite(
             State(state.clone()),
             Path(admin.community_id.to_string()),
@@ -1009,12 +1263,12 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(denied.unwrap_err().status, StatusCode::FORBIDDEN);
+        assert_eq!(denied.unwrap_err().status, StatusCode::UNAUTHORIZED);
 
         let collision_invite = create_invite(
             State(state.clone()),
             Path(admin.community_id.to_string()),
-            headers.clone(),
+            grant_headers.clone(),
             Ok(Json(InviteRequest {
                 expires_in_hours: None,
                 max_uses: None,
@@ -1055,6 +1309,90 @@ mod tests {
         )
         .await;
         assert_eq!(expired.unwrap_err().error.code, "invalid_input");
+
+        sqlx::query("UPDATE memberships SET role='user' WHERE community_id=$1 AND account_id=(SELECT id FROM accounts WHERE login_key='admin')")
+            .bind(admin.community_id).execute(&pool).await.unwrap();
+        let demoted = create_invite(
+            State(state.clone()),
+            Path(admin.community_id.to_string()),
+            grant_headers.clone(),
+            Ok(Json(InviteRequest {
+                expires_in_hours: None,
+                max_uses: None,
+            })),
+        )
+        .await;
+        assert_eq!(demoted.unwrap_err().status, StatusCode::UNAUTHORIZED);
+        sqlx::query("UPDATE memberships SET role='admin' WHERE community_id=$1 AND account_id=(SELECT id FROM accounts WHERE login_key='admin')")
+            .bind(admin.community_id).execute(&pool).await.unwrap();
+        let old_grant = create_invite(
+            State(state.clone()),
+            Path(admin.community_id.to_string()),
+            grant_headers,
+            Ok(Json(InviteRequest {
+                expires_in_hours: None,
+                max_uses: None,
+            })),
+        )
+        .await;
+        assert_eq!(old_grant.unwrap_err().status, StatusCode::UNAUTHORIZED);
+        let lockable = unlock_admin(
+            State(state.clone()),
+            headers.clone(),
+            Ok(Json(AdminGrantRequest {
+                password: "correct horse battery staple".into(),
+            })),
+        )
+        .await
+        .unwrap()
+        .0;
+        let mut lock_headers = HeaderMap::new();
+        lock_headers.insert(
+            header::AUTHORIZATION,
+            format!("Bearer {}", lockable.admin_token).parse().unwrap(),
+        );
+        let _ = lock_admin(State(state.clone()), lock_headers.clone())
+            .await
+            .unwrap();
+        let locked = create_invite(
+            State(state.clone()),
+            Path(admin.community_id.to_string()),
+            lock_headers,
+            Ok(Json(InviteRequest {
+                expires_in_hours: None,
+                max_uses: None,
+            })),
+        )
+        .await;
+        assert_eq!(locked.unwrap_err().status, StatusCode::UNAUTHORIZED);
+        let expiring = unlock_admin(
+            State(state.clone()),
+            headers.clone(),
+            Ok(Json(AdminGrantRequest {
+                password: "correct horse battery staple".into(),
+            })),
+        )
+        .await
+        .unwrap()
+        .0;
+        sqlx::query("UPDATE admin_grants SET issued_at=now()-interval '20 minutes', expires_at=now()-interval '10 minutes' WHERE token_hash=$1")
+            .bind(code_hash(&expiring.admin_token)).execute(&pool).await.unwrap();
+        let mut expired_headers = HeaderMap::new();
+        expired_headers.insert(
+            header::AUTHORIZATION,
+            format!("Bearer {}", expiring.admin_token).parse().unwrap(),
+        );
+        let expired_grant = create_invite(
+            State(state.clone()),
+            Path(admin.community_id.to_string()),
+            expired_headers,
+            Ok(Json(InviteRequest {
+                expires_in_hours: None,
+                max_uses: None,
+            })),
+        )
+        .await;
+        assert_eq!(expired_grant.unwrap_err().status, StatusCode::UNAUTHORIZED);
 
         let rotated = refresh(
             State(state.clone()),
@@ -1173,5 +1511,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(audit_count, 2);
+        let grant_audit_count: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_audit WHERE account_id=(SELECT id FROM accounts WHERE login_key='admin')")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(grant_audit_count, 7);
     }
 }

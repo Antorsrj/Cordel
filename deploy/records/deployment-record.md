@@ -44,7 +44,9 @@ The owner built commit `cf373b62dfb270badb137c20e5d380949c3e9b4d` on Ubuntu 24.0
 
 The checksum-verified installer created `cordel-api.service` and Caddy's `/v1/*` reverse-proxy route. The owner started and then enabled the API. A VM check found it active on `127.0.0.1:3000`; a public HTTPS request to `/v1/accounts` returned JSON `public_registration_disabled` with HTTP 403 and TLS verification result 0. The media root still returned HTTP 200. Cloud Shell TCP probes found public ports 3000, 5432, and 7880 blocked. After a second VM reboot, PostgreSQL, Caddy, LiveKit, and the API were all active, the API was enabled and still bound to loopback, and HTTPS still returned HTTP 403 with valid TLS. The SSH allowlist was updated to the current Cloud Shell `/32`; Entra SSH and administrator `sudo` worked. The SSH host-key fingerprint matched an independent Azure Run Command check.
 
-From the verified interactive VM session, the owner ran the host-only `bootstrap-admin` command. It reported `First admin created; host audit record written.` This created one disposable `test-admin` account and the `Cordel-Test` community; the password was not shared. The database is now nonempty, so the empty-database backup exception cannot be reused. Do not invite real users until ADR-007 off-host backup and restore are verified. A public client login, token refresh/logout, and integrated Cordel behavior have not yet been exercised.
+From the verified interactive VM session, the owner ran the host-only `bootstrap-admin` command. It reported `First admin created; host audit record written.` This created one disposable `test-admin` account and the `Cordel-Test` community; the password was not shared. The database is now nonempty, so the empty-database backup exception cannot be reused. Do not invite real users until ADR-007 off-host backup and restore are verified.
+
+The owner then cloned `feature/adr-002-identity` at `028a503351ec9b66b1d8b948f0cd27c2110e36e7` into Azure Cloud Shell and ran `client/state/cloud-shell-check.sh`. Rust 1.99.1 passed 11 protocol tests, 23 client state tests, format/Clippy checks, and client/example builds. The `identity_smoke` example connected from Cloud Shell to `https://cordel-media-f77cc05e.eastus.cloudapp.azure.com/` as the disposable `test-admin` and reported `Identity smoke passed: login, me, refresh rotation, logout.` It prompted without echoing the password and printed no token. This is an isolated live identity proof, not a full client UI, invite redemption on the VM, WebSocket, media, or product test.
 
 ## Resize and cost observation (owner's Cloud Shell output, 2026-10-17)
 
@@ -97,7 +99,7 @@ Complete this record for each disposable or first-test deployment. Do not includ
 - Peak outbound bitrate:
 - Packet loss and RTT:
 - Client download/quality observations:
-- Issues and follow-up:
+- Issues and follow-up (fix agent-discovered findings; record unresolved gates here and link existing human-filed GitHub Issues when applicable):
 
 ## Review
 

@@ -1,0 +1,47 @@
+name: Issue report
+description: Manually report a Cordel defect, blocker, or requested change.
+title: "[Issue] "
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include passwords, tokens, private keys, private access details, or real user data. Agents fix findings from their own work without opening issues."
+  - type: input
+    id: adr
+    attributes:
+      label: Owning ADR or workstream
+      description: Use an ADR number if known, such as Server 002 or Client 102.
+      placeholder: Server 002
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or requested change
+      description: State the observed behavior and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use disposable data and redact sensitive details.
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Environment and sanitized evidence
+      description: Include relevant OS, client/server revision, and safe logs or screenshots.
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Blocks an ADR or deployment
+        - Breaks a feature
+        - Degrades behavior
+        - Documentation or follow-up
+    validations:
+      required: true

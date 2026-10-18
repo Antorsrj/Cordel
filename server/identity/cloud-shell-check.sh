@@ -46,6 +46,10 @@ cargo test --manifest-path protocol/Cargo.toml --jobs 1
 cargo fmt --manifest-path server/identity/Cargo.toml
 cargo clippy --manifest-path server/identity/Cargo.toml --all-targets --jobs 1 -- -D warnings
 cargo test --manifest-path server/identity/Cargo.toml --jobs 1
+cargo fmt --manifest-path client/state/Cargo.toml
+cargo clippy --manifest-path client/state/Cargo.toml --all-targets --jobs 1 -- -D warnings
+cargo test --manifest-path client/state/Cargo.toml --jobs 1
+cargo build --manifest-path client/state/Cargo.toml --examples --jobs 1
 
 test_root=''
 cleanup_db() {
@@ -78,6 +82,7 @@ if [[ "${1:-}" == '--with-db' ]]; then
 fi
 
 tar -czf "$repo_root/cordel-adr002-tested.tar.gz" -C "$repo_root" \
-  server/identity protocol/src/session.rs protocol/src/lib.rs docs/contracts/fixtures/v1/identity_*.json
-echo 'ADR-002 checks passed. Download cordel-adr002-tested.tar.gz to return formatted source and Cargo.lock.'
+  server/identity protocol client/state docs/contracts/fixtures/v1/identity_*.json \
+  docs/contracts/fixtures/v1/admin_grant_*.json
+echo 'ADR-002 and Client-102 checks passed. Download cordel-adr002-tested.tar.gz to return formatted source and Cargo.lock.'
 echo 'When finished, run: bash server/identity/cloud-shell-check.sh --cleanup'
