@@ -82,6 +82,10 @@ unset DATABASE_URL
 runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d cordel_identity <<'SQL'
 GRANT SELECT, INSERT, UPDATE ON admin_grants TO cordel_identity_app;
 GRANT INSERT ON admin_audit TO cordel_identity_app;
+-- PostgreSQL requires UPDATE on at least one column for SELECT ... FOR SHARE.
+-- Limit this to inert columns; the runtime role must not update passwords/roles.
+GRANT UPDATE (created_at) ON accounts TO cordel_identity_app;
+GRANT UPDATE (created_at) ON memberships TO cordel_identity_app;
 SQL
 schema_state=$(runuser -u postgres -- psql -XAt -v ON_ERROR_STOP=1 -d cordel_identity -c \
   "SELECT CASE WHEN
@@ -91,8 +95,22 @@ schema_state=$(runuser -u postgres -- psql -XAt -v ON_ERROR_STOP=1 -d cordel_ide
           AND has_table_privilege('cordel_identity_app','public.admin_grants','INSERT')
           AND has_table_privilege('cordel_identity_app','public.admin_grants','UPDATE')
           AND has_table_privilege('cordel_identity_app','public.admin_audit','INSERT')
+          AND has_column_privilege('cordel_identity_app','public.accounts','created_at','UPDATE')
+          AND has_column_privilege('cordel_identity_app','public.memberships','created_at','UPDATE')
           THEN 'ok' ELSE 'failed' END")
 [[ $schema_state == ok ]] || { echo 'Migration ledger or runtime grants verification failed.' >&2; exit 1; }
+
+runuser -u postgres -- psql -XAt -v ON_ERROR_STOP=1 -d cordel_identity <<'SQL'
+SET ROLE cordel_identity_app;
+BEGIN;
+SELECT 'subject_row_lock=' || count(*) FROM (
+    SELECT 1 FROM accounts a
+    JOIN sessions s ON s.account_id=a.id
+    JOIN memberships m ON m.account_id=a.id
+    LIMIT 1 FOR SHARE OF a,s,m
+) locked;
+ROLLBACK;
+SQL
 
 install -o root -g root -m 0755 "$live" "$rollback"
 tmp_live="${live}.new.$$"

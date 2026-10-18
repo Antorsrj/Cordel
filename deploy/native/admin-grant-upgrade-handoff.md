@@ -28,7 +28,7 @@ The owner downloaded the corrected script in Azure Cloud Shell, verified its dig
 set -euo pipefail
 cordel_upgrade_script="$HOME/upgrade-admin-grant-resume.sh"
 curl -fsSL --proto '=https' --tlsv1.2 \
-  'https://raw.githubusercontent.com/Antorsrj/Cordel/feature/adr-002-identity/deploy/native/upgrade-admin-grant-test.sh' \
+  'https://raw.githubusercontent.com/Antorsrj/Cordel/56a379f1c098f6fdc28d638108f1869bc851f920/deploy/native/upgrade-admin-grant-test.sh' \
   -o "$cordel_upgrade_script"
 printf '%s  %s\n' \
   'c58855d1f03958ffde29d67c5d4d790afd5a87e0a8eb06efed5b8339a7d81393' \
@@ -51,3 +51,5 @@ The success output above is recorded in `deploy/records/deployment-record.md` an
 The owner independently confirmed the new binary and rollback hashes, active services, migrations `1,2`, loopback API listener, HTTPS/TLS, public registration HTTP 403, and unauthenticated admin-grant HTTP 401. Direct port reachability has not been rechecked after the upgrade. A focused own-password grant and invitation test with the disposable admin is still required before declaring this change live. ADR-002 remains In progress until its remaining gates are complete.
 
 For that focused check, download [azure-admin-grant-smoke.py](../azure-admin-grant-smoke.py) into a new Cloud Shell session, verify SHA-256 `b179fd9c729cc485dec1e7e446cd94788c097303856d7f4860e3ed3b60e931a2`, and run it with Python 3. It accepts only this Azure test origin and the disposable `test-admin` login. It prompts for the password without echoing, does not print tokens or invite codes, and creates one one-use invitation that expires in one hour. It tests ordinary app-bearer denial, own-password unlock, invitation issuance with a grant, lock, post-lock denial, and logout. Do not run it with a real user account or a production database. Record only the status lines in this repository, not secrets.
+
+**First live smoke result:** login 200, ordinary app-bearer invitation denial 401, unlock 500, logout 200. It did not create an invitation. A read-only `SET ROLE cordel_identity_app` probe confirmed `SELECT ... FOR SHARE` on `accounts` fails with `permission denied for table accounts`; `memberships` likewise lacks the required column-level `UPDATE` privilege. The guarded [row-lock grant repair](fix-admin-grant-row-lock.sh) is prepared but has not run. Apply and verify that narrow repair before repeating the smoke check. Do not rerun the binary upgrade.

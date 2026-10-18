@@ -8,6 +8,8 @@ This procedure installs the current `server/identity` crate on the existing Ubun
 
 Commit `70bfd9f052273854f2a4db9aca9c25df420fd1ce` contains the source-verified `0002_admin_grant.sql` migration and the new API. The VM now has migrations `1,2`, the new runtime grants, and the admin-grant API binary. The first upgrade script stopped on a verification bug; the corrected script completed and reported the new binary SHA-256. **Use the [upgrade handoff](admin-grant-upgrade-handoff.md) for the exact output and remaining live checks. Do not rerun either upgrade script.** The initial install and migration scripts below are for a fresh VM and must not be rerun on this one.
 
+The first authenticated unlock returned HTTP 500 because the restricted runtime role cannot run `SELECT ... FOR SHARE` on `accounts`. A read-only `SET ROLE` probe reproduced `permission denied for table accounts`. PostgreSQL requires `UPDATE` on at least one column of every row-locked table. The [guarded repair](fix-admin-grant-row-lock.sh) grants `UPDATE` only on the inert `created_at` columns of `accounts` and `memberships`, then checks the same joined row lock as the API. It does not change the API binary or service. The canonical upgrade script now includes these grants and probe for a separate VM at the recorded pre-upgrade state; **do not rerun that script on the current VM**.
+
 The database now contains one disposable account, community, membership, and session. The former backup exception applied only while the database was empty. This test-only procedure requires the explicit script argument `accept_disposable_test_data_without_backup=true`; use it only when the owner has decided that this disposable state may be lost and the lack of a verified backup is accepted. Do not use this exception for real users or a production-like database. The upgrade script independently checks the exact recorded test snapshot and the previous binary SHA-256 `dcc97ecceda9024b6895c4331b907ae92653562f2490272d242b505a39a2f4c5` before it changes anything.
 
 For a VM at the recorded pre-upgrade state with the earlier API and only migration `1`, first upload `build-identity-admin-grant.sh` to the current Cloud Shell home directory. The current VM has already built this artifact; **do not repeat this stage while resuming its partial upgrade**. Run Command builds the exact commit above on Ubuntu 24.04 into a revision-specific artifact directory without installing it or changing the database. The explicit `$HOME` path avoids Azure CLI treating a missing local `@file` as script text:
@@ -32,7 +34,7 @@ For a VM at that exact pre-upgrade state, review the reported revision and SHA-2
 (
 set -e
 test -s "$HOME/upgrade-admin-grant-test.sh" || { echo 'Upload the upgrade script to this Cloud Shell session first'; exit 1; }
-printf '%s  %s\n' 'c58855d1f03958ffde29d67c5d4d790afd5a87e0a8eb06efed5b8339a7d81393' "$HOME/upgrade-admin-grant-test.sh" | sha256sum -c -
+printf '%s  %s\n' '3e2bbde9704afea39574861f7be0a2ca9d8a1af566b3532b57ec751920e3b8cb' "$HOME/upgrade-admin-grant-test.sh" | sha256sum -c -
 upgrade_script=$(cat "$HOME/upgrade-admin-grant-test.sh")
 az vm run-command invoke \
   --subscription f77cc05e-0316-4c39-9ee2-74b5d9078f0a \
