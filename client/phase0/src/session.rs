@@ -139,11 +139,13 @@ pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaE
                             // room, not only what happens after this client joins.
                             register_remote_shares(&session.room, &events, &mut session.tracked);
                             let _ = events.send(MediaEvent::Joined(true));
-                            let _ = events.send(MediaEvent::Status(
-                                "Joined. The microphone is publishing and remote audio goes to \
-                                 the platform output device."
-                                    .into(),
-                            ));
+                            // Two clients can share one screen during testing, so the
+                            // status line says which identity this window joined as.
+                            let identity = session.room.local_participant().identity();
+                            let _ = events.send(MediaEvent::Status(format!(
+                                "Joined as {identity}. The microphone is publishing and remote \
+                                 audio goes to the platform output device."
+                            )));
                             if let Some(frame) = captured.as_ref() {
                                 if let Err(err) = publish_frame(&mut session, frame, &events).await
                                 {
