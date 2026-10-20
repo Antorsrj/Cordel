@@ -16,7 +16,7 @@ cargo test
 cargo build --release
 ```
 
-The LiveKit crate downloads its native WebRTC binary on the first build and requires `clang++` on Linux. Slint needs the usual Linux UI libraries (Wayland or X11, xkbcommon, fontconfig). Screen capture also needs the GLib, PipeWire, and GBM development packages (`gio-2.0`, `libpipewire-0.3`, `gbm`, `libdrm`) so the binary can link the portal capturer. Azure Cloud Shell lacks the desktop build dependencies; its Phase 0 build stopped in `webrtc-sys` before checking Cordel source.
+The LiveKit crate downloads its native WebRTC binary on the first build. The verified Linux CI build uses Rust 1.99.1 and `clang-21`/`clang++-21` for `webrtc-sys`; see the [workflow](../../.github/workflows/phase0-linux.yml) for the complete package list and commands. Slint needs the Linux UI libraries (Wayland or X11, xkbcommon, fontconfig). Screen capture also needs the GLib, PipeWire, and GBM development packages (`gio-2.0`, `libpipewire-0.3`, `gbm`, `libdrm`) so the binary can link the portal capturer. The combined client passed [CI formatting, Clippy, tests, and a release build](https://github.com/Antorsrj/Cordel/actions/runs/39482696806) on Ubuntu 24.04. An interactive desktop run is still required.
 
 The prototype uses an in-memory refresh credential store. Closing it ends the local login, and a new login is required on restart. The packaged client still needs the OS credential store required by ADR-102.
 `build.rs` links PipeWire, GBM and libdrm for WebRTC's Linux capturer. The GLib stack is linked by `cordel-media`, whose `sdk` feature enables the LiveKit SDK's `glib-main-loop`.
