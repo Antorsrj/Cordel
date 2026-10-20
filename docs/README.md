@@ -22,11 +22,11 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 009 — Browser auth](adr/server/ADR-009-browser-auth.md) | 0% | Proposed | Accept cookie/CSRF design and test hostile origins |
 | [Server 010 — Presence](adr/server/ADR-010-presence-and-share-state.md) | 20% | Decision accepted | Implement snapshot, deltas and reconciliation |
 | [Server 011 — Rich chat/images](adr/server/ADR-011-rich-chat-images.md) | 0% | Proposed | Accept storage/limits and prove protected reads/restore |
-| [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 30% | Linux Phase 0 source exists | Build and prove X11/Wayland multiwindow media |
+| [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 50% | Phase 0 has provisional identity controls and a two-share media stage; combined build unverified | Build combined UI and prove X11 and second-network media |
 | [Client 102 — State recovery](adr/client/ADR-102-client-state-recovery.md) | 60% | Shared state checks and focused live identity flow passed | Credential store, chat catch-up and network-switch proof |
-| [Client 103 — Capture/playback](adr/client/ADR-103-capture-playback.md) | 20% | Decision accepted | Implement Linux device paths and two-share playback |
+| [Client 103 — Capture/playback](adr/client/ADR-103-capture-playback.md) | 60% | Linux media adapters and one-machine three-client room test passed | Continuous capture, X11, denial/hotplug, and second-network proof |
 | [Client 104 — Browser test client](adr/client/ADR-104-browser-test-client.md) | 20% | Decision accepted | Build diagnostic client after Server 009 gate |
-| [Client 106 — Licensing](adr/client/ADR-106-license-distribution.md) | 50% | Source license and known inventory published on feature branch | Packaged About attribution and full notice audit |
+| [Client 106 — Licensing](adr/client/ADR-106-license-distribution.md) | 50% | Source license and known inventory are in `main` | Packaged About attribution and full notice audit |
 | [Client 107 — Journal UX](adr/client/ADR-107-journal-ux.md) | 30% | Written spec and provisional Phase 0 controls in source | Build and prove three Journal states and accessibility |
 
 All 16 are required before the first **user-facing integrated product test**. None is Done. Isolated code and infrastructure checks are allowed during implementation.

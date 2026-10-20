@@ -1,6 +1,6 @@
 # Independent implementation workstreams
 
-This map turns the [server and client ADRs](README.md) into work that separate contributors can own. An ADR owns a decision and its bounded implementation. It does not make another workstream's private code or test environment available. `server/identity` is deployed as a standalone ADR-002 API on the Azure test VM from `feature/adr-002-identity`; isolated live login/refresh/logout, disposable-admin step-up, and disposable-user invite redemption proofs passed. Native UI integration and recovery gates remain. The other server module names below describe ownership rather than existing directories.
+This map turns the [server and client ADRs](README.md) into work that separate contributors can own. An ADR owns a decision and its bounded implementation. It does not make another workstream's private code or test environment available. `server/identity` is deployed as a standalone ADR-002 API on the Azure test VM from an earlier feature revision; isolated live login/refresh/logout, disposable-admin step-up, and disposable-user invite redemption proofs passed. Native UI integration and recovery gates remain. The other server module names below describe ownership rather than existing directories.
 
 ## Rules for parallel work
 

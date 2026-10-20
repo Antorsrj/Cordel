@@ -46,7 +46,7 @@ These are Cordel's design priorities and tradeoffs, not a claim that other commu
 | --- | --- | --- |
 | Test host and identity | Azure HTTPS, private-port checks, reboot recovery, disposable admin and user flows, and Management Mode grant smoke passed | Off-host restore, real-user readiness, and integrated client checks |
 | Community policy | ADR-003 source passed format, Clippy, unit, disposable database, and restricted-role checks in Cloud Shell | VM deployment, live moderation, and chat/media policy consumers |
-| Client | Shared protocol and state crates have isolated checks; provisional Phase 0 login and Settings UI source is on the feature branch | Linux build and UI evidence, real credential store, capture, playback, and end-to-end behavior |
+| Client | Shared protocol and state crates have isolated checks; `main` now has provisional Phase 0 login and Settings source alongside the ADR-103 media stage and adapters | Build the combined Linux UI, add a real credential store, and prove end-to-end behavior on two networks |
 | Chat, media, and browser | Architecture and contract boundaries are documented; LiveKit foundation is running | Durable chat, scoped media admission, two-network media proof, and browser security gate |
 
 No ADR is currently `Done`. The first user-facing integrated product test begins only after all 16 [mandatory ADRs](docs/adr/README.md) have completion evidence. Technical and disposable checks run during implementation.
@@ -67,6 +67,7 @@ No ADR is currently `Done`. The first user-facing integrated product test begins
 | Path | Purpose |
 | --- | --- |
 | [`client/phase0`](client/phase0/README.md) | Linux native UI and media feasibility prototype |
+| [`client/media`](client/media/README.md) | Shared media capture, audio, and rendering adapters |
 | [`client/state`](client/state/README.md) | Shared session, recovery, and client state logic |
 | [`protocol`](protocol/README.md) | Shared versioned Rust and JSON types |
 | [`server/identity`](server/identity/README.md) | Standalone identity API and evolving community policy |

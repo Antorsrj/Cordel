@@ -1,26 +1,32 @@
 mod chat;
 mod identity;
-mod pixels;
-mod screen;
+mod fake;
 mod session;
+mod share;
 
 use std::rc::Rc;
-use std::time::Instant;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
-use slint::{ComponentHandle, ModelRc, VecModel};
+use cordel_media::capture::SessionKind;
+use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::chat::phase0_messages;
 use crate::identity::Command as IdentityCommand;
-use crate::screen::CapturePath;
 use crate::session::Command;
+use crate::share::{DetachedWindow, MediaEvent, Shares};
 
 slint::include_modules!();
+
+/// How often the UI thread looks for media events. Frames arrive a few times per
+/// second per share, so this is responsive without being a busy loop.
+const DRAIN_INTERVAL: Duration = Duration::from_millis(30);
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let ui = AppWindow::new()?;
     let started = Instant::now();
+    let ui = AppWindow::new()?;
     let lines: Vec<ChatLine> = phase0_messages()
         .into_iter()
         .map(|message| ChatLine {
@@ -29,41 +35,136 @@ fn main() -> anyhow::Result<()> {
         })
         .collect();
     let line_count = lines.len();
-    let model = ModelRc::from(Rc::new(VecModel::from(lines)));
-    ui.set_messages(model);
+    ui.set_messages(ModelRc::from(Rc::new(VecModel::from(lines))));
     let chat_ms = started.elapsed().as_millis();
-    ui.set_status(
-        format!(
-            "{line_count} chat lines built in {chat_ms} ms. RSS {} KiB. Capture path: {}. Set CORDEL_LIVEKIT_URL and CORDEL_LIVEKIT_TOKEN before joining.",
-            rss_kib().unwrap_or(0),
-            CapturePath::detect().label(),
-        )
-        .into(),
-    );
 
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let ui_events = ui.as_weak();
-    std::thread::spawn(move || {
-        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-        runtime.block_on(session::run(rx, ui_events));
+    let fake_media = std::env::args().any(|arg| arg == "--fake-media");
+
+    // Media runs off the UI thread and never touches a Slint type: `slint::Image`
+    // and the models are bound to this thread. The tasks send events, and the
+    // timer below is the only place that applies them, so there is one writer of
+    // the stage model and one writer of the status line, in the order things
+    // happened.
+    let (events, incoming) = mpsc::channel::<MediaEvent>();
+
+    let shares = Shares::new();
+    ui.set_shares(shares.model());
+    let detached = DetachedWindow::new({
+        let shares = shares.clone();
+        move |key| shares.dock(key)
+    });
+
+    ui.on_emphasize_share({
+        let shares = shares.clone();
+        move |key| shares.toggle_emphasis(&key)
+    });
+    ui.on_detach_share({
+        let shares = shares.clone();
+        let detached = detached.clone();
+        move |key| {
+            shares.detach(&key);
+            detached.sync(shares.detached_tile());
+        }
+    });
+
+    // Fake media: the same events the room sends, so the stage, the identity rules
+    // and the detached window are all exercised with no room and no server.
+    let fake_control = fake_media.then(|| fake::spawn(events.clone()));
+    ui.set_fake_media(fake_media);
+    if let Some(fake) = &fake_control {
+        ui.on_fake_start_share({
+            let fake = fake.clone();
+            move || {
+                let _ = fake.send(fake::Control::Start);
+            }
+        });
+        ui.on_fake_end_share({
+            let fake = fake.clone();
+            move || {
+                let _ = fake.send(fake::Control::End);
+            }
+        });
+        ui.on_fake_interrupt({
+            let fake = fake.clone();
+            move || {
+                let _ = fake.send(fake::Control::Interrupt);
+            }
+        });
+    }
+
+    let (commands, command_events) = tokio::sync::mpsc::unbounded_channel::<Command>();
+    std::thread::spawn({
+        let events = events.clone();
+        move || {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            runtime.block_on(session::run(command_events, events));
+        }
     });
 
     ui.on_join({
-        let tx = tx.clone();
+        let commands = commands.clone();
         move || {
-            let _ = tx.send(Command::Join);
+            let _ = commands.send(Command::Join);
         }
     });
     ui.on_capture_frame({
-        let tx = tx.clone();
+        let commands = commands.clone();
         move || {
-            let _ = tx.send(Command::CaptureFrame);
+            let _ = commands.send(Command::CaptureFrame);
         }
     });
     ui.on_leave({
-        let tx = tx.clone();
+        let commands = commands.clone();
         move || {
-            let _ = tx.send(Command::Leave);
+            let _ = commands.send(Command::Leave);
+        }
+    });
+
+    ui.set_status(
+        if fake_media {
+            format!(
+                "{line_count} chat lines built in {chat_ms} ms. Demo media: synthetic shares only, \
+                 no room and no server."
+            )
+        } else {
+            format!(
+                "{line_count} chat lines built in {chat_ms} ms. RSS {} KiB. Session: {}. Set \
+                 CORDEL_LIVEKIT_URL and CORDEL_LIVEKIT_TOKEN before joining.",
+                rss_kib().unwrap_or(0),
+                SessionKind::detect()
+                    .map(SessionKind::as_str)
+                    .unwrap_or("unknown"),
+            )
+        }
+        .into(),
+    );
+
+    // The UI thread's only job for media. The timer has to outlive `run`, so it is
+    // held here rather than in a temporary.
+    let drain = Timer::default();
+    drain.start(TimerMode::Repeated, DRAIN_INTERVAL, {
+        let shares = shares.clone();
+        let detached = detached.clone();
+        let ui = ui.as_weak();
+        move || {
+            let Some(ui) = ui.upgrade() else {
+                return;
+            };
+            while let Ok(event) = incoming.try_recv() {
+                match event {
+                    MediaEvent::Status(text) => ui.set_status(text.into()),
+                    MediaEvent::Busy(busy) => ui.set_busy(busy),
+                    MediaEvent::Joined(joined) => ui.set_joined(joined),
+                    event => {
+                        if let Some(note) = shares.apply(event) {
+                            ui.set_status(note.into());
+                        }
+                        // A detached share shows what the tile currently holds, and
+                        // a share that ended takes its window with it.
+                        detached.sync(shares.detached_tile());
+                    }
+                }
+            }
         }
     });
 
@@ -100,7 +201,7 @@ fn main() -> anyhow::Result<()> {
         }
     });
     ui.on_identity_logout({
-        let media_tx = tx.clone();
+        let media_tx = commands.clone();
         move || {
             let _ = media_tx.send(Command::Leave);
             let _ = identity_tx.send(IdentityCommand::Logout);

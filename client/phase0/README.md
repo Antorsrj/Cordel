@@ -2,6 +2,11 @@
 
 Linux feasibility client for [ADR-101](../../docs/adr/client/ADR-101-native-client-platforms.md). It is a stop/go prototype for Slint, a long chat list, microphone publishing, and one screen frame. Its provisional login and Settings controls call the deployed Axum identity API through `client/state`; they do not yet provide the Journal product UI, invitation management, or media admission.
 
+Capture, audio devices, publishing, receiving and frame conversion come from
+[`client/media`](../media) (ADR-103), which the shell uses as a library. The shell
+used to carry its own WebRTC capturer call and its own pixel conversions; keeping
+one implementation is deliberate, so a fix or a measurement applies to both.
+
 ## Build
 
 From this directory, with Rust stable:
@@ -14,6 +19,7 @@ cargo build --release
 The LiveKit crate downloads its native WebRTC binary on the first build and requires `clang++` on Linux. Slint needs the usual Linux UI libraries (Wayland or X11, xkbcommon, fontconfig). Screen capture also needs the GLib, PipeWire, and GBM development packages (`gio-2.0`, `libpipewire-0.3`, `gbm`, `libdrm`) so the binary can link the portal capturer. Azure Cloud Shell lacks the desktop build dependencies; its Phase 0 build stopped in `webrtc-sys` before checking Cordel source.
 
 The prototype uses an in-memory refresh credential store. Closing it ends the local login, and a new login is required on restart. The packaged client still needs the OS credential store required by ADR-102.
+`build.rs` links PipeWire, GBM and libdrm for WebRTC's Linux capturer. The GLib stack is linked by `cordel-media`, whose `sdk` feature enables the LiveKit SDK's `glib-main-loop`.
 
 ## Run
 
@@ -45,4 +51,11 @@ The chat list is 10,000 local lines. **End of chat** jumps to the last line.
 
 ## Gate notes
 
-Record which capture path the status line reports (`wayland-portal` or `x11`). A run on one session does not cover the other. Two-way audio, remote frame rendering, scroll readability, and CPU/RAM under a real call still need two clients and a LiveKit room.
+Record which capture path the status line reports (`wayland` or `x11`). A run on one
+session does not cover the other. The real-room path was exercised on 2026-10-18 with
+three clients against a local `livekit-server`: two remote 2560x1440 shares displayed at
+once, one detached into its own window and docked back, and one source ending while the
+other stayed live, with no rejoin and no extra track
+([`docs/spikes/media-phase0.md`](../../docs/spikes/media-phase0.md)). What remains for a
+real call: a second machine and network, a live capture stream instead of one frame
+re-pushed every 500 ms, a stop-sharing control, and a true X11 session.
