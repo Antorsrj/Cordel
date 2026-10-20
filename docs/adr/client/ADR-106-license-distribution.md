@@ -36,7 +36,7 @@ Do not publish a client binary until the packaged application's About screen, at
 
 ## Consequences
 
-- Client and protocol code was published before a license was selected. The decision and its license/notice files were subsequently published on `feature/adr-002-identity`; `main` has not received them.
+- Client and protocol code was published before a license was selected. The decision and its license/notice files were subsequently published and are now in `main`.
 - A successful Slint technical spike does not prove packaged attribution or all transitive native-library notices.
 - The owner-selected repository URL is configured as local `origin`. Inspect remote state and obtain the owner's push approval before publication. No push or deployment is authorized by this ADR.
 
