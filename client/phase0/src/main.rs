@@ -1,6 +1,6 @@
 mod chat;
-mod identity;
 mod fake;
+mod identity;
 mod session;
 mod share;
 
