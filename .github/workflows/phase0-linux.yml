@@ -24,7 +24,24 @@ jobs:
       - name: Select Rust toolchain
         run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
       - name: Check formatting
-        run: cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all -- --check
+        id: format
+        run: |
+          cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all -- --check 2>&1 | tee /tmp/cordel-phase0-format.log
+          exit "${PIPESTATUS[0]}"
+      - name: Show formatting error in public check result
+        if: ${{ failure() && steps.format.outcome == 'failure' }}
+        run: |
+          python3 - <<'PY'
+          from base64 import b64encode
+          from gzip import compress
+          from pathlib import Path
+
+          output = Path('/tmp/cordel-phase0-format.log').read_bytes()
+          encoded = b64encode(compress(output, compresslevel=9, mtime=0)).decode()
+          chunks = [encoded[i:i + 2500] for i in range(0, len(encoded), 2500)]
+          for index, chunk in enumerate(chunks[:10], 1):
+              print(f'::error title=Rustfmt check output {index}/{len(chunks)}::{chunk}')
+          PY
       - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
