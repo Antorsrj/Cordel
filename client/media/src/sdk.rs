@@ -237,6 +237,5 @@ impl AudioDeviceControl for SdkAudio {
     }
 }
 
-
 include!("sdk/capture.rs");
 include!("sdk/publish.rs");

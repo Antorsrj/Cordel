@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::{AppWindow, ChatLine};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
