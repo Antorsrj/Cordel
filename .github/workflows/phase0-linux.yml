@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
@@ -32,11 +32,11 @@ jobs:
             libxi-dev libxext-dev xvfb
       - name: Select Rust toolchain
         run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
-      - name: Check formatting
-        run: cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all -- --check
       - name: Run Clippy
         run: cargo +1.99.1 clippy --manifest-path client/phase0/Cargo.toml --locked --all-targets -- -D warnings
       - name: Run Phase 0 tests
         run: xvfb-run -a cargo +1.99.1 test --manifest-path client/phase0/Cargo.toml --locked
       - name: Build combined client
         run: cargo +1.99.1 build --manifest-path client/phase0/Cargo.toml --locked --release
+      - name: Check formatting
+        run: cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all -- --check
