@@ -1,5 +1,7 @@
 # Phase 0 media spike — Linux (ADR-103)
 
+The [initial investigation](media-phase0-initial.md) records the earlier Linux prototype and the failures that led to the current `client/media` implementation.
+
 **Status:** the **Wayland half** of the Phase 0 media gate is met: a real room with three
 clients, capture, publication, reception and on-screen display of two remote screen
 shares at once. Open: the X11 half, a *live* capture stream (the shell currently

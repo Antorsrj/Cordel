@@ -73,6 +73,15 @@ interface and adapters in `client/media`, and the measured evidence in
   rather than a new decision. It is also the reason the Phase 0 gate's "one screen frame
   in both directions" reads as met while "live screen sharing" does not.
 
+## Open after the Phase 0 media spike
+
+Evidence and numbers are in [Phase 0 media spike](./docs/spikes/media-phase0.md). The gate is not passed; these are the blockers it found.
+
+- **Linux screen capture backend:** the LiveKit SDK's desktop capturer returns `Temporary` for every frame on a KDE Wayland session and never uses the ScreenCast portal that is available. Decide and implement the Wayland portal/PipeWire adapter and the X11 adapter under [ADR-103](./docs/adr/client/ADR-103-capture-playback.md).
+- **Microphone capture route:** `PlatformAudio::start_recording` fails with `init_recording failed` on the spike machine while the OS allows capture. Either fix or work around the SDK path, or capture with a platform library into `RtcAudioSource::Native`.
+- **Audio processing in the client interface:** ADR-103 does not mention echo cancellation, gain control, or noise suppression, and does not say how "voice beats screen" is implemented.
+- **End-to-end room verification:** no LiveKit server was available, so publish, subscribe, remote render on screen, hotplug during a live share, and permission revocation remain unproven. This needs two real clients.
+
 ## Later versions
 
 - Multiple communities per installation.

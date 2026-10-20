@@ -39,6 +39,8 @@ Treat voice as higher priority than screen frame rate under CPU or network press
 
 ## Verification and handoff
 
+The [initial Linux investigation](../../spikes/media-phase0-initial.md) is preserved separately from the [later media and room evidence](../../spikes/media-phase0.md).
+
 - Linux: two-way audio, X11 and Wayland screen/window selection, publish and remote render, stop/restart, hotplug, permission denial, and current-room speaker/mute event delivery from the pinned Rust SDK.
 - Later OS gates: equivalent macOS and Windows tests, including installer launch and OS permission prompts.
 - Load test two concurrent screen shares watched by one client and verify voice continuity, text readability, client CPU, and server egress. Detach and dock one share while both continue, then end one source and confirm the remaining view stays live.
