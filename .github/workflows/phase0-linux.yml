@@ -1,0 +1,42 @@
+name: Phase 0 Linux build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/phase0-linux.yml
+      - client/phase0/**
+      - client/media/**
+      - client/state/**
+      - protocol/**
+      - docs/contracts/fixtures/**
+  workflow_dispatch:
+
+jobs:
+  phase0:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang pkg-config libclang-dev \
+            libglib2.0-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libfontconfig1-dev libfreetype6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libasound2-dev libpulse-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxext-dev xvfb
+      - name: Select Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        run: cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all -- --check
+      - name: Run Clippy
+        run: cargo +1.99.1 clippy --manifest-path client/phase0/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Run Phase 0 tests
+        run: xvfb-run -a cargo +1.99.1 test --manifest-path client/phase0/Cargo.toml --locked
+      - name: Build combined client
+        run: cargo +1.99.1 build --manifest-path client/phase0/Cargo.toml --locked --release
