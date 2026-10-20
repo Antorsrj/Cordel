@@ -45,7 +45,7 @@ jobs:
           import re
 
           output = Path('/tmp/cordel-phase0-clippy.log').read_text(errors='replace')
-          excerpt = re.sub(r'\x1b\[[0-9;]*m', '', output[-6000:])
+          excerpt = re.sub(r'\x1b\[[0-9;]*m', '', output[-3000:])
           excerpt = excerpt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print(f'::error title=Phase 0 Clippy failure::{excerpt}')
           PY
