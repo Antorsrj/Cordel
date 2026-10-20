@@ -47,6 +47,24 @@ jobs:
           clang++-21 --version
       - name: Select Rust toolchain
         run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        id: format
+        run: |
+          cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all
+          git diff --binary -- client/phase0 > /tmp/cordel-phase0-rustfmt.patch
+          test ! -s /tmp/cordel-phase0-rustfmt.patch
+      - name: Show formatting patch in public check result
+        if: ${{ failure() && steps.format.outcome == 'failure' }}
+        run: |
+          python3 - <<'PY'
+          from base64 import b64encode
+          from pathlib import Path
+
+          encoded = b64encode(Path('/tmp/cordel-phase0-rustfmt.patch').read_bytes()).decode()
+          chunks = [encoded[i:i + 2500] for i in range(0, len(encoded), 2500)]
+          for index, chunk in enumerate(chunks[:20], 1):
+              print(f'::error title=Rustfmt patch {index}/{len(chunks)}::{chunk}')
+          PY
       - name: Run Clippy
         id: clippy
         run: |
@@ -68,5 +86,3 @@ jobs:
         run: xvfb-run -a cargo +1.99.1 test --manifest-path client/phase0/Cargo.toml --locked
       - name: Build combined client
         run: cargo +1.99.1 build --manifest-path client/phase0/Cargo.toml --locked --release
-      - name: Check formatting
-        run: cargo +1.99.1 fmt --manifest-path client/phase0/Cargo.toml --all -- --check
