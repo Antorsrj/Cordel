@@ -16,6 +16,9 @@ jobs:
   phase0:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      CC: clang-21
+      CXX: clang++-21
     steps:
       - uses: actions/checkout@v5
       - name: Install Linux desktop build dependencies
@@ -30,6 +33,18 @@ jobs:
             libasound2-dev libpulse-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
             libxi-dev libxext-dev xvfb
+      - name: Install clang 21 for WebRTC
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm-snapshot.asc
+          key_fingerprint=$(gpg --show-keys --with-colons /tmp/llvm-snapshot.asc | awk -F: '$1 == "fpr" { print $10; exit }')
+          test "$key_fingerprint" = 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+          sudo install -m 644 /tmp/llvm-snapshot.asc /usr/share/keyrings/llvm-snapshot.asc
+          echo 'deb [signed-by=/usr/share/keyrings/llvm-snapshot.asc] https://apt.llvm.org/noble/ llvm-toolchain-noble-21 main' \
+            | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-21
+          clang++-21 --version
       - name: Select Rust toolchain
         run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
       - name: Run Clippy
