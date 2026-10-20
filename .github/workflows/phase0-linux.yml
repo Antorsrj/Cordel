@@ -33,7 +33,22 @@ jobs:
       - name: Select Rust toolchain
         run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
       - name: Run Clippy
-        run: cargo +1.99.1 clippy --manifest-path client/phase0/Cargo.toml --locked --all-targets -- -D warnings
+        id: clippy
+        run: |
+          set -o pipefail
+          cargo +1.99.1 clippy --manifest-path client/phase0/Cargo.toml --locked --all-targets -- -D warnings 2>&1 | tee /tmp/cordel-phase0-clippy.log
+      - name: Show Clippy error in public check result
+        if: ${{ failure() && steps.clippy.outcome == 'failure' }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          output = Path('/tmp/cordel-phase0-clippy.log').read_text(errors='replace')
+          excerpt = re.sub(r'\x1b\[[0-9;]*m', '', output[-6000:])
+          excerpt = excerpt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::error title=Phase 0 Clippy failure::{excerpt}')
+          PY
       - name: Run Phase 0 tests
         run: xvfb-run -a cargo +1.99.1 test --manifest-path client/phase0/Cargo.toml --locked
       - name: Build combined client
