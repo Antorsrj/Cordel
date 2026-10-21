@@ -33,4 +33,4 @@ pub use retry::{plan_interrupt, retry_delay, AccessBlock, Interrupt, NextAction,
 pub use session::{visible_bodies, ClientState, CursorCache};
 
 #[cfg(feature = "secret-service")]
-pub use credentials::SecretServiceRefreshStore;
+pub use credentials::{OsRefreshStore, SecretServiceRefreshStore};

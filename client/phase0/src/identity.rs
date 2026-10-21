@@ -4,7 +4,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use cordel_state::{
-    ClientState, IdentityClient, IdentityError, MemoryRefreshStore, NativeHttpsTransport,
+    ClientState, IdentityClient, IdentityError, NativeHttpsTransport, OsRefreshStore,
 };
 use slint::Weak;
 use tokio::sync::watch;
@@ -48,13 +48,24 @@ pub fn run(
             return;
         }
     };
-    let state = ClientState::restore(MemoryRefreshStore::default(), None);
+    // The refresh credential belongs in the operating system credential store.
+    // Without a desktop secret service the store falls back to memory, and
+    // the status line says so instead of promising a session that a restart
+    // would lose.
+    let store = OsRefreshStore::new("phase0");
+    let persistent = store.is_persistent();
+    let state = ClientState::restore(store, None);
     let mut client = IdentityClient::new(state, transport);
     let mut last_login = String::new();
     let mut grant_visible = false;
+    let status = if persistent {
+        "Sign in to the test community."
+    } else {
+        "Sign in to the test community. The system credential store is unavailable, so this session ends with the program."
+    };
     update(&ui, |ui| {
         ui.set_identity_ready(true);
-        ui.set_identity_status("Sign in to the test community.".into());
+        ui.set_identity_status(status.into());
     });
 
     loop {

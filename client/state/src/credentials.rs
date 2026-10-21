@@ -136,9 +136,115 @@ impl RefreshStore for SecretServiceRefreshStore {
     }
 }
 
+/// The refresh store a desktop client uses.
+///
+/// It prefers the operating system credential store and falls back to memory
+/// when the desktop secret service cannot be reached, which is the case in a
+/// headless session. The client asks which one it got, so a user is never told
+/// that the session survives a restart when it does not.
+#[cfg(feature = "secret-service")]
+pub struct OsRefreshStore {
+    inner: OsStoreKind,
+}
+
+#[cfg(feature = "secret-service")]
+enum OsStoreKind {
+    SecretService(SecretServiceRefreshStore),
+    Memory(MemoryRefreshStore),
+}
+
+#[cfg(feature = "secret-service")]
+impl OsRefreshStore {
+    pub fn new(account: impl Into<String>) -> Self {
+        let account = account.into();
+        if os_store_available(&account) {
+            Self {
+                inner: OsStoreKind::SecretService(SecretServiceRefreshStore::new(account)),
+            }
+        } else {
+            Self {
+                inner: OsStoreKind::Memory(MemoryRefreshStore::default()),
+            }
+        }
+    }
+
+    /// Whether the refresh credential outlives the process.
+    pub fn is_persistent(&self) -> bool {
+        matches!(self.inner, OsStoreKind::SecretService(_))
+    }
+}
+
+/// Probe the operating system store. A missing entry means the service works;
+/// any other failure means it cannot be reached.
+#[cfg(feature = "secret-service")]
+fn os_store_available(account: &str) -> bool {
+    let entry = match keyring::Entry::new("cordel", account) {
+        Ok(entry) => entry,
+        Err(_) => return false,
+    };
+    match entry.get_password() {
+        Ok(_) => true,
+        Err(keyring::Error::NoEntry) => true,
+        Err(_) => false,
+    }
+}
+
+#[cfg(feature = "secret-service")]
+impl RefreshStore for OsRefreshStore {
+    fn load(&self) -> Option<RefreshCredential> {
+        match &self.inner {
+            OsStoreKind::SecretService(store) => store.load(),
+            OsStoreKind::Memory(store) => store.load(),
+        }
+    }
+
+    fn save(&mut self, credential: RefreshCredential) -> Result<(), StoreError> {
+        match &mut self.inner {
+            OsStoreKind::SecretService(store) => store.save(credential),
+            OsStoreKind::Memory(store) => store.save(credential),
+        }
+    }
+
+    fn clear(&mut self) -> Result<(), StoreError> {
+        match &mut self.inner {
+            OsStoreKind::SecretService(store) => store.clear(),
+            OsStoreKind::Memory(store) => store.clear(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The operating system store must really persist. A machine without a
+    /// desktop secret service falls back to memory, and the test says so
+    /// instead of pretending.
+    #[cfg(feature = "secret-service")]
+    #[test]
+    fn the_operating_system_store_survives_a_new_handle() {
+        let account = "cordel-state-test-account";
+        let store = OsRefreshStore::new(account);
+        if !store.is_persistent() {
+            println!("no desktop secret service here: the store fell back to memory");
+            return;
+        }
+        let mut store = store;
+        store
+            .save(RefreshCredential::new("refresh-persisted"))
+            .unwrap();
+        let restored = OsRefreshStore::new(account);
+        assert_eq!(
+            restored
+                .load()
+                .map(|credential| credential.expose().to_owned()),
+            Some("refresh-persisted".to_owned()),
+            "the credential must survive a new store handle"
+        );
+        let mut restored = restored;
+        restored.clear().unwrap();
+        assert!(restored.load().is_none(), "the entry must be removed");
+    }
 
     #[test]
     fn refresh_survives_a_new_store_handle_and_tokens_do_not() {

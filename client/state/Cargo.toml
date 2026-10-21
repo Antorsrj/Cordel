@@ -15,9 +15,23 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 rpassword = "7"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 
-[dependencies.keyring]
+# The operating system credential store. The keyring crate has no default
+# backend: without a platform feature it falls back to a mock that never
+# persists, so each platform names its own backend.
+[target.'cfg(target_os = "linux")'.dependencies.keyring]
 version = "3"
 optional = true
+features = ["sync-secret-service"]
+
+[target.'cfg(target_os = "macos")'.dependencies.keyring]
+version = "3"
+optional = true
+features = ["apple-native"]
+
+[target.'cfg(target_os = "windows")'.dependencies.keyring]
+version = "3"
+optional = true
+features = ["windows-native"]
 
 [features]
 secret-service = ["dep:keyring"]

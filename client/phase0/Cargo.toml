@@ -21,6 +21,10 @@ slint = "1.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [features]
+default = ["secret-service"]
+# The operating system credential store, so the refresh credential outlives the
+# process. A desktop build keeps this on.
+secret-service = ["cordel-state/secret-service"]
 # Local-only plain HTTP/WS for a disposable Axum server. Never ship this.
 local-smoke = ["cordel-state/local-smoke"]
 
