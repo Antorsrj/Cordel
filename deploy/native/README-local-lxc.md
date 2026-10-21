@@ -57,6 +57,11 @@ created a channel and a second member through the public API, passed both
 opt-in chat tests including the two-client exchange, and confirmed that the
 Phase 0 window opens with the chat surface.
 
+`local-livekit-probe.sh` measures the pinned LiveKit release against a local
+container: the token grant set, the webhook signature scheme, the server API,
+participant removal, and the ADR-006 rejoin gap. Its findings are recorded in
+the [LiveKit local spike](../../docs/spikes/livekit-local-2026-10-21.md).
+
 ## Limits
 
 This is local evidence, not deployment evidence. It does not cover public DNS,

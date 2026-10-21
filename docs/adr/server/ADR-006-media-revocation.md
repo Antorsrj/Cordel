@@ -20,6 +20,36 @@ Normal network loss does **not** rotate a room. The client first attempts LiveKi
 
 This cutover makes the old token incapable of joining the **current** room. It may still recreate or enter an old, isolated room. That is a material gap against the owner's rule that a kick blocks rejoining. Before accepting this mandatory ADR, prove that the old room cannot be joined or recreated by a revoked token **or** add a tested admission-control mechanism that rejects it. Also prove that no authorized client continues publishing in an old room after cutover, including on automatic SDK reconnect. If the self-hosted design cannot meet both conditions, return a revised media-admission ADR for owner decision; do not mark moderation or this ADR Done based on room isolation alone.
 
+## Measured local evidence (2026-10-21)
+
+A disposable local LiveKit v1.13.10 measured the behaviour this ADR depends on
+before its design was settled. The full record is the
+[LiveKit local spike](../../spikes/livekit-local-2026-10-21.md), and
+`deploy/native/local-livekit-probe.sh` reproduces it.
+
+Two results decide this ADR:
+
+- **Axum can remove a participant.** The server API's `RemoveParticipant`
+  returned `200 OK` and the client observed `ParticipantRemoved`. Enforcement
+  while a participant is connected is therefore available.
+- **A held token survives that removal, and even the deletion of the room.**
+  After `RemoveParticipant` and `DeleteRoom` both returned `200`, the same
+  token rejoined the same room name immediately and published again. LiveKit
+  creates a room implicitly when a token with `roomJoin` presents itself, and
+  no server API denies a specific identity from joining a room it holds a valid
+  token for.
+
+This makes the gap concrete rather than theoretical. A short TTL bounds the
+window but never closes it. Rotating the room generation stops an old token
+from entering the **current** room, but the revoked participant can still
+recreate the **old** room, so the rotation is a disruption and isolation
+measure rather than an enforcement measure. Closing the gap requires a
+mechanism outside the self-hosted LiveKit token model — an admission gateway
+that Axum controls, or an equivalent check that a LiveKit participant cannot
+bypass. The isolation proof this ADR requires cannot succeed on self-hosted
+LiveKit v1.13.10, and this ADR stays **Proposed** until the owner chooses the
+enforcement mechanism.
+
 ## Implementation boundary
 
 - **Owns:** the proposed room-generation cutover and its failure handling, including a proof against old tokens and stale clients. Do not change kick/ban policy, which belongs to Server 003.
