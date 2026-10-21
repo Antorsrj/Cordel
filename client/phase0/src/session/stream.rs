@@ -33,8 +33,19 @@ fn interval_for_rate(rate: u32) -> Duration {
 /// How long the first frame may take. It has to cover the portal picker.
 const FIRST_FRAME_DEADLINE: Duration = Duration::from_secs(90);
 
+/// How often the capture thread asks for a frame. The capturer of the WebRTC
+/// is a polling loop: asking too rarely lets the capture expire, and the
+/// answer is a temporary error. The frames that arrive faster than the chosen
+/// rate are dropped before they cost anything.
+const CAPTURE_POLL: Duration = Duration::from_millis(16);
+
 /// How often the measured rate is reported.
 const REPORT_INTERVAL: Duration = Duration::from_secs(1);
+
+/// How often the local preview gets a frame. The stage throttles what it
+/// paints, and a frame of a full-screen capture is about 14 MB, so the preview
+/// follows a slower pace than the share.
+const LOCAL_FRAME_INTERVAL: Duration = Duration::from_millis(250);
 
 /// The handle of a running share. The capture thread stops when this is
 /// signalled.
@@ -63,7 +74,7 @@ pub(super) async fn start_share(
     events: &Sender<MediaEvent>,
 ) -> anyhow::Result<()> {
     let stream_interval = interval_for_rate(rate);
-    let local_interval = stream_interval;
+
     let source = CaptureSource::Auto.resolve(SessionKind::detect());
     let (frame_tx, frame_rx) = mpsc::channel::<Frame>();
     let running = Arc::new(AtomicBool::new(true));
@@ -113,7 +124,7 @@ pub(super) async fn start_share(
             if let Err(error) = backend.tick() {
                 log::warn!("screen capture error ({error:?})");
             }
-            std::thread::sleep(stream_interval);
+            std::thread::sleep(CAPTURE_POLL);
         }
         // The capturer must release the capture permission.
         let _ = backend.stop();
@@ -159,7 +170,7 @@ pub(super) async fn start_share(
     let report = events.clone();
     tokio::spawn(async move {
         let mut last_report = Instant::now();
-        let mut local = Instant::now() - local_interval;
+        let mut local = Instant::now() - LOCAL_FRAME_INTERVAL;
         let mut frames = 0u32;
         loop {
             // Waiting for the end of the share and the capture run together:
@@ -186,7 +197,7 @@ pub(super) async fn start_share(
                 }
                 // The local preview is the same frame that goes to the other
                 // side, so it has to move with the stream.
-                if local.elapsed() >= local_interval {
+                if local.elapsed() >= LOCAL_FRAME_INTERVAL {
                     local = Instant::now();
                     let _ = report.send(MediaEvent::Frame {
                         key: LOCAL_SHARE_KEY.into(),
