@@ -40,6 +40,14 @@ All 16 are required before the first **user-facing integrated product test**. Se
 | [Client 108 — macOS](adr/client/ADR-108-macos-platform.md) | 20% | Decision accepted | Real macOS capture, package and two-view checks |
 | [Client 109 — Windows](adr/client/ADR-109-windows-platform.md) | 20% | Decision accepted | Real Windows capture, package and two-view checks |
 
+## Repository process
+
+Process 012 is outside the 16 first-test ADRs and the later roadmap. Its delivery stage is Repository process. Acceptance does not change the percentages above. An Accepted decision with the GitHub settings still open is 20%.
+
+| ADR | Progress | Current state | Next substantial gate |
+| --- | ---: | --- | --- |
+| [Process 012 — GitHub Flow](adr/process/ADR-012-github-flow.md) | 20% | Accepted | Maintainers apply branch protection and the pull-request `ci` check (issues #8 and #9) |
+
 ## Documentation map
 
 | Topic | Source |
