@@ -26,8 +26,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use cordel_media::frame::Frame;
 use cordel_media::render::{FrameSink, SlintFrameSink};
@@ -35,91 +34,21 @@ use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{ShareState, ShareTile, ShareWindow};
 
+mod events;
+
+pub use events::{FrameSlots, MediaEvent, MediaOut};
+
 /// The shell's own capture is a view like any other; a stable key means a second
 /// capture replaces the first instead of adding a tile.
 pub const LOCAL_SHARE_KEY: &str = "local/screen-frame";
 
-/// What the media side sends to the UI thread.
-pub enum MediaEvent {
-    /// A new picture for a share. The picture itself waits in the frame slots;
-    /// this event only says that there is one. The first one creates the tile,
-    /// and a later one updates the state, so the local tile can go from preview
-    /// to sharing.
-    Frame {
-        key: String,
-        publisher: String,
-        state: ShareState,
-    },
-    /// The source stopped publishing, or access to it was revoked.
-    Ended { key: String },
-    /// The same share, new connection state. Used for reconnection, which is a
-    /// presentation change and not a new share.
-    State { key: String, state: ShareState },
-    /// A line for the status area. It travels this queue so the UI thread has one
-    /// writer of the status text, in the order things happened.
-    Status(String),
-    /// A join, a capture or a leave is in flight, so the buttons stand down.
-    Busy(bool),
-    /// Whether the room is joined. Enables leave and disables join.
-    Joined(bool),
-}
-
-/// The newest picture of each share, waiting for the interface.
+/// How often a share's picture reaches the interface.
 ///
-/// The media side writes here and the interface takes the picture out. Only one
-/// picture per share is kept: a picture that is replaced before the interface
-/// reaches it is dropped, because a stale picture is worth less than a
-/// current one.
-pub type FrameSlots = Arc<Mutex<HashMap<String, Frame>>>;
-
-/// The way the media side reaches the interface.
-///
-/// It carries the events and the waiting pictures. Keeping them together means
-/// the media side cannot announce a picture the interface would never find.
-#[derive(Clone)]
-pub struct MediaOut {
-    events: Sender<MediaEvent>,
-    slots: FrameSlots,
-}
-
-impl MediaOut {
-    pub fn new(events: Sender<MediaEvent>) -> Self {
-        Self {
-            events,
-            slots: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    /// The waiting pictures, for the interface side.
-    pub fn slots(&self) -> FrameSlots {
-        self.slots.clone()
-    }
-
-    /// Sends an event that carries no picture.
-    ///
-    /// It answers whether the queue took it. A closed queue means the
-    /// interface is gone, and the media side stops instead of working for
-    /// nobody.
-    pub fn send(&self, event: MediaEvent) -> bool {
-        self.events.send(event).is_ok()
-    }
-
-    /// Announces a new picture of a share.
-    ///
-    /// The picture waits in its slot and the note travels in the queue. A
-    /// picture that is replaced before the interface takes it is dropped: the
-    /// interface shows the current picture instead of an old one.
-    pub fn frame(&self, key: &str, publisher: &str, state: ShareState, frame: Frame) {
-        if let Ok(mut slots) = self.slots.lock() {
-            slots.insert(key.to_string(), frame);
-        }
-        self.send(MediaEvent::Frame {
-            key: key.to_string(),
-            publisher: publisher.to_string(),
-            state,
-        });
-    }
-}
+/// The room delivers more frames than any interface can paint, and every
+/// picture costs the interface a texture it has to upload. A picture that is
+/// skipped here is not lost: the newest one waits in the slot and is painted
+/// instead.
+const PAINT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The stage's model plus the share that is presented in its own window.
 ///
@@ -135,6 +64,9 @@ pub struct Shares {
     sinks: RefCell<HashMap<String, SlintFrameSink>>,
     /// The waiting pictures of the shares.
     slots: FrameSlots,
+    /// When each share was painted last. The rate is the interface's to
+    /// afford, and the room's to exceed.
+    painted: RefCell<HashMap<String, Instant>>,
 }
 
 impl Shares {
@@ -144,6 +76,7 @@ impl Shares {
             detached: RefCell::new(None),
             sinks: RefCell::new(HashMap::new()),
             slots,
+            painted: RefCell::new(HashMap::new()),
         })
     }
 
@@ -173,10 +106,18 @@ impl Shares {
                     let mut slots = self.slots.lock().expect("the frame slots are not poisoned");
                     slots.remove(&key)
                 };
-                match frame {
-                    Some(frame) => self.upsert(key, publisher, state, frame),
+                let Some(frame) = frame else {
                     // The picture was already taken; a newer one is on its way.
-                    None => None,
+                    // The state still says what the share is doing.
+                    return self.set_state(&key, state);
+                };
+                // The picture is what the interface can afford to skip. The
+                // state is not: it says what the share is doing, and a share
+                // that came back has to say so even when its picture waits.
+                if self.paint(&key, publisher, state, frame) {
+                    None
+                } else {
+                    self.set_state(&key, state)
                 }
             }
             MediaEvent::Ended { key } => self.end(&key),
@@ -279,6 +220,33 @@ impl Shares {
         (0..self.tiles.row_count()).find(|&i| self.tiles.row_data(i).is_some_and(|t| t.key == key))
     }
 
+    /// Paints a picture, at a rate the interface can afford.
+    ///
+    /// It answers whether the picture was painted. A picture that arrives too
+    /// soon is dropped, and the newest one in the slot takes its place. The
+    /// first picture of a share is always painted: it is what puts the share
+    /// on the stage.
+    fn paint(&self, key: &str, publisher: String, state: ShareState, frame: Frame) -> bool {
+        let on_stage = self.row_of(key).is_some()
+            || self
+                .detached
+                .borrow()
+                .as_ref()
+                .is_some_and(|tile| tile.key == key);
+        let mut painted = self.painted.borrow_mut();
+        if on_stage
+            && painted
+                .get(key)
+                .is_some_and(|last| last.elapsed() < PAINT_INTERVAL)
+        {
+            return false;
+        }
+        painted.insert(key.to_string(), Instant::now());
+        drop(painted);
+        self.upsert(key.to_string(), publisher, state, frame);
+        true
+    }
+
     fn upsert(
         &self,
         key: String,
@@ -339,6 +307,7 @@ impl Shares {
             .lock()
             .expect("the frame slots are not poisoned")
             .remove(key);
+        self.painted.borrow_mut().remove(key);
 
         let mut detached = self.detached.borrow_mut();
         if detached.as_ref().is_some_and(|tile| tile.key == key) {

@@ -35,8 +35,8 @@ use crate::ShareState;
 
 /// The width of the copy of a frame that reaches the interface.
 /// The picture is painted scaled, so a smaller copy looks the same and keeps
-/// the interface affordable.
-const UI_FRAME_WIDTH: u32 = 1280;
+/// the interface affordable. A tile of the stage is about half that wide.
+const UI_FRAME_WIDTH: u32 = 960;
 
 /// How often a remote share is allowed to hand a frame to the UI. A screen share
 /// does not need 30 fps to look live on this stage, and the conversion runs on the

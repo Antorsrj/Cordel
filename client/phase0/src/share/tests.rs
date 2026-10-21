@@ -255,6 +255,35 @@ fn a_local_capture_is_one_tile_that_can_change_state() {
 }
 
 #[test]
+fn a_picture_that_arrives_too_soon_is_skipped_and_the_state_is_not() {
+    install_platform();
+    let (shares, slots) = stage();
+    let ui = AppWindow::new().expect("the main window builds");
+    ui.set_shares(shares.model());
+
+    // The first picture puts the share on the stage. The second one arrives
+    // too soon: the room delivers more frames than the interface can paint,
+    // and the newest one waits in the slot instead.
+    shares.apply(frame_event(&slots, "a", "ana", 0));
+    shares.apply(frame_event(&slots, "a", "ana", 200));
+    let drawn = render("state-paint-1", 1100, 720, &ui);
+    assert!(blue_pixels(&drawn) > 1000, "ana: {}", blue_pixels(&drawn));
+    assert_eq!(
+        amber_pixels(&drawn),
+        0,
+        "the picture that arrived too soon was not painted"
+    );
+
+    // The state is not a picture. It says what the share is doing, and it is
+    // applied even when the picture waits.
+    shares.apply(MediaEvent::State {
+        key: "a".into(),
+        state: ShareState::Reconnecting,
+    });
+    assert_eq!(stage_tiles(&shares)[0].state, ShareState::Reconnecting);
+}
+
+#[test]
 fn an_unknown_share_is_ignored_rather_than_invented() {
     let (shares, _slots) = stage();
     assert!(shares

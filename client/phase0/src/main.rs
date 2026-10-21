@@ -188,21 +188,41 @@ fn main() -> anyhow::Result<()> {
                     ChatUiEvent::Status(value) => ui.set_chat_status(value.into()),
                 }
             }
+            // The control events come before the pictures. They are cheap, and
+            // a share that ended has to leave the stage before the interface
+            // spends its time on the pictures of the shares that are still
+            // there.
+            let mut pictures = Vec::new();
             while let Ok(event) = incoming.try_recv() {
                 match event {
                     MediaEvent::Status(text) => ui.set_status(text.into()),
                     MediaEvent::Busy(busy) => ui.set_busy(busy),
                     MediaEvent::Joined(joined) => ui.set_joined(joined),
+                    MediaEvent::Frame {
+                        key,
+                        publisher,
+                        state,
+                    } => pictures.push((key, publisher, state)),
                     event => {
                         if let Some(note) = shares.apply(event) {
                             ui.set_status(note.into());
                         }
-                        // A detached share shows what the tile currently holds, and
-                        // a share that ended takes its window with it.
-                        detached.sync(shares.detached_tile());
                     }
                 }
             }
+            for (key, publisher, state) in pictures {
+                let event = MediaEvent::Frame {
+                    key,
+                    publisher,
+                    state,
+                };
+                if let Some(note) = shares.apply(event) {
+                    ui.set_status(note.into());
+                }
+            }
+            // A detached share shows what the tile currently holds, and a share
+            // that ended takes its window with it.
+            detached.sync(shares.detached_tile());
         }
     });
 
