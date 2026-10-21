@@ -67,16 +67,31 @@ struct Joined {
     /// Held for the session. The platform audio module is reference counted, and
     /// its device selection is what allows the microphone to open at all.
     _audio: SdkAudio,
-    /// Stops the still-frame publisher of the *current* capture. A second capture
-    /// replaces the publication, because the frame decides the track size.
+    /// Stops the still-frame publisher of the *current* capture. A second
+    /// capture replaces the publication, because the frame decides the track
+    /// size.
     publisher: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl Joined {
-    /// Stops pushing frames. Used when the capture is replaced and when leaving.
-    fn stop_publishing(&mut self) {
+    /// Stops pushing frames and takes the share off the stage. Used when the
+    /// capture is replaced and when leaving.
+    ///
+    /// Without the unpublish, every capture left its track published and the
+    /// other side collected one tile per capture.
+    async fn stop_publishing(&mut self) {
         if let Some(stop) = self.publisher.take() {
             let _ = stop.send(true);
+        }
+        let participant = self.room.local_participant();
+        let screenshares: Vec<_> = participant
+            .track_publications()
+            .values()
+            .filter(|publication| publication.source() == TrackSource::Screenshare)
+            .map(|publication| publication.sid())
+            .collect();
+        for sid in screenshares {
+            let _ = participant.unpublish_track(&sid).await;
         }
     }
 }
@@ -206,7 +221,7 @@ pub async fn run(
                 }
                 Command::Leave => {
                     if let Some(mut session) = joined.take() {
-                        session.stop_publishing();
+                        session.stop_publishing().await;
                         let _ = session.room.close().await;
                         drop(session._audio);
                     }

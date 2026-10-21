@@ -124,7 +124,7 @@ async fn publish_frame(
     if captured.width() == 0 || captured.height() == 0 {
         anyhow::bail!("captured frame has no dimensions");
     }
-    joined.stop_publishing();
+    joined.stop_publishing().await;
 
     // The publisher's resolution comes from the frame the capturer actually
     // produced, so the client never has to guess what the picker will hand it.
