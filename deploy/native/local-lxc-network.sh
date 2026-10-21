@@ -183,8 +183,14 @@ curl -s -o /dev/null -X POST "$ORIGIN/v1/channels/$CHANNEL/messages" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d "{\"client_message_id\":\"after-the-interruption\",\"body\":\"after the interruption\"}"
 
-wait "$CLIENT_PID" || fail "O cliente nao recuperou a conexao."
-cat /tmp/cordel-network-client.log | grep -E "recovery|test result" | sed 's/^/[network]   /'
+# O log do cliente e sempre mostrado: um grep sem casamento nao pode
+# esconder o resultado.
+if ! wait "$CLIENT_PID"; then
+  log "O cliente nao recuperou a conexao. Log:"
+  sed 's/^/[network]   /' /tmp/cordel-network-client.log | tail -40
+  fail "o cliente nao recuperou depois da interrupcao."
+fi
+sed 's/^/[network]   /' /tmp/cordel-network-client.log | tail -20
 
 log "------------------------------------------------------------"
 log "PASS o chat voltou a funcionar depois da interrupcao de rede"
