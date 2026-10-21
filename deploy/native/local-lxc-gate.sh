@@ -110,14 +110,18 @@ find_helper() {
 # -----------------------------------------------------------------------------
 # 1. Dependencias
 # -----------------------------------------------------------------------------
-# O script roda como o usuario normal e usa sudo so onde o sistema exige. O
-# toolchain do Rust fica na pasta do usuario, entao rodar como root faria o
-# build procurar um rustup que nao existe.
-SUDO=""
+# O script usa sudo para as partes do sistema. O prefixo e sempre o mesmo, e
+# nao um prefixo condicional: com o usuario normal o sudo pede a senha, e
+# como root o sudo tambem existe e roda o comando como o postgres.
+#
+# Rode como o usuario normal sempre que possivel. O toolchain do Rust fica na
+# pasta do usuario, e como root o build procuraria um rustup que nao existe.
+SUDO="sudo"
 if [[ $EUID -ne 0 ]]; then
-  SUDO="sudo"
   log "Verificando o acesso do sudo..."
   $SUDO true || fail "O usuario precisa de sudo para instalar o Caddy e usar o PostgreSQL."
+else
+  log "ATENCAO: rodando como root. O build usa o toolchain do primeiro usuario que tem um."
 fi
 
 export DEBIAN_FRONTEND=noninteractive
