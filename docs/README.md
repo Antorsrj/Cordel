@@ -42,11 +42,11 @@ All 16 are required before the first **user-facing integrated product test**. Se
 
 ## Repository process
 
-ADR-012 is outside the 16 first-test ADRs and the later roadmap. It does not change those percentages.
+Process 012 is outside the 16 first-test ADRs and the later roadmap. Its delivery stage is Repository process. Acceptance does not change the percentages above. An Accepted decision with the GitHub settings still open is 20%.
 
 | ADR | Progress | Current state | Next substantial gate |
 | --- | ---: | --- | --- |
-| [012 — GitHub Flow](adr/process/ADR-012-github-flow.md) | 0% | Proposed | Owner accepts the flow; maintainers later configure branch protection and pull-request CI beyond Phase 0 |
+| [Process 012 — GitHub Flow](adr/process/ADR-012-github-flow.md) | 20% | Accepted | Maintainers apply branch protection and the pull-request `ci` check (issues #8 and #9) |
 
 ## Documentation map
 

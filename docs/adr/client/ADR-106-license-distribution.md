@@ -38,7 +38,7 @@ Do not publish a client binary until the packaged application's About screen, at
 
 - Client and protocol code was published before a license was selected. The decision and its license/notice files were subsequently published and are now in `main`.
 - A successful Slint technical spike does not prove packaged attribution or all transitive native-library notices.
-- The owner-selected repository URL is configured as local `origin`. Inspect remote state and obtain the owner's push approval before publication. No push or deployment is authorized by this ADR.
+- The owner-selected repository URL is configured as local `origin`. Inspect remote state before publication. A push still needs the owner's approval and follows [ADR-012](../process/ADR-012-github-flow.md): a task branch and a pull request, never a direct push or force-push to `main`. This ADR does not authorize deployment or a client binary.
 
 ## Acceptance and handoff
 

@@ -2,7 +2,7 @@
 
 These ADRs turn the [project vision](../../Plano%20de%20Desenvolvimento%20-%20Revisado.md) and [deployment architecture](../../architecture.md) into server and client decisions. Use the [workstream and interface map](WORKSTREAMS.md) to assign them, the [implementation ledger](STATUS.md) to track completion, and the [2026-10-20 review](REVIEW-2026-10-20.md) to see open cross-ADR gates. The [documentation overview](../README.md) gives rough progress percentages. The official repository is [Antorsrj/Cordel](https://github.com/Antorsrj/Cordel); inspect remote state before publishing. Source is consolidated on `main`, but a documentation or source commit is not deployment evidence.
 
-**Accepted** means the project direction is settled. **Proposed** means the document recommends a concrete design but must pass its stated acceptance gate before an agent can claim that feature or deployment is complete. No ADR authorizes creating a remote repository, pushing, deploying, or publishing.
+**Accepted** means the project direction is settled. **Proposed** means the document recommends a concrete design but must pass its stated acceptance gate before an agent can claim that feature or deployment is complete. No ADR authorizes creating a remote repository, a direct push or force-push to `main`, or deploying. A task-branch push and a pull request need the owner's approval, as described in [Process 012](process/ADR-012-github-flow.md).
 
 Each ADR ends with a **Complexity: N/5** tag. **1** is a small, bounded task; **2** is routine work with few dependencies; **3** crosses a service or platform boundary; **4** needs careful design and integration review; **5** carries substantial architecture, media, concurrency, or security risk and requires a frontier or equivalently strong model for design and review. Complexity does not change Accepted/Proposed status or replace verification. Use the [v1 contract](../contracts/v1.md) and [Journal behavior spec](../ux/journal.md) when assigning work; neither mock images nor chat history are required.
 
@@ -56,11 +56,11 @@ These ADRs can be researched in parallel but do not block the first Linux/browse
 
 ## Repository process
 
-ADR-012 continues the sequence after server 011. It is not a client ADR and does not join the 1xx series. It does not gate the first product test. Branch protection and pull-request CI stay recorded as maintainer follow-ups.
+The 0xx series is global. Server 001–011 and Process 012 share that sequence. Client ADRs stay in the separate 1xx series. **Delivery stage: Repository process** means the decision governs how a change enters the repository. It does not gate the first product test. Branch protection and the pull-request CI aggregator stay with maintainers.
 
 | ADR | Status | Complexity | Area | Implementation dependency |
 | --- | --- | --- | --- | --- |
-| [012 — GitHub Flow](process/ADR-012-github-flow.md) | Proposed | 2/5 | Branches, pull requests, review, and tags | None for the decision; maintainers configure branch protection and wider CI |
+| [Process 012 — GitHub Flow](process/ADR-012-github-flow.md) | Accepted | 2/5 | Task branches, pull requests, branch protection, and tags | Issues #8 and #9; maintainers apply branch protection and the `ci` check |
 
 ## Delegation order and acceptance
 
