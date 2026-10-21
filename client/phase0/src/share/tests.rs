@@ -1,3 +1,4 @@
+use super::events::announce;
 use super::*;
 use crate::{AppWindow, ChatLine};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
@@ -24,15 +25,26 @@ fn share_frame(
     size: (u32, u32),
     phase: u8,
 ) -> MediaEvent {
-    slots.lock().expect("the slots are not poisoned").insert(
-        key.to_string(),
+    announce(
+        slots,
+        key,
+        publisher,
+        ShareState::Live,
         cordel_media::frame::synthetic_bgra(size.0, size.1, phase),
-    );
-    MediaEvent::Frame {
-        key: key.into(),
-        publisher: publisher.into(),
-        state: ShareState::Live,
-    }
+    )
+    .expect("the first picture of a share is announced")
+}
+
+/// A picture of the shell's own capture, in the state the capture is in.
+fn local_frame(slots: &FrameSlots, state: ShareState, phase: u8) -> MediaEvent {
+    announce(
+        slots,
+        LOCAL_SHARE_KEY,
+        "you",
+        state,
+        cordel_media::frame::synthetic_bgra(640, 360, phase),
+    )
+    .expect("the first picture of a share is announced")
 }
 
 /// What the main window draws, in order.
@@ -230,26 +242,10 @@ fn a_reconnecting_share_is_marked_and_a_new_frame_restores_it() {
 #[test]
 fn a_local_capture_is_one_tile_that_can_change_state() {
     let (shares, slots) = stage();
-    slots.lock().expect("the slots are not poisoned").insert(
-        LOCAL_SHARE_KEY.to_string(),
-        cordel_media::frame::synthetic_bgra(640, 360, 0),
-    );
-    shares.apply(MediaEvent::Frame {
-        key: LOCAL_SHARE_KEY.into(),
-        publisher: "you".into(),
-        state: ShareState::Preview,
-    });
+    shares.apply(local_frame(&slots, ShareState::Preview, 0));
     assert_eq!(stage_tiles(&shares)[0].state, ShareState::Preview);
 
-    slots.lock().expect("the slots are not poisoned").insert(
-        LOCAL_SHARE_KEY.to_string(),
-        cordel_media::frame::synthetic_bgra(640, 360, 8),
-    );
-    shares.apply(MediaEvent::Frame {
-        key: LOCAL_SHARE_KEY.into(),
-        publisher: "you".into(),
-        state: ShareState::Live,
-    });
+    shares.apply(local_frame(&slots, ShareState::Live, 8));
     assert_eq!(shares.model().row_count(), 1);
     assert_eq!(stage_tiles(&shares)[0].state, ShareState::Live);
 }

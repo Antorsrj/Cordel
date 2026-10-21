@@ -192,6 +192,7 @@ fn main() -> anyhow::Result<()> {
             // a share that ended has to leave the stage before the interface
             // spends its time on the pictures of the shares that are still
             // there.
+            let started = std::time::Instant::now();
             let mut pictures = Vec::new();
             while let Ok(event) = incoming.try_recv() {
                 match event {
@@ -210,6 +211,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            let count = pictures.len();
             for (key, publisher, state) in pictures {
                 let event = MediaEvent::Frame {
                     key,
@@ -223,6 +225,14 @@ fn main() -> anyhow::Result<()> {
             // A detached share shows what the tile currently holds, and a share
             // that ended takes its window with it.
             detached.sync(shares.detached_tile());
+            let spent = started.elapsed();
+            if spent > std::time::Duration::from_millis(100) {
+                log::warn!(
+                    "the interface spent {} ms on {} media events",
+                    spent.as_millis(),
+                    count
+                );
+            }
         }
     });
 

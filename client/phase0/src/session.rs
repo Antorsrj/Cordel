@@ -75,8 +75,12 @@ impl Joined {
         if let Some(share) = self.share.take() {
             share.stop();
             let participant = self.room.local_participant();
-            if let Err(error) = participant.unpublish_track(&share.publication.sid()).await {
-                log::warn!("the screen share track was not taken off the stage: {error}");
+            let sid = share.publication.sid();
+            match participant.unpublish_track(&sid).await {
+                Ok(_) => log::info!("the screen track {sid} left the stage"),
+                Err(error) => {
+                    log::warn!("the screen share track was not taken off the stage: {error}")
+                }
             }
         }
     }
@@ -240,6 +244,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
                 .insert(key.clone(), publisher.clone())
                 .is_none()
             {
+                log::info!("a share appeared: {key}");
                 pump_share(track, key, publisher, events.clone());
             }
         }
@@ -262,11 +267,9 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
             participant,
         } => {
             let publisher = participant.identity().to_string();
-            end_share(
-                events,
-                &mut session.tracked,
-                &share_key(&publisher, publication.sid()),
-            );
+            let key = share_key(&publisher, publication.sid());
+            log::info!("a share ended: {key}");
+            end_share(events, &mut session.tracked, &key);
         }
         RoomEvent::ParticipantDisconnected(participant) => {
             let leaving = participant.identity().to_string();

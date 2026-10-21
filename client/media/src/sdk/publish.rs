@@ -56,6 +56,12 @@ impl ScreenPublisher {
                 LocalTrack::Video(self.track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Screenshare,
+                    // A screen share is one picture, not a camera. The layers
+                    // of a simulcast exist so a receiver can pick a smaller
+                    // one when the network is slow, and they cost the machine
+                    // an extra encoding and an extra decoding for a picture
+                    // that is mostly text.
+                    simulcast: false,
                     // A tela muda o tempo todo, e a taxa de bits padrao do
                     // SDK reserva mais do que o conteudo precisa. O valor e
                     // fixo para que a medicao nao dependa do padrao.

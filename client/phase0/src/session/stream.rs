@@ -159,6 +159,12 @@ pub(super) async fn start_share(
             .with_frame_rate(rate as f64),
     );
     let publication = publisher.publish(&joined.room).await?;
+    log::info!(
+        "the screen track {} was published at {}x{}",
+        publication.sid(),
+        first.width(),
+        first.height()
+    );
     publisher.push(&first)?;
     let _ = events.send(MediaEvent::Status(format!(
         "Sharing the screen at {}x{} on the {} session.",

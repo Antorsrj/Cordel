@@ -101,10 +101,17 @@ impl Shares {
             } => {
                 // The picture waits in the slot. The interface takes the newest
                 // one and lets the room's replacement stand in for the picture
-                // it never painted.
-                let frame = {
+                // it never painted. The state comes from the slot as well: it
+                // is the newest one, even when the note is an old one.
+                let (frame, state) = {
                     let mut slots = self.slots.lock().expect("the frame slots are not poisoned");
-                    slots.remove(&key)
+                    match slots.get_mut(&key) {
+                        Some(waiting) if waiting.pending => {
+                            waiting.pending = false;
+                            (waiting.frame.take(), waiting.state)
+                        }
+                        _ => (None, state),
+                    }
                 };
                 let Some(frame) = frame else {
                     // The picture was already taken; a newer one is on its way.

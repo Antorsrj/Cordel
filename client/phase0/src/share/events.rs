@@ -41,13 +41,27 @@ pub enum MediaEvent {
     Joined(bool),
 }
 
+/// A picture waiting for the interface, and whether the interface knows about it.
+pub struct Waiting {
+    /// The newest picture of the share.
+    pub frame: Option<Frame>,
+    /// What the share is doing, which the picture does not say.
+    pub state: ShareState,
+    /// The interface was told about a picture and has not taken it yet. While
+    /// this is set, another picture replaces the first one without another
+    /// note: the interface does not need to hear about a picture it is going
+    /// to replace anyway.
+    pub pending: bool,
+}
+
 /// The newest picture of each share, waiting for the interface.
 ///
 /// The media side writes here and the interface takes the picture out. Only one
 /// picture per share is kept: a picture that is replaced before the interface
 /// reaches it is dropped, because a stale picture is worth less than a
-/// current one.
-pub type FrameSlots = Arc<Mutex<HashMap<String, Frame>>>;
+/// current one. There is also at most one note per share waiting, so the queue
+/// that carries the notes stays as short as the number of shares.
+pub type FrameSlots = Arc<Mutex<HashMap<String, Waiting>>>;
 
 /// The way the media side reaches the interface.
 ///
@@ -85,15 +99,54 @@ impl MediaOut {
     ///
     /// The picture waits in its slot and the note travels in the queue. A
     /// picture that is replaced before the interface takes it is dropped: the
-    /// interface shows the current picture instead of an old one.
+    /// interface shows the current picture instead of an old one. The note
+    /// travels only when the interface does not know yet that there is a
+    /// picture to take, so a share that delivers a hundred frames a second
+    /// leaves one note in the queue and not a hundred.
     pub fn frame(&self, key: &str, publisher: &str, state: ShareState, frame: Frame) {
-        if let Ok(mut slots) = self.slots.lock() {
-            slots.insert(key.to_string(), frame);
+        if let Some(event) = announce(&self.slots, key, publisher, state, frame) {
+            self.send(event);
         }
-        self.send(MediaEvent::Frame {
-            key: key.to_string(),
-            publisher: publisher.to_string(),
-            state,
-        });
     }
+}
+
+/// Puts a picture in a slot and answers the note that announces it.
+///
+/// The note is answered only when the interface does not know yet that there
+/// is a picture to take. A share that delivers a hundred frames a second
+/// leaves one note in the queue and not a hundred.
+pub fn announce(
+    slots: &FrameSlots,
+    key: &str,
+    publisher: &str,
+    state: ShareState,
+    frame: Frame,
+) -> Option<MediaEvent> {
+    let mut notify = false;
+    if let Ok(mut slots) = slots.lock() {
+        match slots.get_mut(key) {
+            Some(waiting) => {
+                waiting.frame = Some(frame);
+                waiting.state = state;
+                notify = !waiting.pending;
+                waiting.pending = true;
+            }
+            None => {
+                slots.insert(
+                    key.to_string(),
+                    Waiting {
+                        frame: Some(frame),
+                        state,
+                        pending: true,
+                    },
+                );
+                notify = true;
+            }
+        }
+    }
+    notify.then(|| MediaEvent::Frame {
+        key: key.to_string(),
+        publisher: publisher.to_string(),
+        state,
+    })
 }
