@@ -23,5 +23,6 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
+cordel-state = { path = "../../client/state", features = ["local-smoke"] }
 tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }

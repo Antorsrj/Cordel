@@ -21,3 +21,5 @@ optional = true
 
 [features]
 secret-service = ["dep:keyring"]
+# Test-only plain ws/http constructors for a local client-server smoke.
+local-smoke = []

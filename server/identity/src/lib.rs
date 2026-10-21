@@ -3,6 +3,8 @@
 #[cfg(test)]
 mod adr003_tests;
 #[cfg(test)]
+mod adr004_client_smoke;
+#[cfg(test)]
 mod adr004_tests;
 #[cfg(test)]
 mod adr004_ws_tests;

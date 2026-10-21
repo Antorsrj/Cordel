@@ -15,7 +15,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 001 — Single host](adr/server/ADR-001-single-host-deployment.md) | 60% | Azure foundation and several network/reboot checks passed | Real UDP/TURN media, load and recovery evidence |
 | [Server 002 — Identity](adr/server/ADR-002-invite-only-identity.md) | 70% | Standalone API and grant are live with disposable flows | Client integration and recovery gates |
 | [Server 003 — Community policy](adr/server/ADR-003-community-authorization.md) | 60% | Source passed disposable database checks | Deploy and prove live moderation and policy consumers |
-| [Server 004 — Durable chat](adr/server/ADR-004-durable-chat.md) | 100% | Source Done: ordered send/history, authenticated WS fan-out, revocation, native client live session, transports, and fixtures passed isolated checks | Deploy and run the two-client network proof; browser, presence, and rich content are separate ADRs |
+| [Server 004 — Durable chat](adr/server/ADR-004-durable-chat.md) | 100% | Source Done: ordered send/history, authenticated WS fan-out, revocation, native client live session, transports, fixtures, and a real-router native client flow passed isolated checks | Deploy and run the two-client network proof; browser, presence, and rich content are separate ADRs |
 | [Server 005 — LiveKit media](adr/server/ADR-005-livekit-media.md) | 40% | LiveKit foundation runs | Scoped admission and two-network voice/share proof |
 | [Server 006 — Media revocation](adr/server/ADR-006-media-revocation.md) | 0% | Proposed | Prove strict old-token denial and accept design |
 | [Server 007 — Backup operations](adr/server/ADR-007-backup-operations.md) | 0% | Proposed | Accept recovery targets and perform off-host restore |
@@ -23,7 +23,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 010 — Presence](adr/server/ADR-010-presence-and-share-state.md) | 20% | Decision accepted | Implement snapshot, deltas and reconciliation |
 | [Server 011 — Rich chat/images](adr/server/ADR-011-rich-chat-images.md) | 0% | Proposed | Accept storage/limits and prove protected reads/restore |
 | [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 50% | Combined Phase 0 Linux client passed [CI formatting, Clippy, tests, and release build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545); desktop UI remains unrun | Run the UI on Linux and prove X11 and second-network media |
-| [Client 102 — State recovery](adr/client/ADR-102-client-state-recovery.md) | 70% | Shared state, focused live identity, and native chat catch-up/transport checks passed | OS credential store, Phase 0 chat UI, and network-switch proof |
+| [Client 102 — State recovery](adr/client/ADR-102-client-state-recovery.md) | 70% | Shared state, focused live identity, native chat catch-up/transport checks, and a real-router native client flow passed | OS credential store, Phase 0 chat UI, and network-switch proof |
 | [Client 103 — Capture/playback](adr/client/ADR-103-capture-playback.md) | 60% | Linux media adapters and one-machine three-client room test passed | Continuous capture, X11, denial/hotplug, and second-network proof |
 | [Client 104 — Browser test client](adr/client/ADR-104-browser-test-client.md) | 20% | Decision accepted | Build diagnostic client after Server 009 gate |
 | [Client 106 — Licensing](adr/client/ADR-106-license-distribution.md) | 50% | Source license and known inventory are in `main` | Packaged About attribution and full notice audit |

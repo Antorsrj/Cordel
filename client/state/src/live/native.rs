@@ -26,8 +26,10 @@ impl NativeLiveTransport {
         Self::with_scheme(endpoint, "wss")
     }
 
-    #[cfg(test)]
-    pub(crate) fn new_plain(endpoint: &str) -> Result<Self, LiveError> {
+    /// Plain `ws` endpoint for local integration tests. Enable the
+    /// `local-smoke` feature; production uses `new`.
+    #[cfg(any(test, feature = "local-smoke"))]
+    pub fn new_plain(endpoint: &str) -> Result<Self, LiveError> {
         Self::with_scheme(endpoint, "ws")
     }
 
@@ -154,8 +156,10 @@ impl NativeChatTransport {
         Self::with_scheme(base, "https")
     }
 
-    #[cfg(test)]
-    pub(crate) fn new_plain(base: &str) -> Result<Self, LiveError> {
+    /// Plain `http` base for local integration tests. Enable the
+    /// `local-smoke` feature; production uses `new`.
+    #[cfg(any(test, feature = "local-smoke"))]
+    pub fn new_plain(base: &str) -> Result<Self, LiveError> {
         Self::with_scheme(base, "http")
     }
 
