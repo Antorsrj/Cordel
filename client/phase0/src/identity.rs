@@ -1,6 +1,6 @@
 //! Prototype login and Settings bridge. HTTPS calls stay off the Slint UI thread.
 
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use cordel_state::{
@@ -8,17 +8,19 @@ use cordel_state::{
 };
 use slint::Weak;
 
+use crate::chat::{AccessSource, AccountEvent};
 use crate::AppWindow;
 
 pub enum Command {
     Login { login: String, password: String },
     CheckProfile,
+    RefreshAccess,
     Unlock { password: String },
     Lock,
     Logout,
 }
 
-pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
+pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<AccountEvent>) {
     let origin = match std::env::var("CORDEL_API_ORIGIN") {
         Ok(value) => value,
         Err(_) => {
@@ -28,17 +30,21 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
             return;
         }
     };
-    let transport = match NativeHttpsTransport::new(&origin) {
+    let transport = match build_transport(&origin) {
         Ok(transport) => transport,
         Err(_) => {
             update(&ui, |ui| {
-                ui.set_identity_status("CORDEL_API_ORIGIN must be a bare HTTPS origin.".into());
+                ui.set_identity_status(
+                    "CORDEL_API_ORIGIN must be a bare HTTPS origin (HTTP requires local-smoke)."
+                        .into(),
+                );
             });
             return;
         }
     };
     let state = ClientState::restore(MemoryRefreshStore::default(), None);
     let mut client = IdentityClient::new(state, transport);
+    let mut last_login = String::new();
     let mut grant_visible = false;
     update(&ui, |ui| {
         ui.set_identity_ready(true);
@@ -69,10 +75,20 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
         update(&ui, |ui| ui.set_identity_busy(true));
         match command {
             Command::Login { login, password } => {
-                let result = client.login(&login, &password).and_then(|_| client.me());
+                let result = client
+                    .login(&login, &password)
+                    .and_then(|session| client.me().map(|profile| (session, profile)));
                 match result {
-                    Ok(profile) => {
+                    Ok((session, profile)) => {
                         grant_visible = false;
+                        last_login = profile.login.clone();
+                        send_access(
+                            &accounts,
+                            &session.access_token,
+                            &profile.user_id,
+                            &profile.login,
+                            AccessSource::Login,
+                        );
                         update(&ui, move |ui| {
                             ui.set_logged_in(true);
                             ui.set_settings_open(false);
@@ -84,6 +100,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
                         });
                     }
                     Err(error) => {
+                        let _ = accounts.send(AccountEvent::SignedOut);
                         let _ = client.state_mut().clear_session();
                         clear_ui(&ui, &format!("Sign in failed: {}", describe(&error)));
                     }
@@ -99,6 +116,16 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
                         if client.admin_token().is_some() {
                             let _ = client.lock_management();
                         }
+                    }
+                    last_login = profile.login.clone();
+                    if let Some(token) = client.state().tokens().access() {
+                        send_access(
+                            &accounts,
+                            token,
+                            &profile.user_id,
+                            &profile.login,
+                            AccessSource::Refresh,
+                        );
                     }
                     update(&ui, move |ui| {
                         ui.set_account_role(profile.role.into());
@@ -124,9 +151,31 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
                             );
                         });
                     } else {
+                        let _ = accounts.send(AccountEvent::SignedOut);
                         let _ = client.state_mut().clear_session();
                         clear_ui(&ui, &format!("Session check failed: {}", describe(&error)));
                     }
+                }
+            },
+            Command::RefreshAccess => match client.refresh() {
+                Ok(session) => {
+                    send_access(
+                        &accounts,
+                        &session.access_token,
+                        &session.user_id,
+                        &last_login,
+                        AccessSource::Refresh,
+                    );
+                    update(&ui, |ui| {
+                        ui.set_identity_status("Chat session refreshed.".into());
+                    });
+                }
+                Err(error) => {
+                    let _ = accounts.send(AccountEvent::SignedOut);
+                    clear_ui(
+                        &ui,
+                        &format!("Session refresh failed: {}", describe(&error)),
+                    );
                 }
             },
             Command::Unlock { password } => {
@@ -178,6 +227,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
             }
             Command::Logout => {
                 grant_visible = false;
+                let _ = accounts.send(AccountEvent::SignedOut);
                 let result = client.logout();
                 let message = if result.is_ok() {
                     "Signed out.".to_owned()
@@ -189,6 +239,31 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>) {
         }
         update(&ui, |ui| ui.set_identity_busy(false));
     }
+}
+
+fn build_transport(origin: &str) -> Result<NativeHttpsTransport, IdentityError> {
+    #[cfg(feature = "local-smoke")]
+    {
+        if origin.starts_with("http://") {
+            return NativeHttpsTransport::new_plain(origin);
+        }
+    }
+    NativeHttpsTransport::new(origin)
+}
+
+fn send_access(
+    accounts: &Sender<AccountEvent>,
+    token: &str,
+    user_id: &str,
+    login: &str,
+    source: AccessSource,
+) {
+    let _ = accounts.send(AccountEvent::Access {
+        token: token.to_owned(),
+        user_id: user_id.to_owned(),
+        login: login.to_owned(),
+        source,
+    });
 }
 
 fn clear_ui(ui: &Weak<AppWindow>, message: &str) {

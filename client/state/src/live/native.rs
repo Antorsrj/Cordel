@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -14,10 +14,13 @@ use uuid::Uuid;
 use super::{ChatTransport, ChatTransportError, LiveError, LiveTransport, LiveTransportError};
 
 const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
+const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct NativeLiveTransport {
     endpoint: String,
     socket: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
+    read_timeout: Duration,
 }
 
 impl NativeLiveTransport {
@@ -49,6 +52,7 @@ impl NativeLiveTransport {
         Ok(Self {
             endpoint: endpoint.to_owned(),
             socket: None,
+            read_timeout: DEFAULT_READ_TIMEOUT,
         })
     }
 
@@ -88,7 +92,7 @@ impl LiveTransport for NativeLiveTransport {
         if response.status() != StatusCode::SWITCHING_PROTOCOLS {
             return Err(LiveTransportError::Network);
         }
-        set_timeouts(socket.get_ref());
+        set_timeouts(socket.get_ref(), self.read_timeout);
         self.socket = Some(socket);
         Ok(())
     }
@@ -105,7 +109,15 @@ impl LiveTransport for NativeLiveTransport {
     fn receive(&mut self) -> Result<WsFrame, LiveTransportError> {
         let socket = self.socket.as_mut().ok_or(LiveTransportError::Closed)?;
         loop {
-            let message = socket.read().map_err(|_| LiveTransportError::Network)?;
+            let message = match socket.read() {
+                Ok(message) => message,
+                Err(tungstenite::Error::Io(error))
+                    if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                {
+                    return Err(LiveTransportError::Timeout);
+                }
+                Err(_) => return Err(LiveTransportError::Network),
+            };
             match message {
                 Message::Text(text) => {
                     return serde_json::from_str(text.as_str())
@@ -128,18 +140,37 @@ impl LiveTransport for NativeLiveTransport {
     fn close(&mut self) {
         self.close_socket();
     }
+
+    fn set_read_timeout(&mut self, timeout: Duration) -> Result<(), LiveTransportError> {
+        self.read_timeout = timeout;
+        if let Some(socket) = &self.socket {
+            set_read_timeout(socket.get_ref(), timeout);
+        }
+        Ok(())
+    }
 }
 
-fn set_timeouts(stream: &MaybeTlsStream<TcpStream>) {
-    let timeout = Some(Duration::from_secs(60));
+fn set_timeouts(stream: &MaybeTlsStream<TcpStream>, read_timeout: Duration) {
     match stream {
         MaybeTlsStream::Plain(socket) => {
-            let _ = socket.set_read_timeout(timeout);
-            let _ = socket.set_write_timeout(timeout);
+            let _ = socket.set_read_timeout(Some(read_timeout));
+            let _ = socket.set_write_timeout(Some(WRITE_TIMEOUT));
         }
         MaybeTlsStream::Rustls(socket) => {
-            let _ = socket.sock.set_read_timeout(timeout);
-            let _ = socket.sock.set_write_timeout(timeout);
+            let _ = socket.sock.set_read_timeout(Some(read_timeout));
+            let _ = socket.sock.set_write_timeout(Some(WRITE_TIMEOUT));
+        }
+        _ => {}
+    }
+}
+
+fn set_read_timeout(stream: &MaybeTlsStream<TcpStream>, read_timeout: Duration) {
+    match stream {
+        MaybeTlsStream::Plain(socket) => {
+            let _ = socket.set_read_timeout(Some(read_timeout));
+        }
+        MaybeTlsStream::Rustls(socket) => {
+            let _ = socket.sock.set_read_timeout(Some(read_timeout));
         }
         _ => {}
     }

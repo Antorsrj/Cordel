@@ -20,5 +20,9 @@ log = "0.4"
 slint = "1.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
+[features]
+# Local-only plain HTTP/WS for a disposable Axum server. Never ship this.
+local-smoke = ["cordel-state/local-smoke"]
+
 [build-dependencies]
 slint-build = "1.14"

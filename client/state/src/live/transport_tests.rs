@@ -7,7 +7,9 @@ use cordel_protocol::WsFrame;
 use tungstenite::handshake::server::{Request, Response};
 use tungstenite::Message;
 
-use super::{ChatTransport, LiveTransport, NativeChatTransport, NativeLiveTransport};
+use super::{
+    ChatTransport, LiveTransport, LiveTransportError, NativeChatTransport, NativeLiveTransport,
+};
 
 const CHANNEL: &str = "7efc7a7b-b06f-4632-8780-bb611b8cd0a8";
 
@@ -91,6 +93,53 @@ fn native_live_transport_round_trips_frames_with_bearer() {
     let (authorization, received) = server.join().unwrap();
     assert_eq!(authorization.as_deref(), Some("Bearer test-token"));
     assert_eq!(received.kind, "subscribe");
+}
+
+#[test]
+fn native_live_transport_resumes_after_a_read_timeout() {
+    let (listener, port) = listener();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        let ready = WsFrame::ready("5aee793e-3cde-44fc-9608-48b7e945fb53");
+        socket
+            .send(Message::Text(serde_json::to_string(&ready).unwrap().into()))
+            .unwrap();
+        let _ = socket.read().unwrap();
+        thread::sleep(Duration::from_millis(150));
+        let message = WsFrame::message(&cordel_protocol::ChatEvent {
+            channel_id: CHANNEL.to_owned(),
+            seq: 1,
+            kind: "message".to_owned(),
+            client_message_id: None,
+            body: Some("after timeout".to_owned()),
+            extra: Default::default(),
+        })
+        .unwrap();
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&message).unwrap().into(),
+            ))
+            .unwrap();
+        let _ = socket.close(None);
+    });
+
+    let url = format!("ws://127.0.0.1:{port}/v1/events");
+    let mut transport = NativeLiveTransport::new_plain(&url).unwrap();
+    transport.connect(&url, "test-token").unwrap();
+    assert_eq!(transport.receive().unwrap().kind, "ready");
+    transport.send(&WsFrame::subscribe(CHANNEL)).unwrap();
+    transport
+        .set_read_timeout(Duration::from_millis(50))
+        .unwrap();
+    assert_eq!(transport.receive(), Err(LiveTransportError::Timeout));
+    transport
+        .set_read_timeout(Duration::from_millis(500))
+        .unwrap();
+    let frame = transport.receive().unwrap();
+    assert_eq!(frame.kind, "message");
+    transport.close();
+    server.join().unwrap();
 }
 
 #[test]

@@ -18,6 +18,8 @@ pub enum LiveTransportError {
     Network,
     Closed,
     MalformedFrame,
+    /// No frame arrived before the read deadline. The connection remains usable.
+    Timeout,
 }
 
 pub trait LiveTransport {
@@ -25,6 +27,11 @@ pub trait LiveTransport {
     fn send(&mut self, frame: &WsFrame) -> Result<(), LiveTransportError>;
     fn receive(&mut self) -> Result<WsFrame, LiveTransportError>;
     fn close(&mut self);
+    /// Interactive clients shorten this between frames so the UI thread can
+    /// process commands. The default keeps the production transport's deadline.
+    fn set_read_timeout(&mut self, _timeout: Duration) -> Result<(), LiveTransportError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

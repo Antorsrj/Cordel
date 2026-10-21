@@ -8,6 +8,8 @@ pub struct AppliedEvent {
     pub seq: u64,
     pub client_message_id: Option<String>,
     pub body: Option<String>,
+    /// Author identity when the server includes it in the event's extra fields.
+    pub author_id: Option<String>,
     pub known_message: bool,
 }
 
@@ -55,11 +57,17 @@ pub fn catch_up(
             };
         }
         let known_message = event.is_known_message();
+        let author_id = event
+            .extra
+            .get("author_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         applied.push(AppliedEvent {
             channel_id: event.channel_id,
             seq: event.seq,
             client_message_id: event.client_message_id,
             body: event.body,
+            author_id,
             known_message,
         });
         next = seq;
@@ -125,6 +133,16 @@ mod tests {
         let caught = catch_up("general", 1, &history, &buffered);
         assert_eq!(caught.applied.len(), 1);
         assert_eq!(caught.applied[0].body.as_deref(), Some("from-history"));
+    }
+
+    #[test]
+    fn applied_events_keep_the_author_identifier() {
+        let mut event = event(1, "hello");
+        event
+            .extra
+            .insert("author_id".to_owned(), serde_json::json!("author-1"));
+        let caught = catch_up("general", 0, &[event], &[]);
+        assert_eq!(caught.applied[0].author_id.as_deref(), Some("author-1"));
     }
 
     #[test]

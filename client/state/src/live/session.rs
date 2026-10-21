@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use cordel_protocol::{validate_history, FrameError, WsFrame};
 
 use crate::catchup::AppliedEvent;
@@ -28,6 +30,20 @@ impl<L: LiveTransport, C: ChatTransport> LiveSession<L, C> {
 
     pub fn channels(&self) -> &[String] {
         &self.channels
+    }
+
+    /// Set the socket read deadline. Use a longer deadline while waiting for
+    /// `ready` and a short one while the UI needs to remain responsive.
+    pub fn set_read_timeout(&mut self, timeout: Duration) -> Result<(), LiveError> {
+        self.live
+            .set_read_timeout(timeout)
+            .map_err(LiveError::Transport)
+    }
+
+    /// Close the socket without changing the disposable cursor or outbox.
+    pub fn close(&mut self) {
+        self.live.close();
+        self.connected = false;
     }
 
     /// Connect, wait for `ready`, and subscribe to every open channel.
@@ -114,6 +130,7 @@ impl<L: LiveTransport, C: ChatTransport> LiveSession<L, C> {
         }
         let frame = match self.live.receive() {
             Ok(frame) => frame,
+            Err(super::LiveTransportError::Timeout) => return LiveOutcome::Ignored,
             Err(_) => return self.interrupt(state, jitter_ms),
         };
         if let Err(error) = frame.check_version() {

@@ -213,6 +213,9 @@ export component AppWindow inherits Window {
     in-out property <string> account-role: "";
     in-out property <string> identity-status: "Sign in to the test community.";
     in-out property <bool> conversation-visible: true;
+    in-out property <bool> chat-connected: false;
+    in-out property <string> chat-status: "Sign in to start live chat.";
+    in-out property <string> chat-channel: "";
     // Set by --fake-media: the tiles below are synthetic, and the controls that
     // add and end them only exist in this mode.
     in-out property <bool> fake-media: false;
@@ -225,6 +228,8 @@ export component AppWindow inherits Window {
     callback identity-unlock(string);
     callback identity-lock();
     callback identity-logout();
+    callback chat-send(string);
+    callback chat-reconnect();
     callback emphasize-share(string);
     callback detach-share(string);
     callback fake-start-share();
@@ -349,7 +354,7 @@ export component AppWindow inherits Window {
         }
 
         Text {
-            text: "Media controls below are an independent Phase 0 test and still require a separate LiveKit token.";
+            text: "Chat and media are independent Phase 0 tests. Media still requires a separate LiveKit token.";
             wrap: word-wrap;
             color: #f4f1ea;
         }
@@ -438,11 +443,23 @@ export component AppWindow inherits Window {
 
             HorizontalLayout {
                 Text {
-                    text: "Conversation sample";
+                    text: root.chat-connected ? "Live conversation" : "Conversation sample";
                     color: #f4f1ea;
                     vertical-alignment: center;
                 }
+                Text {
+                    text: "· " + root.chat-channel;
+                    color: #a8a29a;
+                    vertical-alignment: center;
+                }
                 Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Reconnect chat";
+                    visible: root.logged-in;
+                    accessible-role: AccessibleRole.button;
+                    accessible-label: "Reconnect the live chat session";
+                    clicked => { root.chat-reconnect(); }
+                }
                 Button {
                     text: "End of chat";
                     accessible-role: AccessibleRole.button;
@@ -467,11 +484,17 @@ export component AppWindow inherits Window {
                 }
             }
 
+            Text {
+                text: root.chat-status;
+                wrap: word-wrap;
+                color: #a8a29a;
+            }
+
             chat-list := ListView {
                 visible: root.conversation-visible;
                 vertical-stretch: 1;
                 accessible-role: AccessibleRole.list;
-                accessible-label: "Ten thousand chat lines";
+                accessible-label: root.chat-connected ? "Live conversation messages" : "Ten thousand chat lines";
 
                 for message in root.messages: Rectangle {
                     height: 28px;
@@ -495,6 +518,27 @@ export component AppWindow inherits Window {
                             vertical-alignment: center;
                             overflow: elide;
                         }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                visible: root.chat-connected;
+                spacing: 6px;
+
+                chat-input := LineEdit {
+                    placeholder-text: "Message";
+                    accessible-label: "Message to send to the live channel";
+                }
+
+                Button {
+                    text: "Send";
+                    enabled: chat-input.text != "";
+                    accessible-role: AccessibleRole.button;
+                    accessible-label: "Send the message";
+                    clicked => {
+                        root.chat-send(chat-input.text);
+                        chat-input.text = "";
                     }
                 }
             }

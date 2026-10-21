@@ -2,6 +2,8 @@
 
 Linux feasibility client for [ADR-101](../../docs/adr/client/ADR-101-native-client-platforms.md). It is a stop/go prototype for Slint, a long chat list, microphone publishing, and one screen frame. Its provisional login and Settings controls call the deployed Axum identity API through `client/state`; they do not yet provide the Journal product UI, invitation management, or media admission.
 
+The shell also drives the ADR-004 live chat session against the same Axum API. The identity worker hands its access token to a separate chat worker, which subscribes to one configured text channel and sends through the outbox. The blocking socket and HTTP calls stay off the Slint UI thread, and the refresh credential stays with the identity worker.
+
 Capture, audio devices, publishing, receiving and frame conversion come from
 [`client/media`](../media) (ADR-103), which the shell uses as a library. The shell
 used to carry its own WebRTC capturer call and its own pixel conversions; keeping
@@ -47,7 +49,42 @@ The Phase 0 UI has no server-management actions yet. A grant in the client is no
 
 Nothing is captured at startup. **Join and share microphone** opens the platform microphone and speaker, then joins the room. **Capture one screen frame** asks the Wayland portal picker, or the X11 screen capturer. It publishes that frame as a still screen-share track only when already joined. A frame captured before joining remains a local preview; the user must capture again after joining to publish. Leaving or losing the room removes the preview, and joining again never republishes an earlier frame. A second process with a second token in the same room is required to see the remote frame and to hear two-way audio.
 
-The chat list is 10,000 local lines. **End of chat** jumps to the last line.
+The chat list is 10,000 local lines. **End of chat** jumps to the last line. The live chat surface replaces that sample with real messages after the first successful subscription.
+
+## Live chat
+
+The chat worker needs the API origin and one text channel:
+
+```sh
+CORDEL_API_ORIGIN="https://media.example" \
+CORDEL_CHANNEL_ID="7efc7a7b-b06f-4632-8780-bb611b8cd0a8" \
+cargo run --release
+```
+
+`CORDEL_CHANNEL_ID` is a UUID from `GET /v1/communities/{community_id}/channels`. The events endpoint is derived from the origin: `https://` becomes `wss://{host}/v1/events` and `http://` becomes `ws://{host}/v1/events`. A channel list in the UI, channel switching, and the product message layout are not part of this slice.
+
+The native event carries an `author_id` but no display name, so the list shows the signed-in login for the local account and the first eight characters of the identifier for anyone else.
+
+A local server on plain HTTP needs the test-only `local-smoke` feature, which enables the plain `http`/`ws` transports in `client/state`. Never ship a build with that feature:
+
+```sh
+CORDEL_API_ORIGIN="http://127.0.0.1:3000" \
+CORDEL_CHANNEL_ID="7efc7a7b-b06f-4632-8780-bb611b8cd0a8" \
+cargo run --features local-smoke
+```
+
+The opt-in worker test drives the same code path against a running local server. It needs a disposable account, a channel, and a token:
+
+```sh
+CORDEL_PHASE0_TEST_ORIGIN="http://127.0.0.1:3000" \
+CORDEL_PHASE0_TEST_CHANNEL="7efc7a7b-b06f-4632-8780-bb611b8cd0a8" \
+CORDEL_PHASE0_TEST_TOKEN="access-token" \
+CORDEL_PHASE0_TEST_USER_ID="account-uuid" \
+CORDEL_PHASE0_TEST_LOGIN="test-user" \
+cargo test --features local-smoke -- --ignored
+```
+
+On 2026-10-21 that test passed against a local Axum server and a disposable PostgreSQL 16 container: it connected, sent a message, received the live echo, and reconnected on demand.
 
 ## Gate notes
 

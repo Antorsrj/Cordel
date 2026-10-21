@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use cordel_media::capture::SessionKind;
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
 
-use crate::chat::phase0_messages;
+use crate::chat::{phase0_messages, AccountEvent, Command as ChatCommand, UiEvent as ChatUiEvent};
 use crate::identity::Command as IdentityCommand;
 use crate::session::Command;
 use crate::share::{DetachedWindow, MediaEvent, Shares};
@@ -35,7 +35,8 @@ fn main() -> anyhow::Result<()> {
         })
         .collect();
     let line_count = lines.len();
-    ui.set_messages(ModelRc::from(Rc::new(VecModel::from(lines))));
+    let messages = Rc::new(VecModel::from(lines));
+    ui.set_messages(ModelRc::from(messages.clone()));
     let chat_ms = started.elapsed().as_millis();
 
     let fake_media = std::env::args().any(|arg| arg == "--fake-media");
@@ -139,17 +140,33 @@ fn main() -> anyhow::Result<()> {
         .into(),
     );
 
-    // The UI thread's only job for media. The timer has to outlive `run`, so it is
-    // held here rather than in a temporary.
+    let (chat_tx, chat_rx) = mpsc::channel::<ChatCommand>();
+    let (account_tx, account_rx) = mpsc::channel::<AccountEvent>();
+    let (chat_ui_tx, chat_ui_rx) = mpsc::channel::<ChatUiEvent>();
+
+    // The UI thread's only job for media and chat events. The timer has to
+    // outlive `run`, so it is held here rather than in a temporary.
     let drain = Timer::default();
     drain.start(TimerMode::Repeated, DRAIN_INTERVAL, {
         let shares = shares.clone();
         let detached = detached.clone();
+        let messages = messages.clone();
         let ui = ui.as_weak();
         move || {
             let Some(ui) = ui.upgrade() else {
                 return;
             };
+            while let Ok(event) = chat_ui_rx.try_recv() {
+                match event {
+                    ChatUiEvent::Reset => messages.set_vec(Vec::<ChatLine>::new()),
+                    ChatUiEvent::Message { author, body } => messages.push(ChatLine {
+                        author: author.into(),
+                        body: body.into(),
+                    }),
+                    ChatUiEvent::Connected(value) => ui.set_chat_connected(value),
+                    ChatUiEvent::Status(value) => ui.set_chat_status(value.into()),
+                }
+            }
             while let Ok(event) = incoming.try_recv() {
                 match event {
                     MediaEvent::Status(text) => ui.set_status(text.into()),
@@ -168,9 +185,31 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    let (identity_tx, identity_rx) = std::sync::mpsc::channel();
+    let channel_id = std::env::var("CORDEL_CHANNEL_ID").unwrap_or_default();
+    ui.set_chat_channel(
+        if channel_id.is_empty() {
+            "not configured"
+        } else {
+            channel_id.get(..8).unwrap_or(&channel_id)
+        }
+        .into(),
+    );
+    ui.set_chat_status(
+        if channel_id.is_empty() {
+            "Set CORDEL_CHANNEL_ID to a text channel UUID to enable live chat."
+        } else {
+            "Sign in to start live chat."
+        }
+        .into(),
+    );
+
+    let (identity_tx, identity_rx) = mpsc::channel();
     let identity_ui = ui.as_weak();
-    std::thread::spawn(move || identity::run(identity_rx, identity_ui));
+    std::thread::spawn(move || identity::run(identity_rx, identity_ui, account_tx));
+    std::thread::spawn({
+        let identity_tx = identity_tx.clone();
+        move || chat::run(chat_rx, account_rx, chat_ui_tx, identity_tx)
+    });
     ui.on_identity_login({
         let tx = identity_tx.clone();
         move |login, password| {
@@ -200,10 +239,24 @@ fn main() -> anyhow::Result<()> {
             let _ = tx.send(IdentityCommand::Lock);
         }
     });
+    ui.on_chat_send({
+        let tx = chat_tx.clone();
+        move |body| {
+            let _ = tx.send(ChatCommand::Send(body.to_string()));
+        }
+    });
+    ui.on_chat_reconnect({
+        let tx = chat_tx.clone();
+        move || {
+            let _ = tx.send(ChatCommand::Reconnect);
+        }
+    });
     ui.on_identity_logout({
         let media_tx = commands.clone();
+        let chat_tx = chat_tx.clone();
         move || {
             let _ = media_tx.send(Command::Leave);
+            let _ = chat_tx.send(ChatCommand::SignOut);
             let _ = identity_tx.send(IdentityCommand::Logout);
         }
     });

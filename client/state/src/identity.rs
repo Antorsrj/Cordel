@@ -79,8 +79,19 @@ pub struct NativeHttpsTransport {
 
 impl NativeHttpsTransport {
     pub fn new(base: &str) -> Result<Self, IdentityError> {
+        Self::with_scheme(base, "https")
+    }
+
+    /// Plain `http` origin for a local Phase 0 run. Enable the `local-smoke`
+    /// feature; production builds use `new`.
+    #[cfg(any(test, feature = "local-smoke"))]
+    pub fn new_plain(base: &str) -> Result<Self, IdentityError> {
+        Self::with_scheme(base, "http")
+    }
+
+    fn with_scheme(base: &str, scheme: &str) -> Result<Self, IdentityError> {
         let base = reqwest::Url::parse(base).map_err(|_| IdentityError::InvalidEndpoint)?;
-        if base.scheme() != "https"
+        if base.scheme() != scheme
             || base.host_str().is_none()
             || !base.username().is_empty()
             || base.password().is_some()
@@ -90,10 +101,13 @@ impl NativeHttpsTransport {
         {
             return Err(IdentityError::InvalidEndpoint);
         }
-        let client = reqwest::blocking::Client::builder()
-            .https_only(true)
+        let mut builder = reqwest::blocking::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(10));
+        if scheme == "https" {
+            builder = builder.https_only(true);
+        }
+        let client = builder
             .build()
             .map_err(|_| IdentityError::InvalidEndpoint)?;
         Ok(Self { client, base })

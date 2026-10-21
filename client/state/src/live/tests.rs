@@ -232,6 +232,19 @@ fn start_subscribes_and_subscribed_history_applies_once() {
 }
 
 #[test]
+fn a_read_timeout_keeps_the_session_connected() {
+    let mut live = FakeLive::new([ready()]);
+    live.fail_next(LiveTransportError::Timeout);
+    let mut session = session(live, FakeChat::new(Vec::new()));
+    let mut state = state();
+
+    assert_eq!(session.start(&mut state, "token", 0), LiveOutcome::Ready);
+    assert_eq!(session.pump(&mut state, "token", 0), LiveOutcome::Ignored);
+    assert!(session.live.connected);
+    assert_eq!(state.blocked(), None);
+}
+
+#[test]
 fn out_of_order_live_event_recovers_missing_history() {
     let mut live = FakeLive::new([ready()]);
     live.push(WsFrame::message(&message(42, "live-two")).unwrap());
