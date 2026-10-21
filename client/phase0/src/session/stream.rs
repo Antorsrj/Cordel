@@ -75,6 +75,10 @@ pub(super) async fn start_share(
 ) -> anyhow::Result<()> {
     let stream_interval = interval_for_rate(rate);
 
+    // O share anterior sai do palco antes do novo. Sem isso, cada captura
+    // deixaria o track publicado e o outro lado veria um tile por captura.
+    joined.stop_publishing().await;
+
     let source = CaptureSource::Auto.resolve(SessionKind::detect());
     let (frame_tx, frame_rx) = mpsc::channel::<Frame>();
     let running = Arc::new(AtomicBool::new(true));
