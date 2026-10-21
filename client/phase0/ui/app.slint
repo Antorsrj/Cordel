@@ -222,6 +222,7 @@ export component AppWindow inherits Window {
 
     callback join();
     callback capture-frame();
+    callback stop-share();
     callback leave();
     callback identity-login(string, string);
     callback identity-check-profile();
@@ -372,11 +373,17 @@ export component AppWindow inherits Window {
             }
 
             Button {
-                text: "Capture one screen frame";
+                text: "Share screen";
                 enabled: !root.busy;
                 accessible-role: AccessibleRole.button;
-                accessible-label: "Capture one screen frame after confirmation";
+                accessible-label: "Share the screen after confirmation";
                 clicked => { root.capture-frame(); }
+            }
+            Button {
+                text: "Stop sharing";
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Stop sharing the screen";
+                clicked => { root.stop-share(); }
             }
 
             Button {

@@ -114,6 +114,12 @@ fn main() -> anyhow::Result<()> {
             let _ = commands.send(Command::Join);
         }
     });
+    ui.on_stop_share({
+        let commands = commands.clone();
+        move || {
+            let _ = commands.send(Command::StopShare);
+        }
+    });
     ui.on_capture_frame({
         let commands = commands.clone();
         move || {
