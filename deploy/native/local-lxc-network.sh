@@ -81,6 +81,13 @@ find_repo_dir || fail "Nao foi possivel obter um checkout do Cordel."
 cd "$REPO_DIR"
 log "Repositorio: $REPO_DIR"
 
+# O store de credenciais do sistema usa o D-Bus, que precisa dos arquivos de
+# desenvolvimento. O provisionamento ja os instala; aqui so se falta algo.
+if ! pkg-config --exists dbus-1 2>/dev/null; then
+  log "Instalando libdbus-1-dev..."
+  apt-get install -y --no-install-recommends libdbus-1-dev >/dev/null
+fi
+
 log "Compilando o servidor e o cliente..."
 cargo build --manifest-path server/identity/Cargo.toml --locked --bin cordel-identity \
   --example bootstrap_disposable_admin

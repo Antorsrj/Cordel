@@ -129,7 +129,7 @@ log "Instalando as dependencias do sistema..."
 $SUDO apt-get update -y >/dev/null
 $SUDO apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg debian-keyring debian-archive-keyring apt-transport-https \
-  postgresql >/dev/null
+  libdbus-1-dev postgresql >/dev/null
 
 if ! command -v caddy >/dev/null 2>&1; then
   log "Instalando o Caddy pelo repositorio oficial..."

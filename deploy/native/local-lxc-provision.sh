@@ -95,6 +95,7 @@ sudo apt-get install -y --no-install-recommends \
   curl \
   git \
   gnupg \
+  libdbus-1-dev \
   pkg-config \
   libclang-dev \
   libssl-dev \
