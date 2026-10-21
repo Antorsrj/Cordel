@@ -34,14 +34,35 @@ fn the_worker_recovers_after_a_network_interruption() {
     let (command_tx, command_rx) = mpsc::channel();
     let (account_tx, account_rx) = mpsc::channel();
     let (ui_tx, ui_rx) = mpsc::channel();
-    let (identity_tx, _identity_rx) = mpsc::channel::<IdentityCommand>();
+    let (identity_tx, identity_rx) = mpsc::channel::<IdentityCommand>();
+    // The chat worker asks the identity worker for a fresh access token after
+    // an interruption. This harness plays the identity worker: it answers with
+    // the same token, because the server kept running and the token is still
+    // valid.
+    let account_for_refresh = account_tx.clone();
+    let refresh_token = token.clone();
+    let refresh_user = user_id.clone();
+    let refresh_login = login.clone();
+    let refresher = std::thread::spawn(move || {
+        while let Ok(command) = identity_rx.recv() {
+            if let IdentityCommand::RefreshAccess = command {
+                let _ = account_for_refresh.send(AccountEvent::Access {
+                    token: refresh_token.clone(),
+                    user_id: refresh_user.clone(),
+                    login: refresh_login.clone(),
+                    source: AccessSource::Refresh,
+                });
+            }
+        }
+    });
+    let identity_for_worker = identity_tx.clone();
     let worker = std::thread::spawn(move || {
         run_with(
             Config { origin, channel_id },
             command_rx,
             account_rx,
             ui_tx,
-            identity_tx,
+            identity_for_worker,
         )
     });
 
@@ -101,6 +122,11 @@ fn the_worker_recovers_after_a_network_interruption() {
                 elapsed = Duration::from_millis(now.saturating_sub(outage) as u64);
                 break;
             }
+            Ok(UiEvent::Status(text)) => {
+                // The status line explains what the worker is doing while the
+                // network is down, so it is worth seeing in a proof.
+                println!("worker status: {text}");
+            }
             Ok(_) => {}
             Err(_) => {}
         }
@@ -124,5 +150,7 @@ fn the_worker_recovers_after_a_network_interruption() {
     let _ = fs::remove_file(&ready_file);
     drop(command_tx);
     drop(account_tx);
+    drop(identity_tx);
     worker.join().expect("the worker stopped");
+    refresher.join().expect("the refresher stopped");
 }

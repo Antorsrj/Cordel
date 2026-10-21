@@ -130,6 +130,9 @@ pub fn run_with(
     let mut blocked = false;
     let mut needs_reset = true;
     let mut last_reconcile = Instant::now();
+    // When the next connection attempt may happen. The client owns the backoff
+    // instead of retrying the moment a token arrives.
+    let mut retry_after: Option<Instant> = None;
 
     loop {
         while let Ok(event) = accounts.try_recv() {
@@ -149,9 +152,12 @@ pub fn run_with(
                     if source == AccessSource::Login {
                         blocked = false;
                     }
-                    if !connected && !blocked {
+                    if !connected
+                        && !blocked
+                        && retry_after.map(|at| Instant::now() >= at).unwrap_or(true)
+                    {
                         if let Some(current) = credentials.as_ref() {
-                            connected = connect(
+                            let attempt = connect(
                                 &mut session,
                                 &mut state,
                                 current,
@@ -160,6 +166,8 @@ pub fn run_with(
                                 &ui,
                                 &identity,
                             );
+                            connected = attempt.connected;
+                            retry_after = attempt.retry_after.map(|delay| Instant::now() + delay);
                             if connected {
                                 last_reconcile = Instant::now();
                             }
@@ -214,6 +222,29 @@ pub fn run_with(
             }
         }
 
+        // A conexao perdida agenda a proxima tentativa, e a tentativa nao
+        // depende de um evento novo: o token continua valido. Sem isso, um
+        // token novo que chega antes do atraso terminaria descartado e o
+        // cliente nunca voltaria.
+        if !connected && !blocked && retry_after.map(|at| Instant::now() >= at).unwrap_or(false) {
+            if let Some(current) = credentials.as_ref() {
+                let attempt = connect(
+                    &mut session,
+                    &mut state,
+                    current,
+                    &channel_id,
+                    &mut blocked,
+                    &ui,
+                    &identity,
+                );
+                connected = attempt.connected;
+                retry_after = attempt.retry_after.map(|delay| Instant::now() + delay);
+                if connected {
+                    last_reconcile = Instant::now();
+                }
+            }
+        }
+
         if !connected {
             continue;
         }
@@ -225,7 +256,7 @@ pub fn run_with(
         };
 
         let outcome = session.pump(&mut state, &current.token, 0);
-        handle_outcome(
+        let retry = handle_outcome(
             outcome,
             &mut connected,
             &mut blocked,
@@ -234,12 +265,15 @@ pub fn run_with(
             &ui,
             &identity,
         );
+        if let Some(delay) = retry {
+            retry_after = Some(Instant::now() + delay);
+        }
 
         if connected && last_reconcile.elapsed() >= RECONCILE_INTERVAL {
             last_reconcile = Instant::now();
             let outcomes = session.reconcile(&mut state, &current.token, 0);
             for outcome in outcomes {
-                handle_outcome(
+                let retry = handle_outcome(
                     outcome,
                     &mut connected,
                     &mut blocked,
@@ -248,6 +282,9 @@ pub fn run_with(
                     &ui,
                     &identity,
                 );
+                if let Some(delay) = retry {
+                    retry_after = Some(Instant::now() + delay);
+                }
                 if !connected {
                     break;
                 }
@@ -311,7 +348,8 @@ fn handle_command(
             *connected = false;
             let _ = ui.send(UiEvent::Connected(false));
             if let Some(current) = credentials.as_ref() {
-                *connected = connect(session, state, current, channel_id, blocked, ui, identity);
+                let attempt = connect(session, state, current, channel_id, blocked, ui, identity);
+                *connected = attempt.connected;
             } else {
                 status(ui, "Sign in before reconnecting chat.");
             }
@@ -332,151 +370,19 @@ fn handle_command(
     }
 }
 
-fn connect(
-    session: &mut LiveSession<NativeLiveTransport, NativeChatTransport>,
-    state: &mut ClientState<MemoryRefreshStore>,
-    credentials: &Credentials,
-    channel_id: &str,
-    blocked: &mut bool,
-    ui: &Sender<UiEvent>,
-    identity: &Sender<IdentityCommand>,
-) -> bool {
-    if session.set_read_timeout(START_TIMEOUT).is_err() {
-        status(ui, "Could not configure the chat socket.");
-        return false;
-    }
-    match session.start(state, &credentials.token, 0) {
-        LiveOutcome::Ready => {
-            let _ = session.set_read_timeout(POLL_TIMEOUT);
-            let _ = ui.send(UiEvent::Connected(true));
-            status(
-                ui,
-                &format!("Connected to channel {}.", short_id(channel_id)),
-            );
-            true
-        }
-        LiveOutcome::Reconnect { delay, attempt } => {
-            status(
-                ui,
-                &format!("Chat reconnect {attempt} in {} ms.", delay.as_millis()),
-            );
-            let _ = identity.send(IdentityCommand::RefreshAccess);
-            false
-        }
-        LiveOutcome::Stopped { reason } => {
-            *blocked = true;
-            status(ui, &blocked_message(reason));
-            let _ = identity.send(IdentityCommand::CheckProfile);
-            false
-        }
-        LiveOutcome::Fatal(error) => {
-            status(ui, &format!("Chat failed: {}", describe_live_error(&error)));
-            false
-        }
-        other => {
-            status(ui, &format!("Chat did not become ready: {other:?}"));
-            false
-        }
-    }
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn handle_outcome(
-    outcome: LiveOutcome,
-    connected: &mut bool,
-    blocked: &mut bool,
-    needs_reset: &mut bool,
-    credentials: Option<&Credentials>,
-    ui: &Sender<UiEvent>,
-    identity: &Sender<IdentityCommand>,
-) {
-    match outcome {
-        LiveOutcome::Ready | LiveOutcome::Ignored => {}
-        LiveOutcome::Subscribed {
-            channel_id,
-            last_seq,
-            applied,
-        } => {
-            if *needs_reset {
-                *needs_reset = false;
-                let _ = ui.send(UiEvent::Reset);
-            }
-            if let Some(current) = credentials {
-                emit_applied(&applied, current, ui);
-            }
-            status(
-                ui,
-                &format!(
-                    "Live on channel {} at sequence {last_seq}.",
-                    short_id(&channel_id)
-                ),
-            );
-        }
-        LiveOutcome::Applied { applied, .. } => {
-            if let Some(current) = credentials {
-                emit_applied(&applied, current, ui);
-            }
-        }
-        LiveOutcome::Ack { seq, .. } => {
-            status(ui, &format!("Message acknowledged at sequence {seq}."));
-        }
-        LiveOutcome::Unsubscribed { channel_id } => {
-            status(
-                ui,
-                &format!("Stopped watching channel {}.", short_id(&channel_id)),
-            );
-        }
-        LiveOutcome::Reconnect { delay, attempt } => {
-            *connected = false;
-            let _ = ui.send(UiEvent::Connected(false));
-            status(
-                ui,
-                &format!(
-                    "Chat lost the socket; reconnect {attempt} in {} ms.",
-                    delay.as_millis()
-                ),
-            );
-            let _ = identity.send(IdentityCommand::RefreshAccess);
-        }
-        LiveOutcome::Stopped { reason } => {
-            *connected = false;
-            *blocked = true;
-            let _ = ui.send(UiEvent::Connected(false));
-            status(ui, &blocked_message(reason));
-            let _ = identity.send(IdentityCommand::CheckProfile);
-        }
-        LiveOutcome::Fatal(error) => {
-            *connected = false;
-            let _ = ui.send(UiEvent::Connected(false));
-            status(
-                ui,
-                &format!("Chat stopped: {}", describe_live_error(&error)),
-            );
-        }
-        LiveOutcome::Error(error) => {
-            status(ui, &format!("Chat error: {}", describe_live_error(&error)));
-        }
-    }
+fn status(ui: &Sender<UiEvent>, message: &str) {
+    let _ = ui.send(UiEvent::Status(message.to_owned()));
 }
 
-fn emit_applied(applied: &[AppliedEvent], credentials: &Credentials, ui: &Sender<UiEvent>) {
-    for event in applied {
-        if !event.known_message {
-            continue;
-        }
-        let Some(body) = &event.body else {
-            continue;
-        };
-        let author = author_label(
-            event.author_id.as_deref(),
-            &credentials.user_id,
-            &credentials.login,
-        );
-        let _ = ui.send(UiEvent::Message {
-            author,
-            body: body.clone(),
-        });
-    }
+fn short_id(id: &str) -> String {
+    id.get(..8).unwrap_or(id).to_owned()
 }
 
 fn build_chat(origin: &str) -> Result<NativeChatTransport, LiveError> {
@@ -500,43 +406,6 @@ fn build_live(endpoint: &str) -> Result<NativeLiveTransport, LiveError> {
     NativeLiveTransport::new(endpoint)
 }
 
-fn env_value(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
-
-fn status(ui: &Sender<UiEvent>, message: &str) {
-    let _ = ui.send(UiEvent::Status(message.to_owned()));
-}
-
-fn short_id(id: &str) -> String {
-    id.get(..8).unwrap_or(id).to_owned()
-}
-
-fn blocked_message(reason: AccessBlock) -> String {
-    match reason {
-        AccessBlock::Kick => "Access revoked: kicked.".to_owned(),
-        AccessBlock::Ban => "Access revoked: banned.".to_owned(),
-        AccessBlock::Revoked => "Access revoked. Sign in again.".to_owned(),
-    }
-}
-
-fn describe_live_error(error: &LiveError) -> String {
-    match error {
-        LiveError::NotConnected => "not connected".to_owned(),
-        LiveError::MissingCredential => "missing access token".to_owned(),
-        LiveError::InvalidEndpoint => "invalid endpoint".to_owned(),
-        LiveError::Transport(_) => "network transport failed".to_owned(),
-        LiveError::UnsupportedVersion { v } => format!("unsupported protocol version {v}"),
-        LiveError::Protocol { code, message } => format!("{code}: {message}"),
-        LiveError::InvalidFrame { field } => format!("invalid frame field {field}"),
-        LiveError::History(_) => "history request failed".to_owned(),
-        LiveError::Gap { .. } => "history gap".to_owned(),
-    }
-}
-
 fn send_error(error: &ChatTransportError) -> String {
     match error {
         ChatTransportError::Network => "network".to_owned(),
@@ -546,3 +415,6 @@ fn send_error(error: &ChatTransportError) -> String {
         ChatTransportError::Api { status, code } => format!("{code} (HTTP {status})"),
     }
 }
+
+mod connect;
+use connect::{connect, handle_outcome};

@@ -175,13 +175,22 @@ iptables -I INPUT -p tcp --dport "$API_PORT" -j REJECT
 # O instante da queda e o que o cliente usa para medir a recuperacao.
 date +%s%3N >"$READY_FILE.outage"
 sleep "$OUTAGE_SECONDS"
+
+# As regras saem agora: a rede volta de verdade. O cleanup continua como rede
+# de seguranca, para o caso de a prova abortar no meio.
+iptables -D OUTPUT -p tcp --dport "$API_PORT" -j REJECT
+iptables -D INPUT -p tcp --dport "$API_PORT" -j REJECT
 log "A rede voltou. Enviando a mensagem depois da interrupcao..."
 
 # A mensagem vai pelo caminho normal: ela prova que o chat voltou a funcionar.
-curl -s -o /dev/null -X POST "$ORIGIN/v1/channels/$CHANNEL/messages" \
+if ! curl -s -o /dev/null -X POST "$ORIGIN/v1/channels/$CHANNEL/messages" \
   -H "content-type: application/json" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d "{\"client_message_id\":\"after-the-interruption\",\"body\":\"after the interruption\"}"
+  -d "{\"client_message_id\":\"after-the-interruption\",\"body\":\"after the interruption\"}"; then
+  log "A mensagem depois da interrupcao nao pode ser enviada. Log do servidor:"
+  tail -20 /tmp/cordel-network-server.log | sed 's/^/[network]   /'
+  fail "o envio depois da interrupcao falhou."
+fi
 
 # O log do cliente e sempre mostrado: um grep sem casamento nao pode
 # esconder o resultado.
