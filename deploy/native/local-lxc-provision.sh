@@ -109,9 +109,12 @@ log "Criando banco de teste descartável: $DB_NAME"
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 \
   || sudo -u postgres createdb "$DB_NAME"
 
-export CORDEL_TEST_DATABASE_URL="postgres://postgres@127.0.0.1:5432/$DB_NAME"
+export CORDEL_TEST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/$DB_NAME"
 export CORDEL_JWT_SECRET_HEX="$(openssl rand -hex 32)"
 export CORDEL_LISTEN_ADDR="127.0.0.1:3000"
+
+log "Definindo senha do usuário postgres para conexões locais de teste..."
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" >/dev/null
 
 log "CORDEL_TEST_DATABASE_URL=$CORDEL_TEST_DATABASE_URL"
 
