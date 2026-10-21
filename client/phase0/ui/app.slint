@@ -507,9 +507,12 @@ export component AppWindow inherits Window {
 
                         Text {
                             text: message.author;
-                            width: 48px;
+                            // Wide enough for a full login, so the author of a
+                            // message is readable and not elided away.
+                            width: 160px;
                             color: #e0b15a;
                             vertical-alignment: center;
+                            overflow: elide;
                         }
 
                         Text {
