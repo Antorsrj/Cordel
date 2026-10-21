@@ -9,6 +9,8 @@ database, or real user data.
 | `local-lxc-common.sh` | Shared helpers: checkout discovery, logging, disk space. |
 | `local-lxc-provision.sh` | Installs the toolchain and runs the server, client-state, and Phase 0 suites. |
 | `local-lxc-e2e.py` | Creates a disposable channel and a second member through the public API. |
+| `local-lxc-media.sh` | Server 005 admission proof: two clients in one voice room. |
+| `media-admission.py` | Requests one admission and reports a refusal. |
 | `local-lxc-e2e.sh` | End-to-end ADR-004 chat proof: two clients exchanging live messages. |
 
 ## Prerequisites
@@ -61,6 +63,12 @@ Phase 0 window opens with the chat surface.
 container: the token grant set, the webhook signature scheme, the server API,
 participant removal, and the ADR-006 rejoin gap. Its findings are recorded in
 the [LiveKit local spike](../../docs/spikes/livekit-local-2026-10-21.md).
+
+`local-lxc-media.sh` proves the Server 005 admission end to end: Axum issues a
+scoped admission to two members, both clients join the same voice room, each
+receives the other's screen track and frame, and a member moderated afterwards
+is refused. The clients use a synthetic screen source, so the run needs no
+display and no audio device.
 
 ## Limits
 

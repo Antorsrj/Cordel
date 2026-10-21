@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use cordel_state::{ChatTransport, NativeChatTransport};
 
 use super::session::{run_with, Config};
-use super::{AccessSource, AccountEvent, Command, UiEvent};
+use super::{Command, UiEvent};
+use crate::account::{AccessSource, AccountEvent};
 use crate::identity::Command as IdentityCommand;
 
 const WAIT: Duration = Duration::from_secs(20);

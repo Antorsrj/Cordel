@@ -8,6 +8,7 @@ mod catchup;
 mod credentials;
 mod identity;
 mod live;
+mod media;
 mod outbox;
 mod protocol;
 mod retry;
@@ -25,6 +26,7 @@ pub use live::{
     ChatTransport, ChatTransportError, LiveError, LiveOutcome, LiveSession, LiveTransport,
     LiveTransportError, NativeChatTransport, NativeLiveTransport, SendOutcome, HISTORY_PAGE_LIMIT,
 };
+pub use media::{AdmissionError, AdmissionTransport, MediaAdmissionClient};
 pub use outbox::{AckResult, ClientMessageId, Outbox, PendingSend, SendState};
 pub use protocol::ChatEvent;
 pub use retry::{plan_interrupt, retry_delay, AccessBlock, Interrupt, NextAction, FIRST_RETRY};

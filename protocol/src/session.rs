@@ -142,21 +142,39 @@ impl fmt::Debug for RefreshRequest {
     }
 }
 
-/// Media admission is a separate credential from the app session.
+/// One scoped media admission for a voice channel. It is a separate
+/// credential from the app session: the app access token proves who the
+/// caller is, and this proves what that caller may join.
+///
+/// `media_generation` is the community's current authorization revision. A
+/// moderation action advances it, so an admission minted before the action
+/// names a room that is no longer current.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LiveKitAdmission {
-    pub url: String,
-    pub token: String,
+pub struct MediaAdmission {
+    pub schema_version: u8,
+    pub voice_channel_id: String,
+    /// The physical room name, including the current generation.
     pub room: String,
+    pub media_generation: u64,
+    /// The LiveKit signaling URL.
+    pub url: String,
+    /// A short-lived room token scoped to one account and one room.
+    pub token: String,
+    pub expires_at: String,
+    pub expires_in_secs: u64,
 }
 
-impl fmt::Debug for LiveKitAdmission {
+impl fmt::Debug for MediaAdmission {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("LiveKitAdmission")
+            .debug_struct("MediaAdmission")
+            .field("voice_channel_id", &self.voice_channel_id)
+            .field("room", &self.room)
+            .field("media_generation", &self.media_generation)
             .field("url", &self.url)
             .field("token", &"redacted")
-            .field("room", &self.room)
+            .field("expires_at", &self.expires_at)
+            .field("expires_in_secs", &self.expires_in_secs)
             .finish()
     }
 }
@@ -284,14 +302,20 @@ mod tests {
         let parsed: SessionTokens = serde_json::from_value(json).unwrap();
         assert_eq!(parsed, session);
 
-        let admission = LiveKitAdmission {
+        let admission = MediaAdmission {
+            schema_version: 1,
+            voice_channel_id: "0700eaa6-8204-4f0b-a45e-57d929289818".to_owned(),
             url: "wss://media.example".to_owned(),
             token: "room-token".to_owned(),
-            room: "voice-1".to_owned(),
+            room: "voice:0700eaa6-8204-4f0b-a45e-57d929289818:7".to_owned(),
+            media_generation: 7,
+            expires_at: "2026-10-21T12:05:00Z".to_owned(),
+            expires_in_secs: 300,
         };
-        let parsed: LiveKitAdmission =
+        let parsed: MediaAdmission =
             serde_json::from_str(&serde_json::to_string(&admission).unwrap()).unwrap();
-        assert_eq!(parsed.room, "voice-1");
+        assert_eq!(parsed.room, "voice:0700eaa6-8204-4f0b-a45e-57d929289818:7");
+        assert_eq!(parsed.media_generation, 7);
         assert!(!format!("{admission:?}").contains("room-token"));
         assert!(!format!("{session:?}").contains("access-secret"));
         assert!(!format!("{session:?}").contains("refresh-secret"));

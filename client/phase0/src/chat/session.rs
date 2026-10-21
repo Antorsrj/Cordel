@@ -13,6 +13,7 @@ use cordel_state::{
     LiveSession, MemoryRefreshStore, NativeChatTransport, NativeLiveTransport, SendOutcome,
 };
 
+use crate::account::{AccessSource, AccountEvent};
 use crate::identity::Command as IdentityCommand;
 
 use super::{author_label, events_url};
@@ -21,25 +22,6 @@ const START_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_TIMEOUT: Duration = Duration::from_millis(100);
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_BODY_BYTES: usize = 4000;
-
-/// Where an access token came from. A fresh login may lift a revoked state;
-/// a refresh may not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccessSource {
-    Login,
-    Refresh,
-}
-
-#[derive(Debug, Clone)]
-pub enum AccountEvent {
-    Access {
-        token: String,
-        user_id: String,
-        login: String,
-        source: AccessSource,
-    },
-    SignedOut,
-}
 
 #[derive(Debug)]
 pub enum Command {

@@ -1,3 +1,4 @@
+mod account;
 mod chat;
 mod fake;
 mod identity;
@@ -11,7 +12,8 @@ use std::time::{Duration, Instant};
 use cordel_media::capture::SessionKind;
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
 
-use crate::chat::{phase0_messages, AccountEvent, Command as ChatCommand, UiEvent as ChatUiEvent};
+use crate::account::AccountEvent;
+use crate::chat::{phase0_messages, Command as ChatCommand, UiEvent as ChatUiEvent};
 use crate::identity::Command as IdentityCommand;
 use crate::session::Command;
 use crate::share::{DetachedWindow, MediaEvent, Shares};
@@ -93,12 +95,16 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
+    // The identity worker publishes the current access token here so the
+    // media worker can ask the server for a scoped admission when it joins.
+    let (access_tx, access_rx) = tokio::sync::watch::channel::<Option<String>>(None);
+
     let (commands, command_events) = tokio::sync::mpsc::unbounded_channel::<Command>();
     std::thread::spawn({
         let events = events.clone();
         move || {
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-            runtime.block_on(session::run(command_events, events));
+            runtime.block_on(session::run(command_events, events, access_rx));
         }
     });
 
@@ -205,7 +211,7 @@ fn main() -> anyhow::Result<()> {
 
     let (identity_tx, identity_rx) = mpsc::channel();
     let identity_ui = ui.as_weak();
-    std::thread::spawn(move || identity::run(identity_rx, identity_ui, account_tx));
+    std::thread::spawn(move || identity::run(identity_rx, identity_ui, account_tx, access_tx));
     std::thread::spawn({
         let identity_tx = identity_tx.clone();
         move || chat::run(chat_rx, account_rx, chat_ui_tx, identity_tx)

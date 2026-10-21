@@ -89,6 +89,42 @@ impl NativeHttpsTransport {
         Self::with_scheme(base, "http")
     }
 
+    /// A POST to an absolute path with a bearer token and a raw body.
+    ///
+    /// The identity routes have a fixed set of shapes, but the media
+    /// admission route carries a channel id in its path.
+    pub fn post_path(
+        &self,
+        path: &str,
+        bearer: &str,
+        body: &[u8],
+    ) -> Result<HttpReply, TransportFailure> {
+        let url = self
+            .base
+            .join(path)
+            .map_err(|_| TransportFailure::Network)?;
+        let response = self
+            .client
+            .post(url)
+            .bearer_auth(bearer)
+            .body(body.to_vec())
+            .send()
+            .map_err(|_| TransportFailure::Network)?;
+        let status = response.status().as_u16();
+        let mut bounded = Vec::new();
+        response
+            .take(RESPONSE_LIMIT + 1)
+            .read_to_end(&mut bounded)
+            .map_err(|_| TransportFailure::Network)?;
+        if bounded.len() as u64 > RESPONSE_LIMIT {
+            return Err(TransportFailure::ResponseTooLarge);
+        }
+        Ok(HttpReply {
+            status,
+            body: bounded,
+        })
+    }
+
     fn with_scheme(base: &str, scheme: &str) -> Result<Self, IdentityError> {
         let base = reqwest::Url::parse(base).map_err(|_| IdentityError::InvalidEndpoint)?;
         if base.scheme() != scheme

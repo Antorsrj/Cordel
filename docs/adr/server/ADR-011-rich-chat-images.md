@@ -20,6 +20,32 @@ Add an authenticated image-upload flow. For the first host, store image bytes in
 
 Treat upload and message creation as a two-step operation with temporary objects, expiration, and cleanup, so an orphaned upload cannot grow without bound. Bind the upload to its authenticated author and channel; only that author may attach a finalized image to one message in that channel. Recheck authorization at every upload, finalize, message-association, and read step. A deleted message or removed image loses API access promptly; define physical retention in the operating policy. Do not use a user-supplied filename as a filesystem path. Back up database metadata and image bytes as one recoverable set under ADR-007. Keep the attachment record able to carry a versioned encrypted payload later; pre-E2EE plaintext images must be handled by the migration policy in ADR-008/105. Server-side image decoding and preview generation apply only to the plaintext first test; E2EE clients will need to generate protected previews before encrypting because the server cannot inspect encrypted pixels.
 
+## Proposed contract shapes
+
+These shapes are **Proposed**. They are not part of the accepted v1 contract
+until this ADR's gate passes.
+
+The content proposal allows paragraph spans with `bold`, `italic`, or `code`
+marks; ordered and unordered lists of span arrays; code blocks as text; and
+safe links with an explicit HTTPS URL. The server rejects raw HTML, unsupported
+nodes, invalid nesting, and oversized content. An image appears as an
+attachment reference in `images`, with `image_id`, `alt_text`, `width`, and
+`height`; the client obtains protected bytes through the image endpoint.
+
+For the image flow, create an upload with `channel_id`, declared content type,
+and declared byte size. The server binds `upload_id` to the authenticated
+author and channel, then accepts bounded image bytes by `PUT`; raw bytes are
+the only non-JSON request body in this flow. `complete` validates and
+normalizes the image before returning an `image_id`; retrying `complete` returns
+the same result. Only that author may reference the finalized image in a
+message in the same channel, and an image may be attached to one committed
+message only. The server rechecks access on create, upload, complete, message
+association, and each `preview` or `original` GET. Unattached uploads expire
+and are deleted. The download response is private, never a permanent public
+URL, and uses `Cache-Control: private, no-store` so a shared cache cannot
+replay it after revocation. A client that already downloaded bytes cannot have
+those local bytes retroactively erased.
+
 ## Implementation boundary
 
 - **Owns:** proposed restricted content format, image upload lifecycle, private byte storage, authorized preview/original reads, quotas, and orphan cleanup. Server 004 owns message ordering and transport; Server 007 owns backup/restore procedure.

@@ -7,8 +7,9 @@ use cordel_state::{
     ClientState, IdentityClient, IdentityError, MemoryRefreshStore, NativeHttpsTransport,
 };
 use slint::Weak;
+use tokio::sync::watch;
 
-use crate::chat::{AccessSource, AccountEvent};
+use crate::account::{AccessSource, AccountEvent};
 use crate::AppWindow;
 
 pub enum Command {
@@ -20,7 +21,12 @@ pub enum Command {
     Logout,
 }
 
-pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<AccountEvent>) {
+pub fn run(
+    commands: Receiver<Command>,
+    ui: Weak<AppWindow>,
+    accounts: Sender<AccountEvent>,
+    access: watch::Sender<Option<String>>,
+) {
     let origin = match std::env::var("CORDEL_API_ORIGIN") {
         Ok(value) => value,
         Err(_) => {
@@ -84,6 +90,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
                         last_login = profile.login.clone();
                         send_access(
                             &accounts,
+                            &access,
                             &session.access_token,
                             &profile.user_id,
                             &profile.login,
@@ -100,6 +107,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
                         });
                     }
                     Err(error) => {
+                        let _ = access.send(None);
                         let _ = accounts.send(AccountEvent::SignedOut);
                         let _ = client.state_mut().clear_session();
                         clear_ui(&ui, &format!("Sign in failed: {}", describe(&error)));
@@ -121,6 +129,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
                     if let Some(token) = client.state().tokens().access() {
                         send_access(
                             &accounts,
+                            &access,
                             token,
                             &profile.user_id,
                             &profile.login,
@@ -151,6 +160,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
                             );
                         });
                     } else {
+                        let _ = access.send(None);
                         let _ = accounts.send(AccountEvent::SignedOut);
                         let _ = client.state_mut().clear_session();
                         clear_ui(&ui, &format!("Session check failed: {}", describe(&error)));
@@ -161,6 +171,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
                 Ok(session) => {
                     send_access(
                         &accounts,
+                        &access,
                         &session.access_token,
                         &session.user_id,
                         &last_login,
@@ -171,6 +182,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
                     });
                 }
                 Err(error) => {
+                    let _ = access.send(None);
                     let _ = accounts.send(AccountEvent::SignedOut);
                     clear_ui(
                         &ui,
@@ -227,6 +239,7 @@ pub fn run(commands: Receiver<Command>, ui: Weak<AppWindow>, accounts: Sender<Ac
             }
             Command::Logout => {
                 grant_visible = false;
+                let _ = access.send(None);
                 let _ = accounts.send(AccountEvent::SignedOut);
                 let result = client.logout();
                 let message = if result.is_ok() {
@@ -253,11 +266,13 @@ fn build_transport(origin: &str) -> Result<NativeHttpsTransport, IdentityError> 
 
 fn send_access(
     accounts: &Sender<AccountEvent>,
+    access: &watch::Sender<Option<String>>,
     token: &str,
     user_id: &str,
     login: &str,
     source: AccessSource,
 ) {
+    let _ = access.send(Some(token.to_owned()));
     let _ = accounts.send(AccountEvent::Access {
         token: token.to_owned(),
         user_id: user_id.to_owned(),

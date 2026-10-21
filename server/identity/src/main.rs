@@ -1,4 +1,6 @@
-use cordel_identity::{bootstrap_admin, change_admin_role, recover_admin, router, AppState};
+use cordel_identity::{
+    bootstrap_admin, change_admin_role, recover_admin, router, AppState, MediaConfig,
+};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::net::SocketAddr;
@@ -35,7 +37,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             env::var("CORDEL_JWT_SECRET_HEX").map_err(|_| "CORDEL_JWT_SECRET_HEX is required")?;
         let secret =
             hex::decode(secret_hex).map_err(|_| "CORDEL_JWT_SECRET_HEX must be hexadecimal")?;
-        let state = AppState::new(pool, secret)?;
+        let mut state = AppState::new(pool, secret)?;
+        // The LiveKit service is optional. Without it the media routes are not
+        // registered and the API serves identity, community, and chat only.
+        match media_config() {
+            Ok(Some(config)) => state = state.with_media(config),
+            Ok(None) => {}
+            Err(message) => return Err(message.into()),
+        }
         let address: SocketAddr = env::var("CORDEL_LISTEN_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:3000".to_owned())
             .parse()?;
@@ -73,4 +82,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Admin credential reset; existing sessions revoked; host audit record written.");
     }
     Ok(())
+}
+
+/// Read the LiveKit configuration from the environment. All three values must
+/// be present together; a partial configuration is a host error, not a
+/// silently disabled media service.
+fn media_config() -> Result<Option<MediaConfig>, String> {
+    let api_key = env::var("CORDEL_LIVEKIT_API_KEY").ok();
+    let api_secret = env::var("CORDEL_LIVEKIT_API_SECRET").ok();
+    let url = env::var("CORDEL_LIVEKIT_URL").ok();
+    match (api_key, api_secret, url) {
+        (None, None, None) => Ok(None),
+        (Some(api_key), Some(api_secret), Some(url)) => MediaConfig::new(api_key, api_secret, url)
+            .map(Some)
+            .map_err(|message| message.to_owned()),
+        _ => Err(
+            "CORDEL_LIVEKIT_API_KEY, CORDEL_LIVEKIT_API_SECRET, and CORDEL_LIVEKIT_URL must all be set"
+                .into(),
+        ),
+    }
 }

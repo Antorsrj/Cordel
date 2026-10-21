@@ -27,6 +27,58 @@ Expose reconciled voice-room membership and active screen-track descriptors to a
 - **Owns:** LiveKit service integration, room token issuance, room admission, webhook validation, and participant/track observation. Server 006 owns old-token revocation; Server 010 owns the client-facing presence/share snapshot.
 - **Handoff:** publish scoped admission and media-state examples for Client 103/104 and Server 010. A local or disposable LiveKit instance must prove two publishers and two subscriptions.
 
+## Implementation record (2026-10-21)
+
+The source slice is implemented and proven locally. The design details that the
+ADR left open are now fixed, and the measured LiveKit behaviour is recorded in
+the [LiveKit local spike](../../spikes/livekit-local-2026-10-21.md).
+
+- **Route.** `POST /v1/voice-channels/{channel_id}/admission`, the path the
+  v1 contract already named. It returns the logical channel id, the physical
+  room name, the media generation, the signaling URL, a short-lived room
+  token, and the expiry. A text channel, an unknown channel, a kicked member,
+  and a banned member are all refused.
+- **Generation.** The room name is `voice:<channel-uuid>:<generation>` and the
+  generation is the community's existing `authorization_revision`, which
+  already advances atomically on a kick or a ban. ADR-005 therefore needs no
+  database migration and no deployment step for the schema, and ADR-006 can
+  advance the cutover with the counter it already uses.
+- **Token.** A LiveKit JWT signed with the API secret, minted with the
+  `jsonwebtoken` dependency the server already has. It may join, publish, and
+  subscribe, and it may not publish data tracks, create rooms, or administer
+  them, so chat cannot ride a LiveKit data track. It lives 300 seconds, which
+  matches the app access token. The secret needs at least 32 characters, the
+  same rule LiveKit itself applies.
+- **Webhook.** `POST /v1/livekit/webhook` verifies the JWT in the
+  `Authorization` header with the API secret, compares the `sha256` claim with
+  the digest of the raw body, checks the issuer, and suppresses a repeated
+  event id. It records an ephemeral observation and never grants access. The
+  durable snapshot and the reconciliation after a restart belong to Server 010.
+- **Configuration.** `CORDEL_LIVEKIT_API_KEY`, `CORDEL_LIVEKIT_API_SECRET`,
+  and `CORDEL_LIVEKIT_URL` are optional and must be set together. Without
+  them the media routes are not registered, so a deployment that does not serve
+  media is unchanged.
+
+### Local evidence
+
+A disposable Ubuntu 24.04 LXC ran the whole path against a local
+`livekit/livekit-server:v1.13.10` and a disposable PostgreSQL 16 database:
+Axum issued a scoped admission to each of two members, both clients joined the
+same room, each received the other's screen track and frame, and a member
+moderated afterwards could not obtain a session at all.
+`deploy/native/local-lxc-media.sh` reproduces it.
+
+### Residual risk, accepted by the owner
+
+Self-hosted LiveKit cannot deny a token it has already issued. After
+`RemoveParticipant` and `DeleteRoom` both succeeded, the same token rejoined
+and published again. The first test therefore accepts a bounded residual risk:
+the token lifetime is short, Axum refuses a new admission to a moderated
+account, the client never reuses a token after an interruption, and the server
+removes a participant that is still connected. ADR-006 stays **Proposed** and
+the strict denial it requires needs a mechanism outside the self-hosted token
+model.
+
 ## Options considered
 
 | Option | Benefit | Cost or risk |

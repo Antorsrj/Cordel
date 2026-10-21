@@ -14,11 +14,17 @@ mod events;
 mod host_admin;
 mod host_identity;
 mod identity_handlers;
+mod media;
+#[cfg(test)]
+mod media_tests;
 mod policy;
 
 pub use host_admin::change_admin_role;
 pub use host_identity::{bootstrap_admin, recover_admin};
 use identity_handlers::*;
+use media::webhook::RoomObservation;
+pub use media::MediaConfig;
+use media::MediaState;
 
 use argon2::password_hash::{
     rand_core::OsRng as SaltRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
@@ -36,7 +42,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::broadcast;
@@ -53,6 +59,10 @@ pub struct AppState {
     signing: Arc<Vec<u8>>,
     attempts: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
     pub(crate) chat_events: broadcast::Sender<ChatEvent>,
+    /// The LiveKit service, when the host configured one. Without it the
+    /// admission and webhook routes are not registered, so a deployment that
+    /// does not serve media keeps working unchanged.
+    pub(crate) media: Option<MediaState>,
 }
 
 impl AppState {
@@ -66,7 +76,23 @@ impl AppState {
             signing: Arc::new(signing_key),
             attempts: Arc::new(Mutex::new(HashMap::new())),
             chat_events,
+            media: None,
         })
+    }
+
+    /// Attach the LiveKit service. The media routes exist only when it is
+    /// present.
+    pub fn with_media(mut self, config: MediaConfig) -> Self {
+        self.media = Some(MediaState::new(config));
+        self
+    }
+
+    /// The observed media rooms, for the Server 010 snapshot and for tests.
+    pub fn media_observation(&self) -> BTreeMap<String, RoomObservation> {
+        match &self.media {
+            Some(media) => media.observation.snapshot(),
+            None => BTreeMap::new(),
+        }
     }
 
     fn limit(&self, key: &str, max_per_key: usize) -> Result<(), ApiError> {
@@ -261,6 +287,9 @@ impl ApiError {
             "Service temporarily unavailable",
         )
     }
+    fn not_found() -> Self {
+        Self::new(StatusCode::NOT_FOUND, "not_found", "Not found")
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -402,7 +431,7 @@ struct EmptyResponse {
 }
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new()
         .route("/v1/accounts", post(registration_disabled))
         .route("/v1/accounts/from-invite", post(redeem))
         .route("/v1/sessions", post(login))
@@ -437,7 +466,22 @@ pub fn router(state: AppState) -> Router {
             "/v1/channels/{channel_id}/messages",
             get(chat::history).post(chat::send_message),
         )
-        .route("/v1/events", get(events::events))
+        .route("/v1/events", get(events::events));
+
+    // The media routes exist only when the host configured a LiveKit service.
+    if state.media.is_some() {
+        router = router
+            .route(
+                "/v1/voice-channels/{channel_id}/admission",
+                post(media::admission),
+            )
+            .route(
+                "/v1/livekit/webhook",
+                post(media::webhook::handler).layer(DefaultBodyLimit::max(64 * 1024)),
+            );
+    }
+
+    router
         .layer(DefaultBodyLimit::max(16 * 1024))
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "Not found") })
         .method_not_allowed_fallback(|| async {

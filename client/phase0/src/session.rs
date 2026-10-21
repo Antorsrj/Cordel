@@ -29,9 +29,11 @@ use cordel_media::sdk::{
     publish_microphone, received_to_frame, remote_video_stream, ScreenPublisher, SdkAudio,
     SdkDesktopCapture,
 };
+use cordel_state::{MediaAdmissionClient, NativeHttpsTransport};
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::watch;
 
 use crate::share::{MediaEvent, LOCAL_SHARE_KEY};
 use crate::ShareState;
@@ -88,7 +90,11 @@ enum Incoming {
     Room(Option<Box<RoomEvent>>),
 }
 
-pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaEvent>) {
+pub async fn run(
+    mut commands: UnboundedReceiver<Command>,
+    events: Sender<MediaEvent>,
+    access: watch::Receiver<Option<String>>,
+) {
     let mut joined: Option<Joined> = None;
 
     loop {
@@ -135,7 +141,7 @@ pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaE
                         continue;
                     }
                     busy(&events, true);
-                    match join_room(&events).await {
+                    match join_room(&events, access.borrow().clone()).await {
                         Ok(mut session) => {
                             // Someone may be sharing already: the stage follows the
                             // room, not only what happens after this client joins.

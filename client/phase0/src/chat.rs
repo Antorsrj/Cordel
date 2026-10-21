@@ -8,7 +8,7 @@ mod session;
 #[cfg(all(test, feature = "local-smoke"))]
 mod session_tests;
 
-pub use session::{run, AccessSource, AccountEvent, Command, UiEvent};
+pub use session::{run, Command, UiEvent};
 
 pub struct ChatMessage {
     pub author: &'static str,

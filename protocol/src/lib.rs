@@ -14,7 +14,7 @@ pub use chat::{
 };
 pub use session::{
     authorization_header, AdminGrantRequest, AdminGrantResponse, ApiError, EmptyResponse,
-    ErrorCode, ErrorDetail, IdentitySession, LiveKitAdmission, LoginRequest, MeResponse,
+    ErrorCode, ErrorDetail, IdentitySession, LoginRequest, MeResponse, MediaAdmission,
     RedeemInviteRequest, RefreshRequest, SessionTokens, ACCESS_TOKEN_HEADER,
 };
 pub use ws::{FrameError, WsFrame};

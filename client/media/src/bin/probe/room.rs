@@ -7,12 +7,18 @@ fn join(args: &[String]) -> Result<()> {
         .context("--token or CORDEL_LIVEKIT_TOKEN is required")?;
     let seconds = number(args, "--seconds", 15)?;
     let share = flag(args, "--share");
+    // A headless run has no audio device and no display, so the probe can
+    // publish a synthetic screen track instead of capturing one.
+    let no_audio = flag(args, "--no-audio");
+    let synthetic = flag(args, "--synthetic-screen");
     let source = requested_source(args)?;
 
     #[cfg(feature = "sdk")]
     {
         let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(join_room(&url, &token, seconds, share, source))
+        runtime.block_on(join_room(
+            &url, &token, seconds, share, source, no_audio, synthetic,
+        ))
     }
     #[cfg(not(feature = "sdk"))]
     {
@@ -30,10 +36,13 @@ async fn join_room(
     seconds: u64,
     share: bool,
     source: CaptureSource,
+    no_audio: bool,
+    synthetic: bool,
 ) -> Result<()> {
     use cordel_media::capture::ScreenCapture;
     use cordel_media::devices::AudioDeviceControl;
-    use cordel_media::frame::Frame;
+    use cordel_media::frame::{synthetic_bgra, Frame};
+    use std::sync::Arc;
     use cordel_media::sdk::{
         publish_microphone, received_to_frame, remote_video_stream, ScreenPublisher, SdkAudio,
         SdkDesktopCapture,
@@ -46,16 +55,45 @@ async fn join_room(
         .await
         .context("connecting to the room")?;
     println!("connected to {url}");
+    // A participant that joins later does not get a ParticipantConnected event
+    // for the ones already there; the room itself is the source of truth.
+    for participant in room.remote_participants().values() {
+        println!("participant already here: {}", participant.identity());
+    }
 
-    let mut audio = SdkAudio::new()?;
-    audio.start_recording()?;
-    let microphone = publish_microphone(&room, "microphone").await?;
-    println!("published microphone (sid {})", microphone.sid());
+    let mut audio = None;
+    if no_audio {
+        println!("audio skipped (headless run)");
+    } else {
+        let mut device = SdkAudio::new()?;
+        device.start_recording()?;
+        let microphone = publish_microphone(&room, "microphone").await?;
+        println!("published microphone (sid {})", microphone.sid());
+        audio = Some(device);
+    }
 
     // Screen share: the publisher's resolution comes from the first real frame, so
     // the client never has to guess what the capturer will produce.
     let mut shared = None;
-    if share {
+    let mut synthetic_phase: u8 = 0;
+    if share && synthetic {
+        let first = synthetic_bgra(640, 360, 0);
+        let publisher = Arc::new(ScreenPublisher::new(
+            first.width(),
+            first.height(),
+            "synthetic-screen",
+        ));
+        publisher.publish(&room).await?;
+        publisher.push(&first)?;
+        println!(
+            "published synthetic screen share at {}x{}",
+            first.width(),
+            first.height()
+        );
+        let (sender, receiver) = mpsc::channel::<Frame>();
+        drop(sender);
+        shared = Some((None, receiver, publisher));
+    } else if share {
         let mut backend = SdkDesktopCapture::with_source(TargetKind::Screen, source)?;
         println!(
             "capture path: {} (requested {})",
@@ -87,10 +125,11 @@ async fn join_room(
             first.width(),
             first.height()
         );
-        shared = Some((backend, receiver, publisher));
+        shared = Some((Some(backend), receiver, Arc::new(publisher)));
     }
 
     let deadline = Instant::now() + Duration::from_secs(seconds);
+    let mut followed: std::collections::HashSet<String> = std::collections::HashSet::new();
     while Instant::now() < deadline {
         while let Ok(event) = events.try_recv() {
             match event {
@@ -104,47 +143,67 @@ async fn join_room(
                     println!("disconnected: {reason:?}");
                     return Ok(());
                 }
-                _ => {}
+                other => println!("room event: {other:?}"),
             }
         }
 
         if let Some((backend, receiver, publisher)) = shared.as_mut() {
-            backend.tick()?;
-            while let Ok(frame) = receiver.try_recv() {
+            if let Some(backend) = backend.as_mut() {
+                backend.tick()?;
+                while let Ok(frame) = receiver.try_recv() {
+                    if let Err(error) = publisher.push(&frame) {
+                        eprintln!("dropping frame: {error}");
+                    }
+                }
+            } else {
+                // A synthetic source keeps producing frames, the way a real
+                // capture does. A single frame is not enough for the encoder
+                // to carry the track to the server.
+                synthetic_phase = synthetic_phase.wrapping_add(1);
+                let frame = synthetic_bgra(640, 360, synthetic_phase);
                 if let Err(error) = publisher.push(&frame) {
                     eprintln!("dropping frame: {error}");
                 }
             }
         }
 
+        // One long-lived reader per remote track. A new stream per loop would
+        // drop the receiver the track was feeding, and the frames would stop.
         for remote in room.remote_participants().values() {
             for publication in remote.track_publications().values() {
-                // One frame per remote track is enough here: the point is to prove
-                // the receive path decodes and lands in the shared frame type. The
-                // product loop drains the stream continuously.
-                if let Some(livekit::prelude::RemoteTrack::Video(video)) = publication.track() {
+                let Some(livekit::prelude::RemoteTrack::Video(video)) = publication.track() else {
+                    continue;
+                };
+                let key = publication.sid().to_string();
+                if !followed.insert(key) {
+                    continue;
+                }
+                let identity = remote.identity();
+                tokio::spawn(async move {
                     let mut stream = remote_video_stream(&video);
-                    if let Some(frame) = stream.next().await {
+                    while let Some(frame) = stream.next().await {
                         match received_to_frame(&frame) {
                             Some(frame) => println!(
                                 "received {}x{} from {}",
                                 frame.width(),
                                 frame.height(),
-                                remote.identity()
+                                identity
                             ),
                             None => {
                                 println!("received a frame in a layout this spike does not handle")
                             }
                         }
                     }
-                }
+                });
             }
         }
 
         tokio::time::sleep(Duration::from_millis(33)).await;
     }
 
-    audio.stop_recording()?;
+    if let Some(device) = audio.as_mut() {
+        device.stop_recording()?;
+    }
     room.close().await?;
     Ok(())
 }

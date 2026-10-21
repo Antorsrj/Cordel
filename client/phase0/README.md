@@ -51,6 +51,26 @@ Nothing is captured at startup. **Join and share microphone** opens the platform
 
 The chat list is 10,000 local lines. **End of chat** jumps to the last line. The live chat surface replaces that sample with real messages after the first successful subscription.
 
+## Voice admission
+
+The shell asks the server for a scoped room credential instead of trusting a
+token in the environment:
+
+```sh
+CORDEL_API_ORIGIN="https://media.example" \
+CORDEL_VOICE_CHANNEL_ID="0700eaa6-8204-4f0b-a45e-57d929289818" \
+cargo run --release
+```
+
+`CORDEL_VOICE_CHANNEL_ID` is the voice channel to join. The shell asks Axum for
+the admission when the user chooses to join, and it uses the returned room
+token. The identity worker publishes the current access token to the media
+worker, so the credential is never handled by the UI thread.
+
+`CORDEL_LIVEKIT_TOKEN` and `CORDEL_LIVEKIT_URL` remain as a prototype
+override for the media spike scripts and a manual room test. When
+`CORDEL_LIVEKIT_TOKEN` is set, it wins over the server route.
+
 ## Live chat
 
 The chat worker needs the API origin and one text channel:
