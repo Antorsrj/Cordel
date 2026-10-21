@@ -65,6 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("Identity listener must bind to loopback behind the reverse proxy".into());
         }
         let listener = tokio::net::TcpListener::bind(address).await?;
+        // The peer address is needed for the rate limit, and the proxy
+        // connects from loopback so a forwarded address can be trusted.
+        let service = router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
         // The admission gate has its own loopback listener. The public path
         // never forwards to it, so it is not reachable from the Internet.
         let gate = if state.has_media() {
@@ -85,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         };
         let _ = gate;
-        axum::serve(listener, router(state)).await?;
+        axum::serve(listener, service).await?;
         return Ok(());
     }
 

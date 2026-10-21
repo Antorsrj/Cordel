@@ -1,7 +1,9 @@
 use super::*;
 use axum::body::{to_bytes, Body};
+use axum::extract::FromRequestParts;
 use axum::http::Request;
 use sqlx::postgres::PgPoolOptions;
+use std::net::{IpAddr, SocketAddr};
 use tower::ServiceExt;
 
 mod database;
@@ -44,6 +46,79 @@ async fn limiter_rejects_excess_attempts() {
     assert_eq!(
         state.limit("login:guess", 10).unwrap_err().status,
         StatusCode::TOO_MANY_REQUESTS
+    );
+}
+
+/// One noisy address must not be able to deny the service to everybody else.
+#[tokio::test]
+async fn a_noisy_address_does_not_rate_limit_the_others() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@localhost/unused")
+        .unwrap();
+    let state = AppState::new(pool, vec![7; 32]).unwrap();
+    let noisy: IpAddr = "203.0.113.7".parse().unwrap();
+    let quiet: IpAddr = "203.0.113.8".parse().unwrap();
+    // The attack is many different guessed logins from one address. The
+    // address limit stops it, and each login name stays under its own limit.
+    let mut limited_at = None;
+    for attempt in 0..200 {
+        if let Err(error) =
+            state.limit_address(Some(noisy), &format!("login:guess-{attempt}"), 10, 20)
+        {
+            limited_at = Some((attempt, error.status));
+            break;
+        }
+    }
+    let (attempt, status) = limited_at.expect("the noisy address must be limited");
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        attempt < 200,
+        "the address limit must stop the flood before the window ends"
+    );
+    // That address is now limited.
+    assert_eq!(
+        state
+            .limit_address(Some(noisy), "login:another", 10, 20)
+            .unwrap_err()
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // Another address is not.
+    state
+        .limit_address(Some(quiet), "login:guess-0", 10, 20)
+        .unwrap();
+}
+
+/// A forwarded address is only believed when the connection is the local
+/// proxy. A client cannot name the address it wants to be counted as.
+#[tokio::test]
+async fn a_forwarded_address_is_only_trusted_from_the_local_proxy() {
+    let proxy: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+    let direct: SocketAddr = "198.51.100.9:40000".parse().unwrap();
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/v1/sessions")
+        .header("x-forwarded-for", "203.0.113.9")
+        .body(())
+        .unwrap();
+    let (mut parts, _) = request.into_parts();
+    parts.extensions.insert(axum::extract::ConnectInfo(proxy));
+    let trusted = ClientIp::from_request_parts(&mut parts, &()).await.unwrap();
+    assert_eq!(trusted.0, Some("203.0.113.9".parse().unwrap()));
+
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/v1/sessions")
+        .header("x-forwarded-for", "203.0.113.9")
+        .body(())
+        .unwrap();
+    let (mut parts, _) = request.into_parts();
+    parts.extensions.insert(axum::extract::ConnectInfo(direct));
+    let untrusted = ClientIp::from_request_parts(&mut parts, &()).await.unwrap();
+    assert_eq!(
+        untrusted.0,
+        Some("198.51.100.9".parse().unwrap()),
+        "a client outside the proxy is counted by its own address"
     );
 }
 

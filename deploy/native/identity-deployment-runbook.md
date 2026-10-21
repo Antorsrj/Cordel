@@ -87,10 +87,11 @@ is through the gate. The Caddy configuration becomes:
         # enter a room with a token it already holds.
         @livekit path /rtc /rtc/*
         handle @livekit {
+            # O token chega no header Authorization, que o proxy copia para o
+            # subrequest. Ele nunca entra na URL.
             forward_auth 127.0.0.1:3001 {
                 uri /v1/livekit/authorize
                 method GET
-                header_up X-Cordel-Livekit-Token {query.access_token}
             }
             reverse_proxy 10.77.1.4:7880
         }
@@ -102,9 +103,8 @@ is through the gate. The Caddy configuration becomes:
 
 The LiveKit SDK sends the access token in the `Authorization` header, not in
 the query string, and the reverse proxy copies the request headers to the
-gate subrequest. The gate therefore reads the token from `Authorization`, and
-the `header_up` line only covers a client that puts it in the query. Either
-way the token stays out of the URL and out of the access log.
+gate subrequest. The gate reads the bearer from there. A token in the URL is
+refused, so it never lands in an access log.
 
 After the change, check three things before admitting real users: a valid
 admission still joins, a stale generation is refused with 403, and the LiveKit

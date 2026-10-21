@@ -45,6 +45,10 @@ The gate refuses a token unless its signature, issuer, and expiry are valid, the
 
 A moderation action deletes the rooms of the previous generation through the LiveKit server API, which disconnects everyone in them so the members rejoin in the current room. `CORDEL_LIVEKIT_API_URL` points at the host-local server API; without it the moderation response reports `media_drained: false`, because the action is not fully applied while a moderated account is still in a room.
 
+## Rate limits
+
+Every limit is per client address and per key. There is no shared bucket, so one unauthenticated client cannot deny the service to everybody else. The address comes from the socket, and a forwarded address is only believed when the connection itself came from the local proxy; a client that names its own address is counted by its own. A login is limited to 10 attempts per login name and 60 per address, an invitation redemption to 100 per address, a refresh to 300 per address, and an admin unlock to 5 per account.
+
 ## Contract and limits
 
 The routes follow [v1.md](../../docs/contracts/v1.md). HTTP errors use the v1 JSON envelope. `POST /v1/accounts` explicitly returns `public_registration_disabled`; only `POST /v1/accounts/from-invite` creates a public account. A native client sends its app access token in `Authorization: Bearer ...`. `POST /v1/sessions/admin-grant` checks the current admin role and the account's own password, then issues a random grant for 600 seconds. `DELETE /v1/sessions/admin-grant` revokes it. Management routes require the grant as their bearer. Only its SHA-256 hash is stored. Browser cookie admission is not implemented here.
