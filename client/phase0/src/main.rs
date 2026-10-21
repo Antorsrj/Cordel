@@ -17,7 +17,7 @@ use crate::chat::{phase0_messages, Command as ChatCommand, UiEvent as ChatUiEven
 use crate::identity::Command as IdentityCommand;
 use crate::session::stream;
 use crate::session::Command;
-use crate::share::{DetachedWindow, MediaEvent, Shares};
+use crate::share::{DetachedWindow, MediaEvent, MediaOut, Shares};
 
 slint::include_modules!();
 
@@ -50,8 +50,11 @@ fn main() -> anyhow::Result<()> {
     // the stage model and one writer of the status line, in the order things
     // happened.
     let (events, incoming) = mpsc::channel::<MediaEvent>();
+    // The media side announces its pictures through this handle. The pictures
+    // themselves wait in slots, so the queue never carries pixels.
+    let events = MediaOut::new(events);
 
-    let shares = Shares::new();
+    let shares = Shares::new(events.slots());
     ui.set_shares(shares.model());
     let detached = DetachedWindow::new({
         let shares = shares.clone();

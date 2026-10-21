@@ -269,9 +269,11 @@ impl Frame {
 /// the queue that carries it to the interface thread cannot afford that at
 /// fifteen frames a second. The source keeps its own resolution; only the copy
 /// that travels is smaller.
-pub fn resize_bgra(frame: &Frame, max_width: u32) -> Frame {
+pub fn resize_bgra(frame: Frame, max_width: u32) -> Frame {
     if max_width == 0 || frame.width() <= max_width {
-        return frame.clone();
+        // The frame is already small enough, and copying it would cost as much
+        // as the picture itself.
+        return frame;
     }
     let width = max_width;
     let height = (frame.height() as u64 * width as u64 / frame.width() as u64) as u32;
@@ -297,14 +299,18 @@ pub fn resize_bgra(frame: &Frame, max_width: u32) -> Frame {
             }
         }
     }
-    Frame::new(
+    match Frame::new(
         width,
         height,
         target_stride as u32,
         PixelFormat::Bgra8,
         data,
-    )
-    .unwrap_or_else(|_| frame.clone())
+    ) {
+        Ok(frame) => frame,
+        // The frame is already valid, so the copy failing means the copy is
+        // not usable; the original still is.
+        Err(_) => frame,
+    }
 }
 
 /// Builds a synthetic BGRA frame. Used by the probe to exercise the render path

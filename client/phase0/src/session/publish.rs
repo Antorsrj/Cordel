@@ -39,7 +39,7 @@ fn admission_transport(origin: &str) -> anyhow::Result<NativeHttpsTransport> {
 }
 
 async fn join_room(
-    events: &Sender<MediaEvent>,
+    events: &MediaOut,
     access_token: Option<String>,
 ) -> anyhow::Result<Joined> {
     let (url, token) = room_credentials(access_token).await?;

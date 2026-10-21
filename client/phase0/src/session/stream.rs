@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cordel_media::capture::{CaptureSource, CaptureTarget, ScreenCapture, TargetKind};
-use cordel_media::frame::Frame;
+use cordel_media::frame::{resize_bgra, Frame};
 use cordel_media::sdk::{ScreenPublisher, SdkDesktopCapture};
 
 use super::*;
@@ -75,7 +75,7 @@ pub(super) async fn start_share(
     joined: &mut Joined,
     kind: TargetKind,
     rate: u32,
-    events: &Sender<MediaEvent>,
+    events: &MediaOut,
 ) -> anyhow::Result<()> {
     let stream_interval = interval_for_rate(rate);
 
@@ -166,12 +166,14 @@ pub(super) async fn start_share(
         first.height(),
         session_label(SessionKind::detect()),
     )));
-    let _ = events.send(MediaEvent::Frame {
-        key: LOCAL_SHARE_KEY.into(),
-        publisher: "you".into(),
-        state: ShareState::Live,
-        frame: first,
-    });
+    // A previa local e a mesma imagem que vai para o outro lado, so que
+    // reduzida: a interface pinta ela escalada.
+    events.frame(
+        LOCAL_SHARE_KEY,
+        "you",
+        ShareState::Live,
+        resize_bgra(first, UI_FRAME_WIDTH),
+    );
 
     let (stop, mut stopped) = tokio::sync::watch::channel(false);
     let report = events.clone();
@@ -206,12 +208,12 @@ pub(super) async fn start_share(
                 // side, so it has to move with the stream.
                 if local.elapsed() >= LOCAL_FRAME_INTERVAL {
                     local = Instant::now();
-                    let _ = report.send(MediaEvent::Frame {
-                        key: LOCAL_SHARE_KEY.into(),
-                        publisher: "you".into(),
-                        state: ShareState::Live,
-                        frame,
-                    });
+                    report.frame(
+                        LOCAL_SHARE_KEY,
+                        "you",
+                        ShareState::Live,
+                        resize_bgra(frame, UI_FRAME_WIDTH),
+                    );
                 }
             }
             if last_report.elapsed() >= REPORT_INTERVAL {

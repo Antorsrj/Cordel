@@ -17,7 +17,6 @@
 //! session the shell is still publishing on.
 
 use std::collections::HashMap;
-use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
@@ -31,13 +30,13 @@ use livekit::prelude::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::watch;
 
-use crate::share::{MediaEvent, LOCAL_SHARE_KEY};
+use crate::share::{MediaEvent, MediaOut, LOCAL_SHARE_KEY};
 use crate::ShareState;
 
-/// The width of the copy of a remote frame that travels to the interface.
+/// The width of the copy of a frame that reaches the interface.
 /// The picture is painted scaled, so a smaller copy looks the same and keeps
-/// the queue affordable.
-const REMOTE_FRAME_WIDTH: u32 = 1280;
+/// the interface affordable.
+const UI_FRAME_WIDTH: u32 = 1280;
 
 /// How often a remote share is allowed to hand a frame to the UI. A screen share
 /// does not need 30 fps to look live on this stage, and the conversion runs on the
@@ -94,7 +93,7 @@ enum Incoming {
 
 pub async fn run(
     mut commands: UnboundedReceiver<Command>,
-    events: Sender<MediaEvent>,
+    events: MediaOut,
     access: watch::Receiver<Option<String>>,
 ) {
     let mut joined: Option<Joined> = None;
@@ -224,7 +223,7 @@ pub(crate) mod stream;
 ///
 /// Keys are the media track identity, so a tile keeps its identity while another
 /// share ends or is detached (`docs/ux/journal.md`).
-fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &Sender<MediaEvent>) {
+fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) {
     match event {
         RoomEvent::TrackSubscribed {
             track,
@@ -311,11 +310,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &Sender<Med
 
 /// Adds every video publication the room already has. Called on joining (someone
 /// may be sharing already) and after a reconnection.
-fn register_remote_shares(
-    room: &Room,
-    events: &Sender<MediaEvent>,
-    tracked: &mut HashMap<String, String>,
-) {
+fn register_remote_shares(room: &Room, events: &MediaOut, tracked: &mut HashMap<String, String>) {
     for participant in room.remote_participants().values() {
         let publisher = participant.identity().to_string();
         for publication in participant.track_publications().values() {
@@ -331,7 +326,7 @@ fn register_remote_shares(
 
 /// Forwards one remote share's frames to the UI thread for as long as the track
 /// delivers them.
-fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: Sender<MediaEvent>) {
+fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: MediaOut) {
     tokio::spawn(async move {
         let mut stream = remote_video_stream(&track);
         let mut last = Instant::now() - SHARE_FRAME_INTERVAL;
@@ -345,25 +340,15 @@ fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: S
                 continue;
             };
             // A copia que viaja para a interface e reduzida. O quadro original
-            // tem a resolucao capturada, e a fila que leva o quadro ate a
-            // thread da interface nao aguenta isso a cada quadro.
-            let frame = resize_bgra(&frame, REMOTE_FRAME_WIDTH);
-            if events
-                .send(MediaEvent::Frame {
-                    key: key.clone(),
-                    publisher: publisher.clone(),
-                    state: ShareState::Live,
-                    frame,
-                })
-                .is_err()
-            {
-                return;
-            }
+            // tem a resolucao capturada, e a interface nao pinta um quadro
+            // desse tamanho a cada quadro.
+            let frame = resize_bgra(frame, UI_FRAME_WIDTH);
+            events.frame(&key, &publisher, ShareState::Live, frame);
         }
     });
 }
 
-fn end_share(events: &Sender<MediaEvent>, tracked: &mut HashMap<String, String>, key: &str) {
+fn end_share(events: &MediaOut, tracked: &mut HashMap<String, String>, key: &str) {
     if tracked.remove(key).is_some() {
         let _ = events.send(MediaEvent::Ended {
             key: key.to_string(),
@@ -377,7 +362,7 @@ fn share_key(identity: &str, sid: impl std::fmt::Display) -> String {
     format!("{identity}/{sid}")
 }
 
-fn busy(events: &Sender<MediaEvent>, busy: bool) {
+fn busy(events: &MediaOut, busy: bool) {
     let _ = events.send(MediaEvent::Busy(busy));
 }
 

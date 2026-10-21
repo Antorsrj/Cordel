@@ -2,9 +2,16 @@
 //!
 //! The media side (the room, the local capture, the synthetic demo) never touches
 //! a Slint type. `slint::Image`, `VecModel` and the windows are bound to the UI
-//! thread, so those tasks send [`MediaEvent`]s with an owned frame and the UI
-//! thread drains them here. That keeps one conversion path — the sink from
+//! thread, so those tasks announce their pictures through [`MediaOut`] and the
+//! UI thread drains them here. That keeps one conversion path — the sink from
 //! `cordel_media::render` — and one writer of the stage model.
+//!
+//! A picture does not travel in the queue. The room delivers frames faster than
+//! any interface can paint them, and a frame of a screen is megabytes of
+//! pixels, so only the newest picture of a share waits in a slot and the queue
+//! carries a short note about it. An interface that cannot keep up falls
+//! behind the room on purpose instead of growing a backlog it can never catch
+//! up with — and the events that end a share are never stuck behind pixels.
 //!
 //! Two behaviors from `docs/ux/journal.md` live here rather than in the markup:
 //! a share is keyed by its media track, so it keeps its identity when another
@@ -19,6 +26,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 use cordel_media::frame::Frame;
 use cordel_media::render::{FrameSink, SlintFrameSink};
@@ -32,13 +41,14 @@ pub const LOCAL_SHARE_KEY: &str = "local/screen-frame";
 
 /// What the media side sends to the UI thread.
 pub enum MediaEvent {
-    /// A frame for a share. The first one creates the tile, and a later one
-    /// updates the state, so the local tile can go from preview to sharing.
+    /// A new picture for a share. The picture itself waits in the frame slots;
+    /// this event only says that there is one. The first one creates the tile,
+    /// and a later one updates the state, so the local tile can go from preview
+    /// to sharing.
     Frame {
         key: String,
         publisher: String,
         state: ShareState,
-        frame: Frame,
     },
     /// The source stopped publishing, or access to it was revoked.
     Ended { key: String },
@@ -54,6 +64,63 @@ pub enum MediaEvent {
     Joined(bool),
 }
 
+/// The newest picture of each share, waiting for the interface.
+///
+/// The media side writes here and the interface takes the picture out. Only one
+/// picture per share is kept: a picture that is replaced before the interface
+/// reaches it is dropped, because a stale picture is worth less than a
+/// current one.
+pub type FrameSlots = Arc<Mutex<HashMap<String, Frame>>>;
+
+/// The way the media side reaches the interface.
+///
+/// It carries the events and the waiting pictures. Keeping them together means
+/// the media side cannot announce a picture the interface would never find.
+#[derive(Clone)]
+pub struct MediaOut {
+    events: Sender<MediaEvent>,
+    slots: FrameSlots,
+}
+
+impl MediaOut {
+    pub fn new(events: Sender<MediaEvent>) -> Self {
+        Self {
+            events,
+            slots: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// The waiting pictures, for the interface side.
+    pub fn slots(&self) -> FrameSlots {
+        self.slots.clone()
+    }
+
+    /// Sends an event that carries no picture.
+    ///
+    /// It answers whether the queue took it. A closed queue means the
+    /// interface is gone, and the media side stops instead of working for
+    /// nobody.
+    pub fn send(&self, event: MediaEvent) -> bool {
+        self.events.send(event).is_ok()
+    }
+
+    /// Announces a new picture of a share.
+    ///
+    /// The picture waits in its slot and the note travels in the queue. A
+    /// picture that is replaced before the interface takes it is dropped: the
+    /// interface shows the current picture instead of an old one.
+    pub fn frame(&self, key: &str, publisher: &str, state: ShareState, frame: Frame) {
+        if let Ok(mut slots) = self.slots.lock() {
+            slots.insert(key.to_string(), frame);
+        }
+        self.send(MediaEvent::Frame {
+            key: key.to_string(),
+            publisher: publisher.to_string(),
+            state,
+        });
+    }
+}
+
 /// The stage's model plus the share that is presented in its own window.
 ///
 /// Every method runs on the UI thread, which is what allows a tile to hold a
@@ -66,14 +133,17 @@ pub struct Shares {
     /// One sink per share, so a tile keeps its previous image and the measured
     /// conversion is the product path rather than a fresh-buffer worst case.
     sinks: RefCell<HashMap<String, SlintFrameSink>>,
+    /// The waiting pictures of the shares.
+    slots: FrameSlots,
 }
 
 impl Shares {
-    pub fn new() -> Rc<Self> {
+    pub fn new(slots: FrameSlots) -> Rc<Self> {
         Rc::new(Self {
             tiles: Rc::new(VecModel::default()),
             detached: RefCell::new(None),
             sinks: RefCell::new(HashMap::new()),
+            slots,
         })
     }
 
@@ -95,8 +165,20 @@ impl Shares {
                 key,
                 publisher,
                 state,
-                frame,
-            } => self.upsert(key, publisher, state, frame),
+            } => {
+                // The picture waits in the slot. The interface takes the newest
+                // one and lets the room's replacement stand in for the picture
+                // it never painted.
+                let frame = {
+                    let mut slots = self.slots.lock().expect("the frame slots are not poisoned");
+                    slots.remove(&key)
+                };
+                match frame {
+                    Some(frame) => self.upsert(key, publisher, state, frame),
+                    // The picture was already taken; a newer one is on its way.
+                    None => None,
+                }
+            }
             MediaEvent::Ended { key } => self.end(&key),
             MediaEvent::State { key, state } => self.set_state(&key, state),
             MediaEvent::Status(_) | MediaEvent::Busy(_) | MediaEvent::Joined(_) => None,
@@ -252,6 +334,12 @@ impl Shares {
     }
 
     fn end(&self, key: &str) -> Option<String> {
+        // The picture of a share that ended is not worth keeping.
+        self.slots
+            .lock()
+            .expect("the frame slots are not poisoned")
+            .remove(key);
+
         let mut detached = self.detached.borrow_mut();
         if detached.as_ref().is_some_and(|tile| tile.key == key) {
             let tile = detached.take().expect("just checked");
