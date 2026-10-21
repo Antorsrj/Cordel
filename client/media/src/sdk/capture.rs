@@ -63,6 +63,16 @@ impl SdkDesktopCapture {
     }
 }
 
+/// The WebRTC desktop capturer reports a temporary failure while a capture is
+/// still in progress, which is the normal state between a request and its
+/// frame. Repeating that message for every frame would flood the terminal.
+fn is_temporary(error: &livekit::webrtc::desktop_capturer::CaptureError) -> bool {
+    matches!(
+        error,
+        livekit::webrtc::desktop_capturer::CaptureError::Temporary
+    )
+}
+
 impl ScreenCapture for SdkDesktopCapture {
     fn backend_name(&self) -> &'static str {
         "libwebrtc-desktop-capturer"
@@ -116,7 +126,14 @@ impl ScreenCapture for SdkDesktopCapture {
                         Err(error) => eprintln!("media probe: captured frame rejected ({error})"),
                     }
                 }
-                Err(error) => eprintln!("media probe: capture error ({error:?})"),
+                Err(error) => {
+                    // Um erro temporario significa que o pedido anterior ainda
+                    // esta em andamento. Repetir a mensagem a cada quadro
+                    // inundaria o terminal sem acrescentar nada.
+                    if !is_temporary(&error) {
+                        eprintln!("media capture error ({error:?})");
+                    }
+                }
             });
         self.started = true;
         Ok(())

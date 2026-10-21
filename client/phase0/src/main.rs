@@ -10,13 +10,14 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use cordel_media::capture::SessionKind;
-use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use crate::account::AccountEvent;
 use crate::chat::{phase0_messages, Command as ChatCommand, UiEvent as ChatUiEvent};
 use crate::identity::Command as IdentityCommand;
+use crate::session::stream;
 use crate::session::Command;
-use crate::share::{DetachedWindow, MediaEvent, Shares};
+use crate::share::{DetachedWindow, MediaEvent, MediaOut, Shares};
 
 slint::include_modules!();
 
@@ -49,8 +50,11 @@ fn main() -> anyhow::Result<()> {
     // the stage model and one writer of the status line, in the order things
     // happened.
     let (events, incoming) = mpsc::channel::<MediaEvent>();
+    // The media side announces its pictures through this handle. The pictures
+    // themselves wait in slots, so the queue never carries pixels.
+    let events = MediaOut::new(events);
 
-    let shares = Shares::new();
+    let shares = Shares::new(events.slots());
     ui.set_shares(shares.model());
     let detached = DetachedWindow::new({
         let shares = shares.clone();
@@ -114,10 +118,21 @@ fn main() -> anyhow::Result<()> {
             let _ = commands.send(Command::Join);
         }
     });
-    ui.on_capture_frame({
+    ui.on_stop_share({
         let commands = commands.clone();
         move || {
-            let _ = commands.send(Command::CaptureFrame);
+            let _ = commands.send(Command::StopShare);
+        }
+    });
+    ui.on_capture_frame({
+        let commands = commands.clone();
+        move |value: SharedString| {
+            let rate = match value.as_str() {
+                "30 fps" => 30,
+                "60 fps" => 60,
+                _ => stream::DEFAULT_FRAME_RATE,
+            };
+            let _ = commands.send(Command::CaptureFrame { rate });
         }
     });
     ui.on_leave({
@@ -173,20 +188,50 @@ fn main() -> anyhow::Result<()> {
                     ChatUiEvent::Status(value) => ui.set_chat_status(value.into()),
                 }
             }
+            // The control events come before the pictures. They are cheap, and
+            // a share that ended has to leave the stage before the interface
+            // spends its time on the pictures of the shares that are still
+            // there.
+            let started = std::time::Instant::now();
+            let mut pictures = Vec::new();
             while let Ok(event) = incoming.try_recv() {
                 match event {
                     MediaEvent::Status(text) => ui.set_status(text.into()),
                     MediaEvent::Busy(busy) => ui.set_busy(busy),
                     MediaEvent::Joined(joined) => ui.set_joined(joined),
+                    MediaEvent::Frame {
+                        key,
+                        publisher,
+                        state,
+                    } => pictures.push((key, publisher, state)),
                     event => {
                         if let Some(note) = shares.apply(event) {
                             ui.set_status(note.into());
                         }
-                        // A detached share shows what the tile currently holds, and
-                        // a share that ended takes its window with it.
-                        detached.sync(shares.detached_tile());
                     }
                 }
+            }
+            let count = pictures.len();
+            for (key, publisher, state) in pictures {
+                let event = MediaEvent::Frame {
+                    key,
+                    publisher,
+                    state,
+                };
+                if let Some(note) = shares.apply(event) {
+                    ui.set_status(note.into());
+                }
+            }
+            // A detached share shows what the tile currently holds, and a share
+            // that ended takes its window with it.
+            detached.sync(shares.detached_tile());
+            let spent = started.elapsed();
+            if spent > std::time::Duration::from_millis(100) {
+                log::warn!(
+                    "the interface spent {} ms on {} media events",
+                    spent.as_millis(),
+                    count
+                );
             }
         }
     });

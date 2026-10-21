@@ -2,9 +2,16 @@
 //!
 //! The media side (the room, the local capture, the synthetic demo) never touches
 //! a Slint type. `slint::Image`, `VecModel` and the windows are bound to the UI
-//! thread, so those tasks send [`MediaEvent`]s with an owned frame and the UI
-//! thread drains them here. That keeps one conversion path — the sink from
+//! thread, so those tasks announce their pictures through [`MediaOut`] and the
+//! UI thread drains them here. That keeps one conversion path — the sink from
 //! `cordel_media::render` — and one writer of the stage model.
+//!
+//! A picture does not travel in the queue. The room delivers frames faster than
+//! any interface can paint them, and a frame of a screen is megabytes of
+//! pixels, so only the newest picture of a share waits in a slot and the queue
+//! carries a short note about it. An interface that cannot keep up falls
+//! behind the room on purpose instead of growing a backlog it can never catch
+//! up with — and the events that end a share are never stuck behind pixels.
 //!
 //! Two behaviors from `docs/ux/journal.md` live here rather than in the markup:
 //! a share is keyed by its media track, so it keeps its identity when another
@@ -19,6 +26,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use cordel_media::frame::Frame;
 use cordel_media::render::{FrameSink, SlintFrameSink};
@@ -26,33 +34,21 @@ use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{ShareState, ShareTile, ShareWindow};
 
+mod events;
+
+pub use events::{FrameSlots, MediaEvent, MediaOut};
+
 /// The shell's own capture is a view like any other; a stable key means a second
 /// capture replaces the first instead of adding a tile.
 pub const LOCAL_SHARE_KEY: &str = "local/screen-frame";
 
-/// What the media side sends to the UI thread.
-pub enum MediaEvent {
-    /// A frame for a share. The first one creates the tile, and a later one
-    /// updates the state, so the local tile can go from preview to sharing.
-    Frame {
-        key: String,
-        publisher: String,
-        state: ShareState,
-        frame: Frame,
-    },
-    /// The source stopped publishing, or access to it was revoked.
-    Ended { key: String },
-    /// The same share, new connection state. Used for reconnection, which is a
-    /// presentation change and not a new share.
-    State { key: String, state: ShareState },
-    /// A line for the status area. It travels this queue so the UI thread has one
-    /// writer of the status text, in the order things happened.
-    Status(String),
-    /// A join, a capture or a leave is in flight, so the buttons stand down.
-    Busy(bool),
-    /// Whether the room is joined. Enables leave and disables join.
-    Joined(bool),
-}
+/// How often a share's picture reaches the interface.
+///
+/// The room delivers more frames than any interface can paint, and every
+/// picture costs the interface a texture it has to upload. A picture that is
+/// skipped here is not lost: the newest one waits in the slot and is painted
+/// instead.
+const PAINT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The stage's model plus the share that is presented in its own window.
 ///
@@ -66,14 +62,21 @@ pub struct Shares {
     /// One sink per share, so a tile keeps its previous image and the measured
     /// conversion is the product path rather than a fresh-buffer worst case.
     sinks: RefCell<HashMap<String, SlintFrameSink>>,
+    /// The waiting pictures of the shares.
+    slots: FrameSlots,
+    /// When each share was painted last. The rate is the interface's to
+    /// afford, and the room's to exceed.
+    painted: RefCell<HashMap<String, Instant>>,
 }
 
 impl Shares {
-    pub fn new() -> Rc<Self> {
+    pub fn new(slots: FrameSlots) -> Rc<Self> {
         Rc::new(Self {
             tiles: Rc::new(VecModel::default()),
             detached: RefCell::new(None),
             sinks: RefCell::new(HashMap::new()),
+            slots,
+            painted: RefCell::new(HashMap::new()),
         })
     }
 
@@ -95,8 +98,35 @@ impl Shares {
                 key,
                 publisher,
                 state,
-                frame,
-            } => self.upsert(key, publisher, state, frame),
+            } => {
+                // The picture waits in the slot. The interface takes the newest
+                // one and lets the room's replacement stand in for the picture
+                // it never painted. The state comes from the slot as well: it
+                // is the newest one, even when the note is an old one.
+                let (frame, state) = {
+                    let mut slots = self.slots.lock().expect("the frame slots are not poisoned");
+                    match slots.get_mut(&key) {
+                        Some(waiting) if waiting.pending => {
+                            waiting.pending = false;
+                            (waiting.frame.take(), waiting.state)
+                        }
+                        _ => (None, state),
+                    }
+                };
+                let Some(frame) = frame else {
+                    // The picture was already taken; a newer one is on its way.
+                    // The state still says what the share is doing.
+                    return self.set_state(&key, state);
+                };
+                // The picture is what the interface can afford to skip. The
+                // state is not: it says what the share is doing, and a share
+                // that came back has to say so even when its picture waits.
+                if self.paint(&key, publisher, state, frame) {
+                    None
+                } else {
+                    self.set_state(&key, state)
+                }
+            }
             MediaEvent::Ended { key } => self.end(&key),
             MediaEvent::State { key, state } => self.set_state(&key, state),
             MediaEvent::Status(_) | MediaEvent::Busy(_) | MediaEvent::Joined(_) => None,
@@ -197,6 +227,33 @@ impl Shares {
         (0..self.tiles.row_count()).find(|&i| self.tiles.row_data(i).is_some_and(|t| t.key == key))
     }
 
+    /// Paints a picture, at a rate the interface can afford.
+    ///
+    /// It answers whether the picture was painted. A picture that arrives too
+    /// soon is dropped, and the newest one in the slot takes its place. The
+    /// first picture of a share is always painted: it is what puts the share
+    /// on the stage.
+    fn paint(&self, key: &str, publisher: String, state: ShareState, frame: Frame) -> bool {
+        let on_stage = self.row_of(key).is_some()
+            || self
+                .detached
+                .borrow()
+                .as_ref()
+                .is_some_and(|tile| tile.key == key);
+        let mut painted = self.painted.borrow_mut();
+        if on_stage
+            && painted
+                .get(key)
+                .is_some_and(|last| last.elapsed() < PAINT_INTERVAL)
+        {
+            return false;
+        }
+        painted.insert(key.to_string(), Instant::now());
+        drop(painted);
+        self.upsert(key.to_string(), publisher, state, frame);
+        true
+    }
+
     fn upsert(
         &self,
         key: String,
@@ -252,6 +309,13 @@ impl Shares {
     }
 
     fn end(&self, key: &str) -> Option<String> {
+        // The picture of a share that ended is not worth keeping.
+        self.slots
+            .lock()
+            .expect("the frame slots are not poisoned")
+            .remove(key);
+        self.painted.borrow_mut().remove(key);
+
         let mut detached = self.detached.borrow_mut();
         if detached.as_ref().is_some_and(|tile| tile.key == key) {
             let tile = detached.take().expect("just checked");

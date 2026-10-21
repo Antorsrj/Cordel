@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use cordel_media::frame::Frame;
 
-use crate::share::MediaEvent;
+use crate::share::{MediaEvent, MediaOut};
 use crate::ShareState;
 
 /// How often a synthetic share produces a frame. Slower than a real screen share
@@ -44,13 +44,13 @@ struct Publisher {
 }
 
 /// Starts the synthetic shares and returns the handle the demo buttons use.
-pub fn spawn(events: Sender<MediaEvent>) -> Sender<Control> {
+pub fn spawn(events: MediaOut) -> Sender<Control> {
     let (control, commands) = mpsc::channel();
     thread::spawn(move || run(events, commands));
     control
 }
 
-fn run(events: Sender<MediaEvent>, commands: Receiver<Control>) {
+fn run(events: MediaOut, commands: Receiver<Control>) {
     let mut publishers = Vec::new();
     let mut next = 0usize;
     if !add(&events, &mut publishers, &mut next) || !add(&events, &mut publishers, &mut next) {
@@ -69,10 +69,7 @@ fn run(events: Sender<MediaEvent>, commands: Receiver<Control>) {
                 // The newest one goes first, so ending twice reaches the state
                 // with no share at all.
                 if let Some(publisher) = publishers.pop() {
-                    if events
-                        .send(MediaEvent::Ended { key: publisher.key })
-                        .is_err()
-                    {
+                    if !events.send(MediaEvent::Ended { key: publisher.key }) {
                         return;
                     }
                 }
@@ -121,7 +118,7 @@ fn run(events: Sender<MediaEvent>, commands: Receiver<Control>) {
     }
 }
 
-fn add(events: &Sender<MediaEvent>, publishers: &mut Vec<Publisher>, next: &mut usize) -> bool {
+fn add(events: &MediaOut, publishers: &mut Vec<Publisher>, next: &mut usize) -> bool {
     let look = *next % LOOK.len();
     let publisher = Publisher {
         key: format!("fake-{}", *next + 1),
@@ -135,15 +132,9 @@ fn add(events: &Sender<MediaEvent>, publishers: &mut Vec<Publisher>, next: &mut 
     keep_going
 }
 
-fn share(events: &Sender<MediaEvent>, publisher: &Publisher) -> bool {
+fn share(events: &MediaOut, publisher: &Publisher) -> bool {
     let (width, height, _) = LOOK[publisher.look];
     let frame: Frame = cordel_media::frame::synthetic_bgra(width, height, publisher.phase);
-    events
-        .send(MediaEvent::Frame {
-            key: publisher.key.clone(),
-            publisher: publisher.label.clone(),
-            state: ShareState::Live,
-            frame,
-        })
-        .is_ok()
+    events.frame(&publisher.key, &publisher.label, ShareState::Live, frame);
+    true
 }

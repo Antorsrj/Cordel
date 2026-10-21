@@ -1,3 +1,4 @@
+use super::events::announce;
 use super::*;
 use crate::{AppWindow, ChatLine};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
@@ -6,22 +7,44 @@ use slint::{ComponentHandle, PhysicalSize, Rgb8Pixel};
 use std::fs::File;
 use std::io::Write;
 
-fn frame_event(key: &str, publisher: &str, phase: u8) -> MediaEvent {
-    MediaEvent::Frame {
-        key: key.into(),
-        publisher: publisher.into(),
-        state: ShareState::Live,
-        frame: cordel_media::frame::synthetic_bgra(320, 180, phase),
-    }
+/// A stage and the slots the media side writes its pictures into.
+fn stage() -> (Rc<Shares>, FrameSlots) {
+    let slots = FrameSlots::default();
+    (Shares::new(slots.clone()), slots)
 }
 
-fn share_frame(key: &str, publisher: &str, size: (u32, u32), phase: u8) -> MediaEvent {
-    MediaEvent::Frame {
-        key: key.into(),
-        publisher: publisher.into(),
-        state: ShareState::Live,
-        frame: cordel_media::frame::synthetic_bgra(size.0, size.1, phase),
-    }
+/// A picture that waits in the slot, and the note that announces it.
+fn frame_event(slots: &FrameSlots, key: &str, publisher: &str, phase: u8) -> MediaEvent {
+    share_frame(slots, key, publisher, (320, 180), phase)
+}
+
+fn share_frame(
+    slots: &FrameSlots,
+    key: &str,
+    publisher: &str,
+    size: (u32, u32),
+    phase: u8,
+) -> MediaEvent {
+    announce(
+        slots,
+        key,
+        publisher,
+        ShareState::Live,
+        cordel_media::frame::synthetic_bgra(size.0, size.1, phase),
+    )
+    .expect("the first picture of a share is announced")
+}
+
+/// A picture of the shell's own capture, in the state the capture is in.
+fn local_frame(slots: &FrameSlots, state: ShareState, phase: u8) -> MediaEvent {
+    announce(
+        slots,
+        LOCAL_SHARE_KEY,
+        "you",
+        state,
+        cordel_media::frame::synthetic_bgra(640, 360, phase),
+    )
+    .expect("the first picture of a share is announced")
 }
 
 /// What the main window draws, in order.
@@ -41,9 +64,9 @@ fn stage_keys(shares: &Shares) -> Vec<String> {
 /// Two shares with distinguishable frames: `synthetic_bgra` puts the phase in
 /// the red channel, so ana is red-0 and bruno is red-200.
 fn two_shares() -> Rc<Shares> {
-    let shares = Shares::new();
-    shares.apply(share_frame("a", "ana", (640, 360), 0));
-    shares.apply(share_frame("b", "bruno", (480, 270), 200));
+    let (shares, slots) = stage();
+    shares.apply(share_frame(&slots, "a", "ana", (640, 360), 0));
+    shares.apply(share_frame(&slots, "b", "bruno", (480, 270), 200));
     shares
 }
 
@@ -79,19 +102,19 @@ fn conversation_top(width: u32, pixels: &[Rgb8Pixel]) -> Option<usize> {
 
 #[test]
 fn a_frame_creates_a_tile_and_later_frames_update_it_in_place() {
-    let shares = Shares::new();
-    assert!(shares.apply(frame_event("a", "ana", 0)).is_none());
+    let (shares, slots) = stage();
+    assert!(shares.apply(frame_event(&slots, "a", "ana", 0)).is_none());
     assert_eq!(shares.model().row_count(), 1);
 
-    assert!(shares.apply(frame_event("a", "ana", 40)).is_none());
+    assert!(shares.apply(frame_event(&slots, "a", "ana", 40)).is_none());
     assert_eq!(shares.model().row_count(), 1, "a frame must not add a tile");
 }
 
 #[test]
 fn two_publishers_are_separate_tiles_and_keep_their_identity_when_one_ends() {
-    let shares = Shares::new();
-    shares.apply(frame_event("a", "ana", 0));
-    shares.apply(frame_event("b", "bruno", 200));
+    let (shares, slots) = stage();
+    shares.apply(frame_event(&slots, "a", "ana", 0));
+    shares.apply(frame_event(&slots, "b", "bruno", 200));
     assert_eq!(stage_keys(&shares), ["a", "b"]);
 
     let note = shares.apply(MediaEvent::Ended { key: "a".into() });
@@ -112,9 +135,9 @@ fn two_publishers_are_separate_tiles_and_keep_their_identity_when_one_ends() {
 
 #[test]
 fn the_first_tile_starts_emphasized_and_emphasis_is_exclusive() {
-    let shares = Shares::new();
-    shares.apply(frame_event("a", "ana", 0));
-    shares.apply(frame_event("b", "bruno", 200));
+    let (shares, slots) = stage();
+    shares.apply(frame_event(&slots, "a", "ana", 0));
+    shares.apply(frame_event(&slots, "b", "bruno", 200));
     assert!(stage_tiles(&shares)[0].emphasized);
 
     shares.toggle_emphasis("b");
@@ -128,9 +151,9 @@ fn the_first_tile_starts_emphasized_and_emphasis_is_exclusive() {
 
 #[test]
 fn a_detached_share_leaves_the_stage_and_moves_to_its_own_window() {
-    let shares = Shares::new();
-    shares.apply(frame_event("a", "ana", 0));
-    shares.apply(frame_event("b", "bruno", 200));
+    let (shares, slots) = stage();
+    shares.apply(frame_event(&slots, "a", "ana", 0));
+    shares.apply(frame_event(&slots, "b", "bruno", 200));
     // "a" starts emphasized, so the stage is ana-heavy before the detach.
     assert!(stage_tiles(&shares)[0].emphasized);
 
@@ -168,11 +191,11 @@ fn a_detached_share_leaves_the_stage_and_moves_to_its_own_window() {
 
 #[test]
 fn a_detached_share_keeps_receiving_frames_while_it_is_away() {
-    let shares = Shares::new();
-    shares.apply(frame_event("a", "ana", 0));
+    let (shares, slots) = stage();
+    shares.apply(frame_event(&slots, "a", "ana", 0));
     shares.detach("a");
 
-    shares.apply(frame_event("a", "ana", 120));
+    shares.apply(frame_event(&slots, "a", "ana", 120));
     assert_eq!(
         shares.model().row_count(),
         0,
@@ -196,9 +219,9 @@ fn a_detached_share_keeps_receiving_frames_while_it_is_away() {
 
 #[test]
 fn a_reconnecting_share_is_marked_and_a_new_frame_restores_it() {
-    let shares = Shares::new();
-    shares.apply(frame_event("a", "ana", 0));
-    shares.apply(frame_event("b", "bruno", 200));
+    let (shares, slots) = stage();
+    shares.apply(frame_event(&slots, "a", "ana", 0));
+    shares.apply(frame_event(&slots, "b", "bruno", 200));
 
     shares.apply(MediaEvent::State {
         key: "a".into(),
@@ -212,34 +235,53 @@ fn a_reconnecting_share_is_marked_and_a_new_frame_restores_it() {
         "the other share is untouched"
     );
 
-    shares.apply(frame_event("a", "ana", 80));
+    shares.apply(frame_event(&slots, "a", "ana", 80));
     assert_eq!(stage_tiles(&shares)[0].state, ShareState::Live);
 }
 
 #[test]
 fn a_local_capture_is_one_tile_that_can_change_state() {
-    let shares = Shares::new();
-    shares.apply(MediaEvent::Frame {
-        key: LOCAL_SHARE_KEY.into(),
-        publisher: "you".into(),
-        state: ShareState::Preview,
-        frame: cordel_media::frame::synthetic_bgra(640, 360, 0),
-    });
+    let (shares, slots) = stage();
+    shares.apply(local_frame(&slots, ShareState::Preview, 0));
     assert_eq!(stage_tiles(&shares)[0].state, ShareState::Preview);
 
-    shares.apply(MediaEvent::Frame {
-        key: LOCAL_SHARE_KEY.into(),
-        publisher: "you".into(),
-        state: ShareState::Live,
-        frame: cordel_media::frame::synthetic_bgra(640, 360, 8),
-    });
+    shares.apply(local_frame(&slots, ShareState::Live, 8));
     assert_eq!(shares.model().row_count(), 1);
     assert_eq!(stage_tiles(&shares)[0].state, ShareState::Live);
 }
 
 #[test]
+fn a_picture_that_arrives_too_soon_is_skipped_and_the_state_is_not() {
+    install_platform();
+    let (shares, slots) = stage();
+    let ui = AppWindow::new().expect("the main window builds");
+    ui.set_shares(shares.model());
+
+    // The first picture puts the share on the stage. The second one arrives
+    // too soon: the room delivers more frames than the interface can paint,
+    // and the newest one waits in the slot instead.
+    shares.apply(frame_event(&slots, "a", "ana", 0));
+    shares.apply(frame_event(&slots, "a", "ana", 200));
+    let drawn = render("state-paint-1", 1100, 720, &ui);
+    assert!(blue_pixels(&drawn) > 1000, "ana: {}", blue_pixels(&drawn));
+    assert_eq!(
+        amber_pixels(&drawn),
+        0,
+        "the picture that arrived too soon was not painted"
+    );
+
+    // The state is not a picture. It says what the share is doing, and it is
+    // applied even when the picture waits.
+    shares.apply(MediaEvent::State {
+        key: "a".into(),
+        state: ShareState::Reconnecting,
+    });
+    assert_eq!(stage_tiles(&shares)[0].state, ShareState::Reconnecting);
+}
+
+#[test]
 fn an_unknown_share_is_ignored_rather_than_invented() {
-    let shares = Shares::new();
+    let (shares, _slots) = stage();
     assert!(shares
         .apply(MediaEvent::Ended {
             key: "never-seen".into()

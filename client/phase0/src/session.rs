@@ -17,34 +17,26 @@
 //! session the shell is still publishing on.
 
 use std::collections::HashMap;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
-use cordel_media::capture::{CaptureSource, CaptureTarget, ScreenCapture, SessionKind, TargetKind};
+use cordel_media::capture::{SessionKind, TargetKind};
 use cordel_media::devices::AudioDeviceControl;
-use cordel_media::frame::Frame;
-use cordel_media::sdk::{
-    publish_microphone, received_to_frame, remote_video_stream, ScreenPublisher, SdkAudio,
-    SdkDesktopCapture,
-};
+use cordel_media::frame::resize_bgra;
+use cordel_media::sdk::{publish_microphone, received_to_frame, remote_video_stream, SdkAudio};
 use cordel_state::{MediaAdmissionClient, NativeHttpsTransport};
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::watch;
 
-use crate::share::{MediaEvent, LOCAL_SHARE_KEY};
+use crate::share::{MediaEvent, MediaOut, LOCAL_SHARE_KEY};
 use crate::ShareState;
 
-/// How long a capture waits for a frame. It has to cover a person answering the
-/// portal picker, which is the slowest step of the Wayland path.
-const FIRST_FRAME_DEADLINE: Duration = Duration::from_secs(90);
-
-/// How often the captured still is re-pushed to the published track, so a
-/// subscriber that arrives later still receives something.
-const PUBLISH_INTERVAL: Duration = Duration::from_millis(500);
+/// The width of the copy of a frame that reaches the interface.
+/// The picture is painted scaled, so a smaller copy looks the same and keeps
+/// the interface affordable. A tile of the stage is about half that wide.
+const UI_FRAME_WIDTH: u32 = 960;
 
 /// How often a remote share is allowed to hand a frame to the UI. A screen share
 /// does not need 30 fps to look live on this stage, and the conversion runs on the
@@ -53,7 +45,8 @@ const SHARE_FRAME_INTERVAL: Duration = Duration::from_millis(66);
 
 pub enum Command {
     Join,
-    CaptureFrame,
+    CaptureFrame { rate: u32 },
+    StopShare,
     Leave,
 }
 
@@ -67,16 +60,28 @@ struct Joined {
     /// Held for the session. The platform audio module is reference counted, and
     /// its device selection is what allows the microphone to open at all.
     _audio: SdkAudio,
-    /// Stops the still-frame publisher of the *current* capture. A second capture
-    /// replaces the publication, because the frame decides the track size.
-    publisher: Option<tokio::sync::watch::Sender<bool>>,
+    /// The screen share in progress, if any. A second capture replaces it,
+    /// because the frame decides the track size.
+    share: Option<stream::StreamShare>,
 }
 
 impl Joined {
-    /// Stops pushing frames. Used when the capture is replaced and when leaving.
-    fn stop_publishing(&mut self) {
-        if let Some(stop) = self.publisher.take() {
-            let _ = stop.send(true);
+    /// Stops the share and takes it off the stage. Used when the capture is
+    /// replaced and when leaving.
+    ///
+    /// Without the unpublish, every capture left its track published and the
+    /// other side collected one tile per capture.
+    async fn stop_publishing(&mut self) {
+        if let Some(share) = self.share.take() {
+            share.stop();
+            let participant = self.room.local_participant();
+            let sid = share.publication.sid();
+            match participant.unpublish_track(&sid).await {
+                Ok(_) => log::info!("the screen track {sid} left the stage"),
+                Err(error) => {
+                    log::warn!("the screen share track was not taken off the stage: {error}")
+                }
+            }
         }
     }
 }
@@ -92,7 +97,7 @@ enum Incoming {
 
 pub async fn run(
     mut commands: UnboundedReceiver<Command>,
-    events: Sender<MediaEvent>,
+    events: MediaOut,
     access: watch::Receiver<Option<String>>,
 ) {
     let mut joined: Option<Joined> = None;
@@ -162,51 +167,40 @@ pub async fn run(
                     }
                     busy(&events, false);
                 }
-                Command::CaptureFrame => {
+                Command::CaptureFrame { rate } => {
                     busy(&events, true);
                     let session = SessionKind::detect();
                     let _ = events.send(MediaEvent::Status(format!(
-                        "Capturing one frame on the {} session. Confirm the system picker if it \
+                        "Sharing the screen on the {} session. Confirm the system picker if it \
                          appears.",
                         session_label(session)
                     )));
-                    match capture_one_frame(TargetKind::Screen) {
-                        Ok(frame) => {
-                            let size = format!("{}x{}", frame.width(), frame.height());
-                            let mut state = ShareState::Preview;
-                            if let Some(session) = joined.as_mut() {
-                                match publish_frame(session, &frame, &events).await {
-                                    Ok(()) => state = ShareState::Live,
-                                    Err(err) => {
-                                        let _ = events.send(MediaEvent::Status(format!(
-                                            "Frame captured, but not published: {err}"
-                                        )));
-                                    }
-                                }
-                            }
-                            let _ = events.send(MediaEvent::Frame {
-                                key: LOCAL_SHARE_KEY.into(),
-                                publisher: "you".into(),
-                                state,
-                                frame,
-                            });
-                            if state == ShareState::Preview && joined.is_none() {
+                    if let Some(session) = joined.as_mut() {
+                        match stream::start_share(session, TargetKind::Screen, rate, &events).await
+                        {
+                            Ok(()) => {}
+                            Err(err) => {
                                 let _ = events.send(MediaEvent::Status(format!(
-                                    "Captured one {} frame ({size}). Join, then capture again to publish.",
-                                    session_label(session)
+                                    "Screen share did not start: {err}"
                                 )));
                             }
                         }
-                        Err(err) => {
-                            let _ = events
-                                .send(MediaEvent::Status(format!("Screen capture failed: {err}")));
-                        }
+                    } else {
+                        let _ = events.send(MediaEvent::Status(
+                            "Join a room before sharing the screen.".into(),
+                        ));
                     }
                     busy(&events, false);
                 }
+                Command::StopShare => {
+                    if let Some(session) = joined.as_mut() {
+                        session.stop_publishing().await;
+                    }
+                    let _ = events.send(MediaEvent::Status("Stopped sharing the screen.".into()));
+                }
                 Command::Leave => {
                     if let Some(mut session) = joined.take() {
-                        session.stop_publishing();
+                        session.stop_publishing().await;
                         let _ = session.room.close().await;
                         drop(session._audio);
                     }
@@ -226,13 +220,14 @@ pub async fn run(
 }
 
 include!("session/publish.rs");
+pub(crate) mod stream;
 
 /// Follows the room while it is joined: shares appearing, shares ending,
 /// participants leaving and the connection dropping.
 ///
 /// Keys are the media track identity, so a tile keeps its identity while another
 /// share ends or is detached (`docs/ux/journal.md`).
-fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &Sender<MediaEvent>) {
+fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) {
     match event {
         RoomEvent::TrackSubscribed {
             track,
@@ -249,6 +244,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &Sender<Med
                 .insert(key.clone(), publisher.clone())
                 .is_none()
             {
+                log::info!("a share appeared: {key}");
                 pump_share(track, key, publisher, events.clone());
             }
         }
@@ -271,11 +267,9 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &Sender<Med
             participant,
         } => {
             let publisher = participant.identity().to_string();
-            end_share(
-                events,
-                &mut session.tracked,
-                &share_key(&publisher, publication.sid()),
-            );
+            let key = share_key(&publisher, publication.sid());
+            log::info!("a share ended: {key}");
+            end_share(events, &mut session.tracked, &key);
         }
         RoomEvent::ParticipantDisconnected(participant) => {
             let leaving = participant.identity().to_string();
@@ -319,11 +313,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &Sender<Med
 
 /// Adds every video publication the room already has. Called on joining (someone
 /// may be sharing already) and after a reconnection.
-fn register_remote_shares(
-    room: &Room,
-    events: &Sender<MediaEvent>,
-    tracked: &mut HashMap<String, String>,
-) {
+fn register_remote_shares(room: &Room, events: &MediaOut, tracked: &mut HashMap<String, String>) {
     for participant in room.remote_participants().values() {
         let publisher = participant.identity().to_string();
         for publication in participant.track_publications().values() {
@@ -339,7 +329,7 @@ fn register_remote_shares(
 
 /// Forwards one remote share's frames to the UI thread for as long as the track
 /// delivers them.
-fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: Sender<MediaEvent>) {
+fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: MediaOut) {
     tokio::spawn(async move {
         let mut stream = remote_video_stream(&track);
         let mut last = Instant::now() - SHARE_FRAME_INTERVAL;
@@ -352,22 +342,16 @@ fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: S
                 log::warn!("a frame from {publisher} uses a layout this build does not handle");
                 continue;
             };
-            if events
-                .send(MediaEvent::Frame {
-                    key: key.clone(),
-                    publisher: publisher.clone(),
-                    state: ShareState::Live,
-                    frame,
-                })
-                .is_err()
-            {
-                return;
-            }
+            // A copia que viaja para a interface e reduzida. O quadro original
+            // tem a resolucao capturada, e a interface nao pinta um quadro
+            // desse tamanho a cada quadro.
+            let frame = resize_bgra(frame, UI_FRAME_WIDTH);
+            events.frame(&key, &publisher, ShareState::Live, frame);
         }
     });
 }
 
-fn end_share(events: &Sender<MediaEvent>, tracked: &mut HashMap<String, String>, key: &str) {
+fn end_share(events: &MediaOut, tracked: &mut HashMap<String, String>, key: &str) {
     if tracked.remove(key).is_some() {
         let _ = events.send(MediaEvent::Ended {
             key: key.to_string(),
@@ -381,7 +365,7 @@ fn share_key(identity: &str, sid: impl std::fmt::Display) -> String {
     format!("{identity}/{sid}")
 }
 
-fn busy(events: &Sender<MediaEvent>, busy: bool) {
+fn busy(events: &MediaOut, busy: bool) {
     let _ = events.send(MediaEvent::Busy(busy));
 }
 
