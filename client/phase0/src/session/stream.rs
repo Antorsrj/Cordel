@@ -26,6 +26,10 @@ const FIRST_FRAME_DEADLINE: Duration = Duration::from_secs(90);
 /// How often the measured rate is reported.
 const REPORT_INTERVAL: Duration = Duration::from_secs(1);
 
+/// How often the local preview gets a frame. The stage throttles what it
+/// paints, so the preview follows the same pace.
+const LOCAL_FRAME_INTERVAL: Duration = Duration::from_millis(66);
+
 /// The handle of a running share. The task that holds the capturer stops it
 /// when this is signalled.
 pub(super) struct StreamShare {
@@ -96,10 +100,15 @@ pub(super) async fn start_share(
     tokio::spawn(async move {
         let mut backend = backend;
         let mut last_report = Instant::now();
+        let mut local = Instant::now() - LOCAL_FRAME_INTERVAL;
         let mut frames = 0u32;
         loop {
-            if stopped.changed().await.is_err() {
-                break;
+            // A espera pelo fim do share e a captura correm juntas: esperar
+            // apenas pela mudanca do valor travaria a task depois do primeiro
+            // frame, e a tela pararia de andar.
+            tokio::select! {
+                _ = stopped.changed() => break,
+                _ = tokio::time::sleep(STREAM_INTERVAL) => {}
             }
             if let Err(error) = backend.tick() {
                 let _ = report.send(MediaEvent::Status(format!(
@@ -113,6 +122,17 @@ pub(super) async fn start_share(
                         frames += 1;
                         if let Err(error) = publisher.push(&frame) {
                             log::warn!("screen frame not pushed: {error}");
+                        }
+                        // O preview local e o mesmo quadro que vai para o
+                        // outro lado, entao ele tambem precisa andar.
+                        if local.elapsed() >= LOCAL_FRAME_INTERVAL {
+                            local = Instant::now();
+                            let _ = report.send(MediaEvent::Frame {
+                                key: LOCAL_SHARE_KEY.into(),
+                                publisher: "you".into(),
+                                state: ShareState::Live,
+                                frame,
+                            });
                         }
                     }
                     Err(TryRecvError::Empty) => break,
@@ -128,7 +148,6 @@ pub(super) async fn start_share(
                     "Screen share running at {rate:.1} frames per second."
                 )));
             }
-            tokio::time::sleep(STREAM_INTERVAL).await;
         }
         // The capturer must release the capture permission.
         let _ = backend.stop();
