@@ -70,6 +70,13 @@ receives the other's screen track and frame, and a member moderated afterwards
 is refused. The clients use a synthetic screen source, so the run needs no
 display and no audio device. It passed on the LXC on 2026-10-21.
 
+## The media gate
+
+The local proof also runs the Server 005 gate and drain checks, so the
+moderation path is exercised without the Azure deployment. The gate needs the
+LiveKit service the media script starts, so the script runs the checks while
+the container is up.
+
 ## Limits
 
 This is local evidence, not deployment evidence. It does not cover public DNS,

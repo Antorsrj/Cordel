@@ -235,6 +235,7 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "rand 0.8.8",
+ "reqwest",
  "rpassword",
  "serde",
  "serde_json",

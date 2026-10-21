@@ -50,6 +50,9 @@ pub(super) struct ModerationResponse {
     state: &'static str,
     kicked_until: Option<DateTime<Utc>>,
     authorization_revision: i64,
+    /// Whether the voice rooms of the previous generation were drained. A
+    /// moderation action is not fully applied while this is false.
+    media_drained: bool,
 }
 
 fn community_id(raw: &str) -> Result<Uuid, ApiError> {
@@ -314,6 +317,12 @@ async fn moderate(
         .await
         .map_err(|_| ApiError::internal())?;
     }
+    let previous_revision: i64 =
+        sqlx::query_scalar("SELECT authorization_revision FROM communities WHERE id=$1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| ApiError::internal())?;
     let revision: i64 = sqlx::query_scalar("UPDATE communities SET authorization_revision=authorization_revision+1 WHERE id=$1 RETURNING authorization_revision")
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| ApiError::internal())?;
     audit(
@@ -330,12 +339,21 @@ async fn moderate(
         .await
         .map_err(|_| ApiError::internal())?;
     tx.commit().await.map_err(|_| ApiError::internal())?;
+    // The rooms of the old generation are drained after the commit, so the
+    // moderated account is out of them and the members rejoin in the current
+    // room.
+    let media_drained = if matches!(action, Moderation::Unban) {
+        true
+    } else {
+        media::drain_rooms(&state, id, previous_revision.max(0) as u64).await
+    };
     Ok(Json(ModerationResponse {
         schema_version: 1,
         member_id,
         state: state_name,
         kicked_until,
         authorization_revision: revision,
+        media_drained,
     }))
 }
 

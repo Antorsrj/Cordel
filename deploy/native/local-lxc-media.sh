@@ -185,6 +185,31 @@ done
 log "Axum respondendo em $ORIGIN"
 
 # -----------------------------------------------------------------------------
+# 3b. As verificacoes do gate e do drain, com o LiveKit desta prova
+# -----------------------------------------------------------------------------
+# Os testes truncam o banco, entao eles usam um banco proprio e nao o do
+# servidor que esta no ar.
+TEST_DB_NAME="${DB_NAME}_tests"
+log "Criando o banco dos testes: $TEST_DB_NAME"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='$TEST_DB_NAME'" | grep -q 1 \
+  || sudo -u postgres createdb "$TEST_DB_NAME"
+
+log "Rodando as verificacoes de midia (admissao, gate e drain)..."
+CORDEL_TEST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/$TEST_DB_NAME" \
+CORDEL_TEST_LIVEKIT_URL="ws://127.0.0.1:$SIGNAL_PORT" \
+CORDEL_TEST_LIVEKIT_API_URL="http://127.0.0.1:$SIGNAL_PORT" \
+CORDEL_TEST_LIVEKIT_API_KEY="$API_KEY" \
+CORDEL_TEST_LIVEKIT_API_SECRET="$API_SECRET" \
+  cargo test \
+  --manifest-path server/identity/Cargo.toml \
+  --locked \
+  --lib \
+  -- \
+  --ignored \
+  --test-threads=1 \
+  media
+
+# -----------------------------------------------------------------------------
 # 4. Um canal de voz e dois membros
 # -----------------------------------------------------------------------------
 SUMMARY="$(python3 "$REPO_DIR/deploy/native/local-lxc-e2e.py" \

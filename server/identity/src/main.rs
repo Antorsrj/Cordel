@@ -1,5 +1,5 @@
 use cordel_identity::{
-    bootstrap_admin, change_admin_role, recover_admin, router, AppState, MediaConfig,
+    bootstrap_admin, change_admin_role, recover_admin, router, AppState, LiveKitApi, MediaConfig,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -45,6 +45,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(None) => {}
             Err(message) => return Err(message.into()),
         }
+        // The host-local server API lets a moderation action drain a room. It
+        // is optional, and without it the action says the drain did not happen.
+        if let Ok(api_url) = env::var("CORDEL_LIVEKIT_API_URL") {
+            if !api_url.trim().is_empty() {
+                let api = LiveKitApi::new(
+                    env::var("CORDEL_LIVEKIT_API_KEY").unwrap_or_default(),
+                    env::var("CORDEL_LIVEKIT_API_SECRET").unwrap_or_default(),
+                    api_url,
+                )
+                .map_err(|message| -> Box<dyn std::error::Error> { message.into() })?;
+                state = state.with_media_api(api);
+            }
+        }
         let address: SocketAddr = env::var("CORDEL_LISTEN_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:3000".to_owned())
             .parse()?;
@@ -52,6 +65,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("Identity listener must bind to loopback behind the reverse proxy".into());
         }
         let listener = tokio::net::TcpListener::bind(address).await?;
+        // The admission gate has its own loopback listener. The public path
+        // never forwards to it, so it is not reachable from the Internet.
+        let gate = if state.has_media() {
+            let gate_address: SocketAddr = env::var("CORDEL_MEDIA_GATE_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:3001".to_owned())
+                .parse()?;
+            if !gate_address.ip().is_loopback() {
+                return Err("The media gate must bind to loopback".into());
+            }
+            let gate_listener = tokio::net::TcpListener::bind(gate_address).await?;
+            let gate_state = state.clone();
+            tokio::spawn(async move {
+                axum::serve(gate_listener, cordel_identity::gate_router(gate_state)).await
+            });
+            println!("Media admission gate listening on {gate_address}");
+            Some(gate_address)
+        } else {
+            None
+        };
+        let _ = gate;
         axum::serve(listener, router(state)).await?;
         return Ok(());
     }

@@ -23,8 +23,8 @@ pub use host_admin::change_admin_role;
 pub use host_identity::{bootstrap_admin, recover_admin};
 use identity_handlers::*;
 use media::webhook::RoomObservation;
-pub use media::MediaConfig;
 use media::MediaState;
+pub use media::{LiveKitApi, MediaConfig};
 
 use argon2::password_hash::{
     rand_core::OsRng as SaltRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
@@ -85,6 +85,19 @@ impl AppState {
     pub fn with_media(mut self, config: MediaConfig) -> Self {
         self.media = Some(MediaState::new(config));
         self
+    }
+
+    /// Attach the host-local LiveKit server API, used to drain a room.
+    pub fn with_media_api(mut self, api: LiveKitApi) -> Self {
+        if let Some(media) = self.media.as_mut() {
+            media.config.api = Some(api);
+        }
+        self
+    }
+
+    /// Whether a LiveKit service is configured.
+    pub fn has_media(&self) -> bool {
+        self.media.is_some()
     }
 
     /// The observed media rooms, for the Server 010 snapshot and for tests.
@@ -428,6 +441,26 @@ struct MeResponse {
 #[derive(Debug, Serialize)]
 struct EmptyResponse {
     schema_version: u8,
+}
+
+/// The admission gate router.
+///
+/// It is bound to its own loopback listener and is never forwarded to by the
+/// public path. The reverse proxy calls it before it proxies the LiveKit
+/// signaling upgrade, and a non-2xx answer keeps the client out of the room.
+pub fn gate_router(state: AppState) -> Router {
+    Router::new()
+        .route("/v1/livekit/authorize", get(media::gate::authorize))
+        .layer(DefaultBodyLimit::max(16 * 1024))
+        .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "Not found") })
+        .method_not_allowed_fallback(|| async {
+            ApiError::new(
+                StatusCode::METHOD_NOT_ALLOWED,
+                "method_not_allowed",
+                "Method not allowed",
+            )
+        })
+        .with_state(state)
 }
 
 pub fn router(state: AppState) -> Router {

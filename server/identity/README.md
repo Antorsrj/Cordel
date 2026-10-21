@@ -37,6 +37,14 @@ ADR-004 migration `4` adds `channels.last_seq` and the `messages` table. Apply [
 
 `POST /v1/livekit/webhook` verifies the JWT in the `Authorization` header with the API secret, compares the `sha256` claim with the digest of the raw body, checks the issuer, and ignores a repeated event id. It records an ephemeral observation and never grants access. The durable presence snapshot and the reconciliation after a restart belong to Server 010.
 
+## Media admission gate and drain
+
+A second loopback listener, `CORDEL_MEDIA_GATE_ADDR` (default `127.0.0.1:3001`), carries `GET /v1/livekit/authorize`. The reverse proxy calls it before it proxies the LiveKit signaling upgrade, and a non-2xx answer keeps the client out of the room. The route is not on the public `/v1/*` path.
+
+The gate refuses a token unless its signature, issuer, and expiry are valid, the room names a known voice channel, the generation equals the community's current `authorization_revision`, the account is an active member, and the app session named in the token is still live. The token arrives in the `X-Cordel-Livekit-Token` header, so it does not land in the gate's access log.
+
+A moderation action deletes the rooms of the previous generation through the LiveKit server API, which disconnects everyone in them so the members rejoin in the current room. `CORDEL_LIVEKIT_API_URL` points at the host-local server API; without it the moderation response reports `media_drained: false`, because the action is not fully applied while a moderated account is still in a room.
+
 ## Contract and limits
 
 The routes follow [v1.md](../../docs/contracts/v1.md). HTTP errors use the v1 JSON envelope. `POST /v1/accounts` explicitly returns `public_registration_disabled`; only `POST /v1/accounts/from-invite` creates a public account. A native client sends its app access token in `Authorization: Bearer ...`. `POST /v1/sessions/admin-grant` checks the current admin role and the account's own password, then issues a random grant for 600 seconds. `DELETE /v1/sessions/admin-grant` revokes it. Management routes require the grant as their bearer. Only its SHA-256 hash is stored. Browser cookie admission is not implemented here.

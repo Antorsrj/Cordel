@@ -8,14 +8,12 @@
 
 use std::sync::Arc;
 
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine as _;
 use cordel_protocol::MediaAdmission;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use super::*;
+pub use livekit_api::LiveKitApi;
 
 /// How long an admission stays valid. It matches the app access token, and it
 /// bounds the window in which a held token can enter a room again. LiveKit
@@ -29,6 +27,8 @@ pub struct MediaConfig {
     api_secret: String,
     /// The public signaling URL clients connect to.
     pub(crate) url: String,
+    /// The host-local LiveKit server API, used to drain a room.
+    pub(crate) api: Option<LiveKitApi>,
 }
 
 impl MediaConfig {
@@ -48,7 +48,15 @@ impl MediaConfig {
             api_key,
             api_secret,
             url,
+            api: None,
         })
+    }
+
+    /// Attach the host-local server API. Without it a moderation action cannot
+    /// drain a room, and the action says so.
+    pub fn with_api(mut self, api: LiveKitApi) -> Self {
+        self.api = Some(api);
+        self
     }
 }
 
@@ -87,6 +95,10 @@ struct AdmissionClaims {
     iat: i64,
     iss: String,
     sub: String,
+    /// The app session the admission belongs to. The gate refuses the room
+    /// when that session is no longer live.
+    #[serde(rename = "sid")]
+    session_id: String,
     name: String,
     video: VideoGrant,
 }
@@ -105,6 +117,7 @@ impl MediaConfig {
             iat: now,
             iss: self.api_key.clone(),
             sub: principal.account_id.to_string(),
+            session_id: principal.session_id.to_string(),
             name: principal.login.clone(),
             video: VideoGrant {
                 room: room.to_owned(),
@@ -175,26 +188,54 @@ pub(crate) async fn admission(
     }))
 }
 
-/// The base64 form of the SHA-256 digest of a webhook body, which is what the
-/// LiveKit webhook signature carries.
-pub fn body_digest(raw: &[u8]) -> String {
-    BASE64.encode(Sha256::digest(raw))
+/// Drain every voice room a community had at one generation.
+///
+/// LiveKit disconnects everyone in a room it deletes, so the members rejoin in
+/// the current room and the moderated account is out of the old one. Returns
+/// false when the server API could not be reached, because ADR-006 does not
+/// allow the action to be reported as fully applied then.
+pub(crate) async fn drain_rooms(state: &AppState, community_id: Uuid, generation: u64) -> bool {
+    let Some(media) = state.media.as_ref() else {
+        // No media service, so there is no room to drain.
+        return true;
+    };
+    let Some(api) = media.config.api.as_ref() else {
+        return false;
+    };
+    let channels =
+        match sqlx::query_scalar("SELECT id FROM channels WHERE community_id=$1 AND kind='voice'")
+            .bind(community_id)
+            .fetch_all(&state.pool)
+            .await
+        {
+            Ok(channels) => channels,
+            Err(_) => return false,
+        };
+    for channel_id in channels {
+        let room = room_name(channel_id, generation);
+        if api.delete_room(&room).await.is_err() {
+            return false;
+        }
+    }
+    true
 }
 
 /// The media configuration and the ephemeral observation it collects.
 #[derive(Clone)]
 pub(crate) struct MediaState {
-    pub(crate) config: Arc<MediaConfig>,
+    pub(crate) config: MediaConfig,
     pub(crate) observation: Arc<webhook::Observations>,
 }
 
 impl MediaState {
     pub(crate) fn new(config: MediaConfig) -> Self {
         Self {
-            config: Arc::new(config),
+            config,
             observation: Arc::new(webhook::Observations::default()),
         }
     }
 }
 
+pub(crate) mod gate;
+pub(crate) mod livekit_api;
 pub(crate) mod webhook;

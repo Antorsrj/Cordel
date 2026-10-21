@@ -50,6 +50,62 @@ CORDEL_UPGRADE_SCRIPT" \
 
 The script applies migration 0002 using the protected migration URL, grants the runtime role `SELECT`/`INSERT`/`UPDATE` on `admin_grants` and `INSERT` on `admin_audit`, verifies those privileges and the two-entry migration ledger, then stops the service and atomically replaces the binary. It preserves the verified old binary at `/usr/local/bin/cordel-identity.rollback-cf373b62dfb270badb137c20e5d380949c3e9b4d`. If the new service fails to start, it restores that binary and attempts to restart the service. Migration 0002 is additive; binary rollback does not roll back the schema. A failed or interrupted run requires local inspection before retrying. Do not admit real users based on this isolated upgrade.
 
+## Media admission gate (not deployed)
+
+The Server 005 media service and the Server 006 admission gate are local
+source only. Nothing in this section has been applied to the Azure test VM.
+The Caddy change below is the deployment step that the gate depends on, and
+it must not be applied before the identity binary that serves the gate is
+installed and the LiveKit API settings are present.
+
+The gate closes the path into a room for a moderated account. LiveKit itself
+cannot deny a token it already issued, so Axum answers the question before the
+reverse proxy hands the signaling upgrade to LiveKit.
+
+The identity service opens a second loopback listener for the gate, separate
+from the public `/v1/*` path:
+
+```ini
+# cordel-identity service
+Environment=CORDEL_MEDIA_GATE_ADDR=127.0.0.1:3001
+Environment=CORDEL_LIVEKIT_API_KEY=<livekit api key>
+Environment=CORDEL_LIVEKIT_API_SECRET=<livekit api secret>
+Environment=CORDEL_LIVEKIT_URL=wss://media.example
+Environment=CORDEL_LIVEKIT_API_URL=http://127.0.0.1:7880
+```
+
+The gate is a host-local port. It must not be reachable from the Internet,
+and the LiveKit signaling port must stay blocked, so the only way into a room
+is through the gate. The Caddy configuration becomes:
+
+```caddy
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:3000
+    }
+    handle {
+        # The signaling path is gated by Axum, so a moderated account cannot
+        # enter a room with a token it already holds.
+        @livekit path /rtc /rtc/*
+        handle @livekit {
+            forward_auth 127.0.0.1:3001 {
+                uri /v1/livekit/authorize
+                method GET
+                header_up X-Cordel-Livekit-Token {query.access_token}
+            }
+            reverse_proxy 10.77.1.4:7880
+        }
+        handle {
+            reverse_proxy 10.77.1.4:7880
+        }
+    }
+```
+
+The token travels in a header rather than in the gate's query string, so it
+does not land in the gate's access log. After the change, check three things
+before admitting real users: a valid admission still joins, a stale
+generation is refused with 403, and the LiveKit port is still unreachable
+from outside the host.
+
 ## Current evidence and next gate
 
 The [deployment record](../records/deployment-record.md) has the observed checks and the [ADR status ledger](../../docs/adr/STATUS.md) tracks completion. The installed ADR-002 binary passed focused own-password grant, invitation, and disposable-user redemption checks. ADR-003 policy source is verified in isolation but not deployed. Off-host restore and integrated client/media checks remain open.

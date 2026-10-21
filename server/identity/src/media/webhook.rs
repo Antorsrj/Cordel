@@ -219,7 +219,7 @@ fn verify(media: &MediaConfig, headers: &HeaderMap, raw: &[u8]) -> Result<(), Ap
     if claims.iss != media.api_key {
         return Err(ApiError::unauthenticated());
     }
-    let expected = super::body_digest(raw);
+    let expected = super::gate::digest(raw);
     match claims.sha256 {
         Some(digest) if digest == expected => Ok(()),
         _ => Err(ApiError::unauthenticated()),
