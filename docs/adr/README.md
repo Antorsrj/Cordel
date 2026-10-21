@@ -54,6 +54,14 @@ These ADRs can be researched in parallel but do not block the first Linux/browse
 | [108 — macOS native platform](client/ADR-108-macos-platform.md) | Accepted | 4/5 | macOS capture, permissions, packaging and Journal validation | Before claiming macOS support |
 | [109 — Windows native platform](client/ADR-109-windows-platform.md) | Accepted | 4/5 | Windows capture, permissions, packaging and Journal validation | Before claiming Windows support |
 
+## Repository process
+
+ADR-012 continues the sequence after server 011. It is not a client ADR and does not join the 1xx series. It does not gate the first product test. Branch protection and pull-request CI stay recorded as maintainer follow-ups.
+
+| ADR | Status | Complexity | Area | Implementation dependency |
+| --- | --- | --- | --- | --- |
+| [012 — GitHub Flow](process/ADR-012-github-flow.md) | Proposed | 2/5 | Branches, pull requests, review, and tags | None for the decision; maintainers configure branch protection and wider CI |
+
 ## Delegation order and acceptance
 
 1. **Foundation:** Server 001–002 and Client 101 can proceed together behind a reviewed session contract or fixture. Linux Phase 0 must prove audio and two remote screen tracks, including one detached view, before committing to Slint as the final UI.
