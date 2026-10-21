@@ -241,6 +241,12 @@ log "Axum em $API_PORT e gate em $GATE_PORT"
 # 5. O proxy reverso com o gate
 # -----------------------------------------------------------------------------
 cat >"$WORK_DIR/Caddyfile" <<EOF
+{
+    # O servico do sistema do Caddy pode estar rodando e ocupa a porta de
+    # administracao. A prova so precisa do proxy, entao o admin e desligado.
+    admin off
+}
+
 # A prova local e em HTTP simples: o que importa e a ordem dos estratos, e nao
 # o TLS. A implantacao de producao termina TLS no Caddy.
 http://127.0.0.1:$PROXY_PORT {
