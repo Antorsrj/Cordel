@@ -177,24 +177,28 @@ log "Atualizando índices do apt..."
 sudo apt-get update -y
 
 log "Instalando pacotes de sistema..."
-sudo apt-get install -y \
+# A lista espelha .github/workflows/phase0-linux.yml, que é a referência
+# autoritativa para o build Linux do Phase 0.
+sudo apt-get install -y --no-install-recommends \
   build-essential \
   curl \
   git \
   pkg-config \
+  libclang-dev \
   libssl-dev \
   libpq-dev \
   postgresql \
   postgresql-contrib \
   clang \
-  llvm \
-  libxcb-render0-dev \
-  libxcb-shape0-dev \
-  libxcb-xfixes0-dev \
-  libxkbcommon-dev \
-  libfontconfig1-dev \
-  libfreetype6-dev \
-  libpng-dev
+  libglib2.0-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
+  libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+  libfontconfig1-dev libfreetype6-dev \
+  libgl1-mesa-dev libegl1-mesa-dev \
+  libasound2-dev libpulse-dev \
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+  libxi-dev libxext-dev \
+  libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+  xvfb
 
 # -----------------------------------------------------------------------------
 # 2. Rust toolchain (alinhado com o CI/local: 1.99.1)
