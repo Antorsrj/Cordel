@@ -26,8 +26,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_LIB="$SCRIPT_DIR/local-lxc-common.sh"
+if [[ ! -f "$COMMON_LIB" ]]; then
+  printf '[provision][ERRO] local-lxc-common.sh nao encontrado em %s\n' "$SCRIPT_DIR" >&2
+  printf 'Copie deploy/native/local-lxc-common.sh para o mesmo diretorio.\n' >&2
+  exit 1
+fi
 # shellcheck source=local-lxc-common.sh
-source "$SCRIPT_DIR/local-lxc-common.sh"
+source "$COMMON_LIB"
 
 # -----------------------------------------------------------------------------
 # Configurações

@@ -27,8 +27,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_LIB="$SCRIPT_DIR/local-lxc-common.sh"
+if [[ ! -f "$COMMON_LIB" ]]; then
+  printf '[provision][ERRO] local-lxc-common.sh nao encontrado em %s\n' "$SCRIPT_DIR" >&2
+  printf 'Copie deploy/native/local-lxc-common.sh para o mesmo diretorio.\n' >&2
+  exit 1
+fi
 # shellcheck source=local-lxc-common.sh
-source "$SCRIPT_DIR/local-lxc-common.sh"
+source "$COMMON_LIB"
+
+# A biblioteca compartilhada precisa estar na versao atual. Uma copia antiga
+# reutilizaria um checkout desatualizado e falharia mais adiante de forma
+# confusa.
+if ! declare -F use_checkout >/dev/null 2>&1; then
+  fail "local-lxc-common.sh esta desatualizado em $COMMON_LIB.
+Copie a versao atual de deploy/native/local-lxc-common.sh para o mesmo diretorio."
+fi
 
 DB_NAME="cordel_identity_test_lxc_e2e_$(date +%s)"
 ADMIN_LOGIN="e2e-admin"
@@ -65,11 +79,19 @@ if ! find_repo_dir; then
 fi
 cd "$REPO_DIR"
 log "Usando repositorio em: $REPO_DIR"
+log "Revisao: $(git rev-parse --short HEAD 2>/dev/null || echo desconhecida)"
 
 AVAIL_GB="$(free_gb "$REPO_DIR")"
 log "Espaco livre: ${AVAIL_GB} GB"
 if [[ "${AVAIL_GB:-0}" -lt 6 ]]; then
   fail "Espaco insuficiente (${AVAIL_GB} GB). Rode o provisionamento antes."
+fi
+
+# O example de bootstrap descartavel entrou no commit ad6d43a. Sem ele o
+# primeiro admin nao pode ser criado sem terminal.
+if [[ ! -f "$REPO_DIR/server/identity/examples/bootstrap_disposable_admin.rs" ]]; then
+  fail "Este checkout nao tem o example de admin descartavel.
+Atualize com: git -C $REPO_DIR fetch origin main && git -C $REPO_DIR reset --hard origin/main"
 fi
 
 export CARGO_PROFILE_DEV_DEBUG=0
