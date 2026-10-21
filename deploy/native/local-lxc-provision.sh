@@ -44,12 +44,17 @@ fail() {
 # 0. Garantir que estamos dentro de um checkout do Cordel
 # -----------------------------------------------------------------------------
 if [[ ! -f "$REPO_DIR/Cargo.toml" ]] || [[ ! -f "$REPO_DIR/server/identity/Cargo.toml" ]]; then
-  log "Checkout do Cordel não encontrado em $REPO_DIR. Tentando clonar..."
-  if [[ -d "$REPO_DIR" ]] && [[ ! -z "$(ls -A "$REPO_DIR" 2>/dev/null)" ]]; then
-    fail "O diretório $REPO_DIR existe, mas não parece ser o repositório Cordel."
+  if [[ -e "$REPO_DIR" ]]; then
+    # Diretório existe mas não é o repositório Cordel: clone em um caminho alternativo.
+    ALT_REPO_DIR="${REPO_DIR}-main"
+    log "Diretório $REPO_DIR existe mas não é o repositório Cordel. Clonando em $ALT_REPO_DIR..."
+    git clone "$REPO_URL" "$ALT_REPO_DIR" || fail "Falha ao clonar $REPO_URL para $ALT_REPO_DIR"
+    REPO_DIR="$ALT_REPO_DIR"
+  else
+    log "Checkout do Cordel não encontrado em $REPO_DIR. Clonando..."
+    mkdir -p "$(dirname "$REPO_DIR")"
+    git clone "$REPO_URL" "$REPO_DIR" || fail "Falha ao clonar $REPO_URL"
   fi
-  mkdir -p "$(dirname "$REPO_DIR")"
-  git clone "$REPO_URL" "$REPO_DIR" || fail "Falha ao clonar $REPO_URL"
 fi
 
 cd "$REPO_DIR"
