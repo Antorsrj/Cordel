@@ -175,6 +175,30 @@ mod tests {
     }
 
     #[test]
+    fn native_history_and_ack_fixtures_parse() {
+        let page: HistoryPage = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/rest_history_page.json"
+        ))
+        .unwrap();
+        assert_eq!(page.channel_id, "7efc7a7b-b06f-4632-8780-bb611b8cd0a8");
+        assert_eq!(page.messages.len(), 1);
+        assert_eq!(page.messages[0].seq, 42);
+        assert_eq!(page.messages[0].body.as_deref(), Some("Hello"));
+        assert!(!page.has_more);
+
+        let ack: MessageAck = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/rest_ack.json"
+        ))
+        .unwrap();
+        assert_eq!(ack.channel_id, page.channel_id);
+        assert_eq!(
+            ack.client_message_id,
+            "567e491b-4c30-47ec-9fc0-6744c12a6e87"
+        );
+        assert_eq!(ack.seq, 42);
+    }
+
+    #[test]
     fn acknowledgement_names_the_client_message_and_sequence() {
         let ack = MessageAck {
             channel_id: "general".to_owned(),

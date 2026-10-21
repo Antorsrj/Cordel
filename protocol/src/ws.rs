@@ -347,4 +347,80 @@ mod tests {
             Err(FrameError::UnsupportedVersion { v: 99 })
         );
     }
+
+    #[test]
+    fn native_fixtures_freeze_the_current_ws_subset() {
+        let ready: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_ready.json"
+        ))
+        .unwrap();
+        assert_eq!(ready.v, 1);
+        assert_eq!(ready.kind, "ready");
+        assert_eq!(
+            ready.fields.get("community_id").and_then(Value::as_str),
+            Some("5aee793e-3cde-44fc-9608-48b7e945fb53")
+        );
+
+        let subscribed: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_subscribed.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            subscribed.fields.get("last_seq").and_then(Value::as_u64),
+            Some(42)
+        );
+
+        let message: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_message.json"
+        ))
+        .unwrap();
+        let event = message.as_chat_event().unwrap().unwrap();
+        assert_eq!(event.seq, 42);
+        assert_eq!(event.body.as_deref(), Some("Hello"));
+        assert_eq!(
+            event.client_message_id.as_deref(),
+            Some("567e491b-4c30-47ec-9fc0-6744c12a6e87")
+        );
+        assert_eq!(
+            event.extra.get("message_id").and_then(Value::as_str),
+            Some("418ab662-4882-43bb-9eaf-5ad43261d6a7")
+        );
+
+        let lagged: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_lagged.json"
+        ))
+        .unwrap();
+        assert_eq!(lagged.as_chat_event().unwrap(), None);
+        assert_eq!(
+            lagged.fields.get("after_seq").and_then(Value::as_u64),
+            Some(42)
+        );
+
+        let revoked: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_access_revoked.json"
+        ))
+        .unwrap();
+        assert_eq!(revoked.kind, "access_revoked");
+        assert_eq!(
+            revoked
+                .fields
+                .get("authorization_revision")
+                .and_then(Value::as_u64),
+            Some(9)
+        );
+
+        let error: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_error.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            error.fields.get("code").and_then(Value::as_str),
+            Some("unsupported_version")
+        );
+        let ack: WsFrame = serde_json::from_str(include_str!(
+            "../../docs/contracts/fixtures/native/ws_ack.json"
+        ))
+        .unwrap();
+        assert_eq!(ack.as_chat_event().unwrap(), None);
+    }
 }

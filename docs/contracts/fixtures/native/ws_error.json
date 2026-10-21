@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "kind": "error",
+  "code": "unsupported_version",
+  "message": "unsupported protocol version"
+}

@@ -7,6 +7,9 @@ pub const RETRY_CAP: Duration = Duration::from_secs(30);
 pub enum AccessBlock {
     Kick,
     Ban,
+    /// The server revoked the live session without disclosing kick, ban,
+    /// logout, or session loss. The client returns to sign-in.
+    Revoked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +87,12 @@ mod tests {
             plan_interrupt(Interrupt::Blocked(AccessBlock::Ban), 4, 10),
             NextAction::Stop {
                 reason: AccessBlock::Ban
+            }
+        );
+        assert_eq!(
+            plan_interrupt(Interrupt::Blocked(AccessBlock::Revoked), 0, 0),
+            NextAction::Stop {
+                reason: AccessBlock::Revoked
             }
         );
     }

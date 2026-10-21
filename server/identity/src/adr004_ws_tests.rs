@@ -85,6 +85,16 @@ async fn no_text_within(socket: &mut Client, wait: Duration) {
     assert!(result.is_err(), "unexpected WebSocket text frame");
 }
 
+async fn wait_for_no_receivers(state: &AppState) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while state.chat_events.receiver_count() > 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("WebSocket session did not release the broadcast receiver");
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL database named cordel_identity_test_* and CORDEL_TEST_DATABASE_URL"]
 async fn disposable_database_websocket_flow() {
@@ -169,6 +179,33 @@ async fn disposable_database_websocket_flow() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     let voice_channel = voice["channel_id"].as_str().unwrap().to_owned();
+
+    let mut unsupported = connect(port, &user_token).await;
+    assert_eq!(next_text(&mut unsupported).await.kind, "ready");
+    let mut fields = serde_json::Map::new();
+    fields.insert(
+        "channel_id".to_owned(),
+        serde_json::Value::String(text_channel.clone()),
+    );
+    send(
+        &mut unsupported,
+        &cordel_protocol::WsFrame {
+            v: 99,
+            kind: "subscribe".to_owned(),
+            fields,
+        },
+    )
+    .await;
+    let mismatch = next_text(&mut unsupported).await;
+    assert_eq!(mismatch.kind, "error");
+    assert_eq!(
+        mismatch
+            .fields
+            .get("code")
+            .and_then(serde_json::Value::as_str),
+        Some("unsupported_version")
+    );
+    drop(unsupported);
 
     let unauthenticated = format!("ws://127.0.0.1:{port}/v1/events")
         .into_client_request()
@@ -376,6 +413,54 @@ async fn disposable_database_websocket_flow() {
         Some(3)
     );
 
+    socket.close(None).await.unwrap();
+    let _ = socket.next().await;
+    wait_for_no_receivers(&state).await;
+    assert_eq!(state.chat_events.receiver_count(), 0);
+
+    let (status, ack) = call(
+        &state,
+        "POST",
+        &messages,
+        Some(&user_token),
+        Some(&format!(
+            r#"{{"client_message_id":"{}","body":"after disconnect"}}"#,
+            Uuid::new_v4()
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(ack["seq"], 4);
+    assert_eq!(state.chat_events.receiver_count(), 0);
+
+    let mut socket = connect(port, &user_token).await;
+    assert_eq!(next_text(&mut socket).await.kind, "ready");
+    send(
+        &mut socket,
+        &cordel_protocol::WsFrame::subscribe(&text_channel),
+    )
+    .await;
+    let subscribed = next_text(&mut socket).await;
+    assert_eq!(subscribed.kind, "subscribed");
+    assert_eq!(
+        subscribed
+            .fields
+            .get("last_seq")
+            .and_then(serde_json::Value::as_u64),
+        Some(4)
+    );
+    let (status, history) = call(
+        &state,
+        "GET",
+        &format!("{messages}?after_seq=3&limit=50"),
+        Some(&user_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(history["messages"][0]["seq"], 4);
+    assert_eq!(history["messages"][0]["body"], "after disconnect");
+
     let (status, grant) = call(
         &state,
         "POST",
@@ -410,7 +495,7 @@ async fn disposable_database_websocket_flow() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(ack["seq"], 4);
+    assert_eq!(ack["seq"], 5);
 
     let revoked = next_text(&mut socket).await;
     assert_eq!(revoked.kind, "access_revoked");

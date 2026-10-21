@@ -64,8 +64,8 @@ impl Outbox {
         }
     }
 
-    pub fn mark_failed(&mut self, id: &ClientMessageId) {
-        if let Some(send) = self.pending.get_mut(id.as_str()) {
+    pub fn mark_failed(&mut self, id: &str) {
+        if let Some(send) = self.pending.get_mut(id) {
             if !matches!(send.state, SendState::Acknowledged { .. }) {
                 send.state = SendState::Failed;
             }
@@ -98,7 +98,7 @@ mod tests {
     fn retry_keeps_the_same_client_message_id() {
         let mut outbox = Outbox::default();
         let id = outbox.enqueue("general", "hello");
-        outbox.mark_failed(&id);
+        outbox.mark_failed(id.as_str());
         let again = outbox.retry(&id).unwrap();
         assert_eq!(again.body, "hello");
         assert_eq!(outbox.visible().count(), 1);

@@ -78,6 +78,18 @@ impl<S: RefreshStore> ClientState<S> {
         self.cursors.cursor(channel_id)
     }
 
+    pub fn set_cursor(&mut self, channel_id: impl Into<String>, seq: u64) {
+        self.cursors.set_cursor(channel_id, seq);
+    }
+
+    pub fn pending_sends(&self) -> impl Iterator<Item = (&str, &crate::outbox::PendingSend)> {
+        self.outbox.visible()
+    }
+
+    pub fn mark_send_failed(&mut self, client_message_id: &str) {
+        self.outbox.mark_failed(client_message_id);
+    }
+
     pub fn enqueue(
         &mut self,
         channel_id: impl Into<String>,

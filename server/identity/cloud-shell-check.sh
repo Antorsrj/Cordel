@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Disposable ADR-002 verification in Azure Cloud Shell, not on the Cordel VM.
+# Disposable ADR-002/003/004 verification in Azure Cloud Shell, not on the Cordel VM.
 # Run from the extracted repository root: bash server/identity/cloud-shell-check.sh
 set -euo pipefail
 umask 077
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 [[ -f "$repo_root/server/identity/Cargo.toml" && -f "$repo_root/protocol/Cargo.toml" \
-   && -f "$repo_root/docs/contracts/fixtures/v1/identity_session_response.json" ]] || {
-  echo 'Extract the source bundle with protocol contract fixtures before running this script.' >&2
+   && -f "$repo_root/client/state/Cargo.toml" \
+   && -f "$repo_root/docs/contracts/fixtures/v1/identity_session_response.json" \
+   && -f "$repo_root/docs/contracts/fixtures/native/ws_message.json" ]] || {
+  echo 'Extract the source bundle with protocol and native contract fixtures before running this script.' >&2
   exit 1
 }
 
@@ -47,7 +49,7 @@ cargo test --manifest-path protocol/Cargo.toml --jobs 1
 cargo fmt --manifest-path server/identity/Cargo.toml
 cargo clippy --manifest-path server/identity/Cargo.toml --all-targets --jobs 1 -- -D warnings
 cargo test --manifest-path server/identity/Cargo.toml --jobs 1
-if [[ "${1:-}" != '--adr003' && "${1:-}" != '--adr004' ]]; then
+if [[ "${1:-}" != '--adr003' ]]; then
   cargo fmt --manifest-path client/state/Cargo.toml
   cargo clippy --manifest-path client/state/Cargo.toml --all-targets --jobs 1 -- -D warnings
   cargo test --manifest-path client/state/Cargo.toml --jobs 1
@@ -133,7 +135,8 @@ SQL
 fi
 
 if [[ "${1:-}" == '--adr004' ]]; then
-  tar -czf "$repo_root/cordel-adr004-tested.tar.gz" -C "$repo_root" server/identity protocol
+  tar -czf "$repo_root/cordel-adr004-tested.tar.gz" -C "$repo_root" \
+    server/identity protocol client/state docs/contracts/fixtures/native
   echo 'ADR-004 checks passed. Download cordel-adr004-tested.tar.gz to return formatted source and Cargo.lock.'
 elif [[ "${1:-}" == '--adr003' ]]; then
   tar -czf "$repo_root/cordel-adr003-tested.tar.gz" -C "$repo_root" server/identity protocol

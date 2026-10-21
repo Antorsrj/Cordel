@@ -7,6 +7,7 @@
 mod catchup;
 mod credentials;
 mod identity;
+mod live;
 mod outbox;
 mod protocol;
 mod retry;
@@ -19,6 +20,10 @@ pub use credentials::{
 pub use identity::{
     HttpReply, HttpRequest, IdentityClient, IdentityError, IdentityTransport, NativeHttpsTransport,
     TransportFailure,
+};
+pub use live::{
+    ChatTransport, ChatTransportError, LiveError, LiveOutcome, LiveSession, LiveTransport,
+    LiveTransportError, NativeChatTransport, NativeLiveTransport, SendOutcome, HISTORY_PAGE_LIMIT,
 };
 pub use outbox::{AckResult, ClientMessageId, Outbox, PendingSend, SendState};
 pub use protocol::ChatEvent;
