@@ -9,6 +9,12 @@
 REPO_URL="${REPO_URL:-https://github.com/Antorsrj/Cordel.git}"
 DEFAULT_REPO_DIR="${DEFAULT_REPO_DIR:-$HOME/Projects/Cordel}"
 
+# The Rust toolchain lives in the user's cargo home when rustup installed it,
+# and a non-login shell does not have it on the path.
+if [[ -d "$HOME/.cargo/bin" ]]; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 log() {
   printf '[provision] %s\n' "$*"
 }
