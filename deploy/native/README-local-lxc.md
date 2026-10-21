@@ -48,6 +48,15 @@ Both scripts are idempotent. They reuse an existing checkout, refresh it from
 | `CORDEL_FULL_DEBUG=1` | Keep debug symbols in the Cargo build. |
 | `CORDEL_PHASE0_TEST_*` | Consumed by the opt-in Phase 0 chat tests. |
 
+## Last validated
+
+On 2026-10-21 a disposable Ubuntu 24.04 LXC passed both scripts. The
+provisioning run passed the five ignored server flows, the client-state suite,
+the Phase 0 suite under Xvfb, and the release build. The end-to-end run
+created a channel and a second member through the public API, passed both
+opt-in chat tests including the two-client exchange, and confirmed that the
+Phase 0 window opens with the chat surface.
+
 ## Limits
 
 This is local evidence, not deployment evidence. It does not cover public DNS,
