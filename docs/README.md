@@ -46,7 +46,7 @@ Process 012 is outside the 16 first-test ADRs and the later roadmap. Its deliver
 
 | ADR | Progress | Current state | Next substantial gate |
 | --- | ---: | --- | --- |
-| [Process 012 — GitHub Flow](adr/process/ADR-012-github-flow.md) | 20% | Accepted | Maintainers apply branch protection and the pull-request CI in issue #9 |
+| [Process 012 — GitHub Flow](adr/process/ADR-012-github-flow.md) | 20% | Accepted | Protect Main ruleset is active; required status checks stay pending in issue #9 |
 
 ## Documentation map
 

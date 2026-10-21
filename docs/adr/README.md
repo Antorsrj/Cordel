@@ -56,11 +56,11 @@ These ADRs can be researched in parallel but do not block the first Linux/browse
 
 ## Repository process
 
-The 0xx series is global. Server 001–011 and Process 012 share that sequence. Client ADRs stay in the separate 1xx series. **Delivery stage: Repository process** means the decision governs how a change enters the repository. It does not gate the first product test. Branch protection stays with maintainers. Issue #9 tracks pull-request CI; an aggregator job is not accepted.
+The 0xx series is global. Server 001–011 and Process 012 share that sequence. Client ADRs stay in the separate 1xx series. **Delivery stage: Repository process** means the decision governs how a change enters the repository. It does not gate the first product test. The Protect Main ruleset is active. Required status checks stay pending in issue #9. An aggregator job is not accepted.
 
 | ADR | Status | Complexity | Area | Implementation dependency |
 | --- | --- | --- | --- | --- |
-| [Process 012 — GitHub Flow](process/ADR-012-github-flow.md) | Accepted | 2/5 | Task branches, pull requests, branch protection, and tags | Issues #8 and #9; maintainers apply branch protection and choose required checks in #9 |
+| [Process 012 — GitHub Flow](process/ADR-012-github-flow.md) | Accepted | 2/5 | Task branches, pull requests, branch protection, and tags | Protect Main ruleset is active; required status checks stay pending in issue #9 |
 
 ## Delegation order and acceptance
 
