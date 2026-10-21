@@ -46,7 +46,7 @@ These are Cordel's design priorities and tradeoffs, not a claim that other commu
 | --- | --- | --- |
 | Test host and identity | Azure HTTPS, private-port checks, reboot recovery, disposable admin and user flows, and Management Mode grant smoke passed | Off-host restore, real-user readiness, and integrated client checks |
 | Community policy | ADR-003 source passed format, Clippy, unit, disposable database, and restricted-role checks in Cloud Shell | VM deployment, live moderation, and chat/media policy consumers |
-| Client | The combined Phase 0 Linux client passed formatting, Clippy, tests, and a release build in [CI](https://github.com/Antorsrj/Cordel/actions/runs/39482696806); it includes provisional login and Settings controls alongside the ADR-103 media stage | Run the UI on a Linux desktop, add an OS credential store, and prove end-to-end behavior on two networks |
+| Client | The combined Phase 0 Linux client passed formatting, Clippy, tests, and a release build in [CI](https://github.com/Antorsrj/Cordel/actions/runs/39519166545); it includes provisional login and Settings controls alongside the ADR-103 media stage | Run the UI on a Linux desktop, add an OS credential store, and prove end-to-end behavior on two networks |
 | Chat, media, and browser | Architecture and contract boundaries are documented; LiveKit foundation is running | Durable chat, scoped media admission, two-network media proof, and browser security gate |
 
 No ADR is currently `Done`. The first user-facing integrated product test begins only after all 16 [mandatory ADRs](docs/adr/README.md) have completion evidence. Technical and disposable checks run during implementation.
@@ -56,7 +56,7 @@ No ADR is currently `Done`. The first user-facing integrated product test begins
 | Goal | Read |
 | --- | --- |
 | See each ADR's estimated progress and next gate | [Documentation and ADR progress](docs/README.md) |
-| Inspect decisions and verified results | [ADR index](docs/adr/README.md), [status ledger](docs/adr/STATUS.md), and [review](docs/adr/REVIEW-2026-10-18.md) |
+| Inspect decisions and verified results | [ADR index](docs/adr/README.md), [status ledger](docs/adr/STATUS.md), and [current review](docs/adr/REVIEW-2026-10-20.md) |
 | Understand ownership and interfaces | [Workstream map](docs/adr/WORKSTREAMS.md) and [v1 contract](docs/contracts/v1.md) |
 | Understand the product interface | [Journal UX specification](docs/ux/journal.md) |
 | Run a component or prepare deployment | [Deployment guide](deploy/README.md), [identity API](server/identity/README.md), [client state](client/state/README.md), and [Phase 0 client](client/phase0/README.md) |

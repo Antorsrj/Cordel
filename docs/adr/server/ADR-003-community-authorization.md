@@ -68,6 +68,11 @@ runs the ADR-002 binary and schema through migration `2`. Live moderation and
 host role-change checks, WS/media policy consumers, and old-token revocation
 evidence remain.
 
+The 2026-10-20 review also removed the API role's membership-role update grant
+from the runtime-grants script used with migration `3`. The isolated restricted-role probe verified that the prior
+grant is revoked while the row locks needed by authorized operations still work.
+This source change is not deployed to the Azure VM.
+
 - Test a matrix of both roles for channel creation, community-setting changes, inviting, kicking, banning, unbanning, read/write, and media admission. Direct API requests from a `user` must fail for admin operations even if the client UI hides them.
 - Test that an `admin` using only an ordinary app access token also fails management calls, while a current session-bound admin grant succeeds. Expiry, explicit lock, logout, role removal, and host recovery must deny later management requests. Check that audit records identify the account and session, never a shared password holder.
 - Test 30-minute and longer kicks, expiry, indefinite bans, an admin as the attempted target, and zero-admin prevention.

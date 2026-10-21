@@ -41,6 +41,8 @@ Treat voice as higher priority than screen frame rate under CPU or network press
 
 The [initial Linux investigation](../../spikes/media-phase0-initial.md) is preserved separately from the [later media and room evidence](../../spikes/media-phase0.md).
 
+The combined Phase 0 Linux client passed a [CI release build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545) on 2026-10-20. The reviewed source prevents a pre-join captured frame from publishing after a later Join. Phase 0 still uses a single captured still and a separately supplied LiveKit token; continuous capture, consent lifecycle, and the real-network checks below remain open.
+
 - Linux: two-way audio, X11 and Wayland screen/window selection, publish and remote render, stop/restart, hotplug, permission denial, and current-room speaker/mute event delivery from the pinned Rust SDK.
 - Later OS gates: equivalent macOS and Windows tests, including installer launch and OS permission prompts.
 - Load test two concurrent screen shares watched by one client and verify voice continuity, text readability, client CPU, and server egress. Detach and dock one share while both continue, then end one source and confirm the remaining view stays live.

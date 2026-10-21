@@ -1,6 +1,6 @@
 # Cordel documentation and ADR progress
 
-Start with the [project overview](../README.md), then use the [ADR index](adr/README.md) for decisions and the [status ledger](adr/STATUS.md) for evidence. The [2026-10-18 review](adr/REVIEW-2026-10-18.md) checks all 20 ADRs against those records.
+Start with the [project overview](../README.md), then use the [ADR index](adr/README.md) for decisions and the [status ledger](adr/STATUS.md) for evidence. The [2026-10-20 review](adr/REVIEW-2026-10-20.md) checks all 20 ADRs against the current source and recorded checks; the [2026-10-18 review](adr/REVIEW-2026-10-18.md) is retained as a historical snapshot.
 
 ## How to read the percentages
 
@@ -22,7 +22,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 009 — Browser auth](adr/server/ADR-009-browser-auth.md) | 0% | Proposed | Accept cookie/CSRF design and test hostile origins |
 | [Server 010 — Presence](adr/server/ADR-010-presence-and-share-state.md) | 20% | Decision accepted | Implement snapshot, deltas and reconciliation |
 | [Server 011 — Rich chat/images](adr/server/ADR-011-rich-chat-images.md) | 0% | Proposed | Accept storage/limits and prove protected reads/restore |
-| [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 50% | Combined Phase 0 Linux client passed [CI formatting, Clippy, tests, and release build](https://github.com/Antorsrj/Cordel/actions/runs/39482696806); desktop UI remains unrun | Run the UI on Linux and prove X11 and second-network media |
+| [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 50% | Combined Phase 0 Linux client passed [CI formatting, Clippy, tests, and release build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545); desktop UI remains unrun | Run the UI on Linux and prove X11 and second-network media |
 | [Client 102 — State recovery](adr/client/ADR-102-client-state-recovery.md) | 60% | Shared state checks and focused live identity flow passed | Credential store, chat catch-up and network-switch proof |
 | [Client 103 — Capture/playback](adr/client/ADR-103-capture-playback.md) | 60% | Linux media adapters and one-machine three-client room test passed | Continuous capture, X11, denial/hotplug, and second-network proof |
 | [Client 104 — Browser test client](adr/client/ADR-104-browser-test-client.md) | 20% | Decision accepted | Build diagnostic client after Server 009 gate |
@@ -46,6 +46,6 @@ All 16 are required before the first **user-facing integrated product test**. No
 | --- | --- |
 | Product intent | [Portuguese vision](../Plano%20de%20Desenvolvimento%20-%20Revisado.md) |
 | Deployment design | [Architecture](../architecture.md), [connectivity](architecture/connectivity.md), [operations](architecture/operations.md) |
-| Decisions and ownership | [ADR index](adr/README.md), [workstreams](adr/WORKSTREAMS.md), [review](adr/REVIEW-2026-10-18.md) |
+| Decisions and ownership | [ADR index](adr/README.md), [workstreams](adr/WORKSTREAMS.md), [current review](adr/REVIEW-2026-10-20.md) |
 | Interfaces and UX | [v1 contract](contracts/v1.md), [Journal specification](ux/journal.md) |
 | Actual test deployment | [Deployment guide](../deploy/README.md) and [deployment record](../deploy/records/deployment-record.md) |

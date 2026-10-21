@@ -44,6 +44,8 @@ Keep the state model and controls consistent on Linux, macOS, and Windows. Windo
 
 ## Verification and handoff
 
+The provisional Phase 0 login and Settings controls passed a combined [Linux CI build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545) on 2026-10-20. The current source has not been run as a desktop UI. The three Journal states and accessibility checks below remain open.
+
 - Exercise the three approved states with a seeded test community, including a long member list, rich text, and image messages. Check narrow-window behavior, keyboard traversal, readable contrast, and screen-reader names for controls and presence indicators.
 - With two real incoming screen tracks, verify both are visible, voice remains intelligible, one track can be detached and docked, and closing its window does not leave the call or stop the other track.
 - Hide/show conversation during an active call and verify draft and scroll preservation. End a share, revoke access, disconnect, and reconnect while a view is detached.

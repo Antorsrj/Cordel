@@ -39,6 +39,8 @@ Phase 0 is a Linux feasibility gate, including X11 and Wayland as distinct captu
 
 ## Verification and handoff
 
+The combined Phase 0 Linux client passed [CI formatting, Clippy, tests, and a release build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545) on 2026-10-20. This proves a Linux build, not an interactive desktop run or the X11, Wayland, two-network, and packaging gates below.
+
 - Record Phase 0 artifacts: build steps, two-way audio, capture and two-track remote render including a detached window, 10,000-message UI test, X11/Wayland results, and measurements.
 - At each later OS gate, test microphone and screen permission prompts, device changes, sleep/wake, installer launch, and real network media.
 
