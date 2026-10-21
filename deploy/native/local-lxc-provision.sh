@@ -34,6 +34,19 @@ REPO_DIR="${CORDEL_REPO_DIR:-$DEFAULT_REPO_DIR}"
 RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-1.99.1}"
 DB_NAME="cordel_identity_test_lxc_$(date +%s)"
 
+# O build do Phase 0 (LiveKit + WebRTC + Slint) é o maior consumidor de disco.
+# Sem símbolos de debug e sem incremental, o target dir cai de vários GB para
+# cerca de 1-2 GB. Define CORDEL_FULL_DEBUG=1 se quiser o build com debug.
+if [[ "${CORDEL_FULL_DEBUG:-0}" == "1" ]]; then
+  export CARGO_PROFILE_DEV_DEBUG=2
+  export CARGO_PROFILE_RELEASE_DEBUG=2
+  export CARGO_INCREMENTAL=1
+else
+  export CARGO_PROFILE_DEV_DEBUG=0
+  export CARGO_PROFILE_RELEASE_DEBUG=0
+  export CARGO_INCREMENTAL=0
+fi
+
 log() {
   printf '[provision] %s\n' "$*"
 }
@@ -41,6 +54,10 @@ log() {
 fail() {
   printf '[provision][ERRO] %s\n' "$*" >&2
   exit 1
+}
+
+free_gb() {
+  df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'
 }
 
 # -----------------------------------------------------------------------------
@@ -51,17 +68,37 @@ clone_repo() {
   git clone "$REPO_URL" "$target" || return 1
 }
 
+# Um diretório que já tem .git é reaproveitado: busca e alinha com origin/main.
+refresh_repo() {
+  local target="$1"
+  [[ -d "$target/.git" ]] || return 1
+  log "Reaproveitando o checkout existente em $target..."
+  git -C "$target" fetch --quiet origin main || return 1
+  git -C "$target" reset --quiet --hard origin/main || return 1
+  return 0
+}
+
+is_checkout() {
+  [[ -f "$1/server/identity/Cargo.toml" ]]
+}
+
 find_repo_dir() {
   # 1. Caminho configurado explicitamente.
   if [[ -n "${CORDEL_REPO_DIR:-}" ]]; then
-    if [[ -f "$CORDEL_REPO_DIR/server/identity/Cargo.toml" ]]; then
+    if is_checkout "$CORDEL_REPO_DIR"; then
       REPO_DIR="$CORDEL_REPO_DIR"
       return 0
+    fi
+    if [[ -d "$CORDEL_REPO_DIR/.git" ]]; then
+      if refresh_repo "$CORDEL_REPO_DIR" && is_checkout "$CORDEL_REPO_DIR"; then
+        REPO_DIR="$CORDEL_REPO_DIR"
+        return 0
+      fi
     fi
   fi
 
   # 2. Caminho padrão, se for um checkout válido.
-  if [[ -f "$DEFAULT_REPO_DIR/server/identity/Cargo.toml" ]]; then
+  if is_checkout "$DEFAULT_REPO_DIR"; then
     REPO_DIR="$DEFAULT_REPO_DIR"
     return 0
   fi
@@ -69,15 +106,23 @@ find_repo_dir() {
   # 3. Qualquer checkout válido já presente no diretório do usuário.
   local candidate
   for candidate in "$HOME"/Cordel* "$HOME"/cordel* "$HOME"/Projects/Cordel*; do
-    if [[ -f "$candidate/server/identity/Cargo.toml" ]]; then
+    if is_checkout "$candidate"; then
       REPO_DIR="$candidate"
       return 0
     fi
   done
 
-  # 4. Clonar. Escolhe um destino gravável e não existente.
+  # 4. Clone parcial existente: reaproveitar ou escolher outro destino.
   local target
   for target in "$DEFAULT_REPO_DIR" "$DEFAULT_REPO_DIR-main" "$HOME/cordel-checkout" "$HOME/Cordel"; do
+    if [[ -d "$target/.git" ]]; then
+      if refresh_repo "$target" && is_checkout "$target"; then
+        REPO_DIR="$target"
+        return 0
+      fi
+      log "Checkout em $target está incompleto; escolhendo outro destino."
+      continue
+    fi
     if [[ -e "$target" ]]; then
       if [[ ! -w "$target" ]]; then
         log "Diretório $target existe e não é gravável por este usuário; escolhendo outro destino."
@@ -91,7 +136,7 @@ find_repo_dir() {
         fi
         continue
       fi
-      log "Diretório $target já tem conteúdo; escolhendo outro destino."
+      log "Diretório $target já tem conteúdo e não é um repositório; escolhendo outro destino."
       continue
     fi
     log "Clonando em $target..."
@@ -117,6 +162,13 @@ fi
 cd "$REPO_DIR"
 log "Usando repositório em: $REPO_DIR"
 git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null || fail "$REPO_DIR não é um repositório git válido."
+
+AVAIL_GB="$(free_gb "$REPO_DIR")"
+log "Espaço livre em $REPO_DIR: ${AVAIL_GB} GB"
+if [[ "${AVAIL_GB:-0}" -lt 8 ]]; then
+  log "AVISO: menos de 8 GB livres. O build do Phase 0 (LiveKit + WebRTC + Slint) pode falhar."
+  log "       Aumente o disco do LXC ou exporte CORDEL_SKIP_PHASE0=1 para pular essa etapa."
+fi
 
 # -----------------------------------------------------------------------------
 # 1. Dependências do sistema (Ubuntu 24.04)
@@ -201,23 +253,36 @@ cargo test \
   --locked
 
 # -----------------------------------------------------------------------------
-# 6. Testes de client/phase0 (sem local-smoke por padrão; build rápido)
+# 6. Testes de client/phase0 (build pesado: LiveKit + WebRTC + Slint)
 # -----------------------------------------------------------------------------
-log "Rodando testes de client/phase0..."
-cargo test \
-  --manifest-path client/phase0/Cargo.toml \
-  --locked
+PHASE0_GB="$(free_gb "$REPO_DIR")"
+if [[ "${CORDEL_SKIP_PHASE0:-0}" == "1" ]]; then
+  log "CORDEL_SKIP_PHASE0=1: pulando os testes e o build do client/phase0."
+elif [[ "${PHASE0_GB:-0}" -lt 8 ]]; then
+  log "AVISO: apenas ${PHASE0_GB} GB livres. Pulando client/phase0 para não esgotar o disco."
+  log "       Rode depois com mais espaço, ou com CORDEL_SKIP_PHASE0=0."
+else
+  log "Rodando testes de client/phase0..."
+  cargo test \
+    --manifest-path client/phase0/Cargo.toml \
+    --locked
+
+  log "Fazendo build de release do client/phase0..."
+  cargo build \
+    --manifest-path client/phase0/Cargo.toml \
+    --locked \
+    --release
+fi
 
 # -----------------------------------------------------------------------------
-# 7. Build de release do Phase 0 (sem local-smoke)
+# 7. Relatório de espaço
 # -----------------------------------------------------------------------------
-log "Fazendo build de release do client/phase0..."
-cargo build \
-  --manifest-path client/phase0/Cargo.toml \
-  --locked \
-  --release
-
 log "------------------------------------------------------------"
+log "Espaço livre em $REPO_DIR: $(free_gb "$REPO_DIR") GB"
+if [[ -d "$REPO_DIR/client/phase0/target" ]]; then
+  log "Target do phase0 ocupa: $(du -sh "$REPO_DIR/client/phase0/target" 2>/dev/null | cut -f1)"
+  log "Para liberar: rm -rf $REPO_DIR/client/phase0/target"
+fi
 log "Provisionamento concluído com sucesso."
 log "Banco de teste: $DB_NAME"
 log "URL: $CORDEL_TEST_DATABASE_URL"
