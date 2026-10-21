@@ -68,7 +68,7 @@ the [LiveKit local spike](../../docs/spikes/livekit-local-2026-10-21.md).
 scoped admission to two members, both clients join the same voice room, each
 receives the other's screen track and frame, and a member moderated afterwards
 is refused. The clients use a synthetic screen source, so the run needs no
-display and no audio device.
+display and no audio device. It passed on the LXC on 2026-10-21.
 
 ## Limits
 

@@ -68,6 +68,11 @@ same room, each received the other's screen track and frame, and a member
 moderated afterwards could not obtain a session at all.
 `deploy/native/local-lxc-media.sh` reproduces it.
 
+The two media clients use a synthetic screen source, so the run needs no
+display and no audio device. The audio path and the real capture path were
+proven separately by the [media spike](../../spikes/media-phase0.md) and are
+not repeated here.
+
 ### Residual risk, accepted by the owner
 
 Self-hosted LiveKit cannot deny a token it has already issued. After
