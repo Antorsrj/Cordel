@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 description = "Common media interface, Linux capture/audio adapters and remote frame surfaces for ADR-103 (Client 103). Not a product build."
-
-# License is deliberately unset: the repository license is still open (ADR-106).
-# Do not add a license field here until the owner decides.
+license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1"

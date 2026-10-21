@@ -5,6 +5,7 @@ GRANT SELECT, INSERT ON channels TO cordel_identity_app;
 GRANT INSERT ON community_audit TO cordel_identity_app;
 GRANT UPDATE (name, description, authorization_revision)
     ON communities TO cordel_identity_app;
-GRANT UPDATE (role, kicked_until, banned_at, created_at)
+REVOKE UPDATE (role) ON memberships FROM cordel_identity_app;
+GRANT UPDATE (kicked_until, banned_at, created_at)
     ON memberships TO cordel_identity_app;
 COMMIT;

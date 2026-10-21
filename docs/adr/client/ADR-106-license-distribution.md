@@ -43,7 +43,7 @@ Do not publish a client binary until the packaged application's About screen, at
 ## Acceptance and handoff
 
 - The owner's Apache-2.0 and public-repository decisions and existing contributor agreement are recorded above.
-- Root `LICENSE`, `NOTICE`, package metadata, and the known dependency inventory are present on the feature branch. Recheck them when merging or preparing a release.
+- Root `LICENSE`, `NOTICE`, package metadata, and the known dependency inventory are present on `main`. Recheck them when preparing a release.
 - Before any client binary release, confirm the package includes complete license/NOTICE material and that its About screen exposes `AboutSlint` from the top-level menu. Record an actual packaged-client check in [STATUS](../STATUS.md).
 
 **References:** [Slint v1.18.1 licensing choices](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSE.md), [Slint royalty-free license 2.0](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md), [GitHub's no-license guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository), [Apache-2.0 text](https://www.apache.org/licenses/LICENSE-2.0).

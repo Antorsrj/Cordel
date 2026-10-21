@@ -45,7 +45,7 @@ For a focused UI check on Linux:
 
 The Phase 0 UI has no server-management actions yet. A grant in the client is not proof that any server operation is authorized; the API enforces that separately.
 
-Nothing is captured at startup. **Join and share microphone** opens the platform microphone and speaker, then joins the room. **Capture one screen frame** asks the Wayland portal picker, or the X11 screen capturer, and publishes that single frame as a still screen-share track. A second process with a second token in the same room is required to see the remote frame and to hear two-way audio.
+Nothing is captured at startup. **Join and share microphone** opens the platform microphone and speaker, then joins the room. **Capture one screen frame** asks the Wayland portal picker, or the X11 screen capturer. It publishes that frame as a still screen-share track only when already joined. A frame captured before joining remains a local preview; the user must capture again after joining to publish. Leaving or losing the room removes the preview, and joining again never republishes an earlier frame. A second process with a second token in the same room is required to see the remote frame and to hear two-way audio.
 
 The chat list is 10,000 local lines. **End of chat** jumps to the last line.
 

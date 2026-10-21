@@ -33,7 +33,7 @@ The first product test covers the Linux native client and diagnostic browser aga
 | [102 — Client session and state recovery](client/ADR-102-client-state-recovery.md) | Accepted | 4/5 | Auth, WS catch-up, network drops | 002, 004 |
 | [103 — Media devices and screen capture](client/ADR-103-capture-playback.md) | Accepted | 5/5 | OS adapters and media spike | 005, 101 |
 | [104 — Browser diagnostic client](client/ADR-104-browser-test-client.md) | Accepted | 3/5 | Test-only web surface | 002, 004, 005, 009 |
-| [106 — Client license and distribution](client/ADR-106-license-distribution.md) | Accepted | 3/5 | Apache-2.0 source and Slint attribution | 101; source notices on feature branch, About/package proof before binaries |
+| [106 — Client license and distribution](client/ADR-106-license-distribution.md) | Accepted | 3/5 | Apache-2.0 source and Slint attribution | 101; source notices on `main`, About/package proof before binaries |
 | [107 — Journal interface](client/ADR-107-journal-ux.md) | Accepted | 4/5 | Presence, collapsible conversation, integrated and detached shares | Fake 010–011 and 103 view interface for UI; live integration later |
 
 ## Later roadmap and final-release gates
@@ -62,6 +62,6 @@ These ADRs can be researched in parallel but do not block the first Linux/browse
 4. **Diagnostic browser:** Client 104 uses the same server contracts. Server 009's authentication method requires a design review before exposing it publicly.
 5. **Operations:** Server 007 defines backup and restore evidence before admitting real users. A 15-person, two-screen-share load test measures capacity; it is not a product ceiling.
 6. **First product-test gate:** finish and record evidence for all 16 mandatory ADRs above, including the four Proposed server gates (006/007/009/011) and Client 106's About/package proof. Then run the integrated Linux/browser product test. A component proof used to finish an ADR is allowed earlier.
-7. **Later platforms and final release:** Client 108 validates macOS and Client 109 validates Windows on their own OSs. Server 008 and Client 105 close E2EE before final release. Client 106's selected source license and notices are on the feature branch; binary distribution requires its separate package checks.
+7. **Later platforms and final release:** Client 108 validates macOS and Client 109 validates Windows on their own OSs. Server 008 and Client 105 close E2EE before final release. Client 106's selected source license and notices are on `main`; binary distribution requires its separate package checks.
 
 Each ADR has an implementation boundary. Its assignee owns that output and tests it against the corresponding versioned contract and consumer fixture in [WORKSTREAMS.md](WORKSTREAMS.md). Mark completion only through [STATUS.md](STATUS.md) with the required evidence. Proposed ADRs are reviewable recommendations, not permission to silently weaken a project requirement. Record a new decision or supersede an ADR when evidence changes the selected design.

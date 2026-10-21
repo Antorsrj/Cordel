@@ -126,13 +126,30 @@ impl<S: RefreshStore> ClientState<S> {
         self.blocked
     }
 
-    pub fn observe_live(&mut self, event: ChatEvent) {
+    /// Apply an in-order event immediately, or report a gap so the caller can
+    /// request history. Events received during catch-up stay buffered.
+    pub fn observe_live(&mut self, event: ChatEvent) -> Option<CatchUp> {
         if self.blocked.is_some() {
-            return;
+            return None;
         }
         if self.buffering {
             self.live_buffer.push(event);
+            return None;
         }
+        let channel_id = event.channel_id.clone();
+        let caught = catch_up(
+            &channel_id,
+            self.cursors.cursor(&channel_id),
+            &[],
+            std::slice::from_ref(&event),
+        );
+        if caught.missing_seq.is_some() {
+            self.buffering = true;
+            self.live_buffer.push(event);
+        } else {
+            self.commit(&channel_id, &caught);
+        }
+        Some(caught)
     }
 
     pub fn apply_history(&mut self, channel_id: &str, history: &[ChatEvent]) -> CatchUp {
@@ -228,6 +245,30 @@ mod tests {
         assert_eq!(state.acknowledge(id.as_str(), 1), AckResult::Duplicate);
         assert_eq!(state.outbox_len(), 1);
         assert_eq!(state.cursor("general"), 1);
+    }
+
+    #[test]
+    fn live_events_apply_once_and_a_gap_waits_for_history() {
+        let mut state = ClientState::restore(MemoryRefreshStore::default(), None);
+        let first = state.observe_live(message(1, "first", None)).unwrap();
+        assert_eq!(visible_bodies(&first.applied), vec!["first".to_owned()]);
+        assert_eq!(state.cursor("general"), 1);
+
+        let duplicate = state.observe_live(message(1, "first", None)).unwrap();
+        assert!(duplicate.applied.is_empty());
+
+        let gap = state.observe_live(message(3, "third", None)).unwrap();
+        assert_eq!(gap.missing_seq, Some(2));
+        assert_eq!(state.cursor("general"), 1);
+        assert!(state.observe_live(message(4, "fourth", None)).is_none());
+
+        let caught = state.apply_history("general", &[message(2, "second", None)]);
+        assert_eq!(
+            visible_bodies(&caught.applied).join(","),
+            "second,third,fourth"
+        );
+        assert_eq!(state.cursor("general"), 4);
+        assert_eq!(caught.missing_seq, None);
     }
 
     #[test]

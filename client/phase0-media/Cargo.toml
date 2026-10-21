@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 description = "Linux Phase 0 media probe for ADR-103: capture, publish and render. Spike, not a product build."
-
-# License is deliberately unset: the repository license is still open (ADR-106).
-# Do not add a license field here until the owner decides.
+license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1"

@@ -13,10 +13,8 @@ The crate is deliberately split from the `client/phase0` shell (ADR-101):
 - **`client/phase0` owns** the application shell and Slint layout, and depends on
   this crate rather than reimplementing capture.
 
-`client/phase0/src/screen.rs` and `client/phase0/src/pixels.rs` currently carry an
-independent implementation of the same capture call and the same BGRA/RGBA/I420
-conversions. Reconciling them onto this crate is the open convergence step; until
-then, change one side and check the other.
+The Phase 0 shell now uses this crate for capture and frame conversion. Keep
+media fixes here so the shell and the probe share the same implementation.
 
 ## Layout
 

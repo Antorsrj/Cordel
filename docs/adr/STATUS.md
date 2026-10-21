@@ -4,6 +4,8 @@
 
 **Isolated Azure test exception (2026-10-18):** the owner authorized continuing the first identity deployment without running the backup/restore gate while the identity database and roles were absent. The setup script verified those conditions before creating them. This does not approve real-user invitations or satisfy ADR-007; the exception remains visible in the deployment runbook.
 
+**Local consistency review (2026-10-20):** This review change prevents Phase 0 from publishing a pre-join screen frame after a later Join, lets Client 102 apply in-order live chat immediately while reporting a sequence gap, and removes the ADR-003 API role's membership-role update grant. The owner ran the source bundle in isolated Azure Cloud Shell with Rust 1.99.1: the ADR-002/Client-102 check passed formatting, Clippy, 12 protocol tests, five identity unit tests, 26 client-state tests, the identity disposable database flow, and the client example build. The ADR-003 check then passed its disposable community flow and restricted-role row-lock probe, including a previously granted role-column privilege that the corrected SQL revokes. The Phase 0 UI change still needs a Linux build and interactive check. Phase 0 still joins LiveKit with a separately supplied token; Axum admission and the full consent lifecycle remain open Client 101/103 and Server 005 gates.
+
 ## Definition of done for one ADR
 
 Mark an ADR `Done` only when all applicable items are true:

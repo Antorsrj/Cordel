@@ -4,7 +4,7 @@ This map turns the [server and client ADRs](README.md) into work that separate c
 
 ## Rules for parallel work
 
-1. Assign one owner per workstream and one integration owner for each shared boundary. Use separate branches or worktrees. A contributor edits the code and tests it owns; changes to a shared contract or another workstream's files go through review by affected owners.
+1. Assign one owner per workstream and one integration owner for each shared boundary. Work on `main`; create another branch only if the project owner explicitly requests one. A contributor edits the code and tests it owns; changes to a shared contract or another workstream's files go through review by affected owners.
 2. Start from the [v1 contract baseline](../contracts/v1.md). Freeze the relevant seam with committed conformance fixtures before server and client implementations depend on it. The server owner drafts a contract change; the consuming client owner reviews requests, events, errors, and reconnect behavior. Implementations may proceed against fixtures or local fakes while the other side is unfinished. A proposed ADR's design gate is still required before claiming the feature complete.
 3. Keep authorization inside Axum. Client visibility is a convenience and never a substitute for server checks. Share permission and state examples as fixtures; do not duplicate the server's policy engine in clients.
 4. Merge by dependency, then run contract and component-level integration proofs needed to complete ADRs. Passing those proofs does not start the user-facing product test or establish that another OS or a public deployment is ready. The product test begins only after every [first-test mandatory ADR](README.md#mandatory-before-the-first-integrated-product-test) has completion evidence.
@@ -48,7 +48,7 @@ The initial interface is in [docs/contracts/v1.md](../contracts/v1.md). Identity
 | Client 103 | Common media interface, Linux X11/Wayland capture/audio and remote rendering | LiveKit test room and frozen 005 admission contract | Linux two subscriptions, detach/dock and voice continuity |
 | Client 104 | Narrow browser diagnostic client | Frozen 002/004/005/009 contracts or fixtures | Isolated cross-network test; public exposure waits for Server 009 |
 | Client 105 | Future device keys and E2EE client interoperability | Server 008 envelope proposal and SDK spike | Rust/browser cross-client proof before final release |
-| Client 106 | Apache-2.0 source license, Slint attribution and package notices | Owner's accepted decision, `LICENSE`, `NOTICE`, and third-party inventory | Source license published on feature branch; packaged About screen and notice audit before binaries |
+| Client 106 | Apache-2.0 source license, Slint attribution and package notices | Owner's accepted decision, `LICENSE`, `NOTICE`, and third-party inventory | Source license published on `main`; packaged About screen and notice audit before binaries |
 | Client 107 | Journal view models, layout, roster and three media states | [Written UX spec](../ux/journal.md), fake 004/010/011 events and Client 103 view interface | Integrated two-share, empty-share and detached-share tests |
 | Client 108 | Later macOS capture/audio adapter and package | Client 101/103 shared interfaces and v1 fixtures | Real macOS build, permissions, two views and detached window |
 | Client 109 | Later Windows capture/audio adapter and package | Client 101/103 shared interfaces and v1 fixtures | Real Windows build, permissions, two views and detached window |

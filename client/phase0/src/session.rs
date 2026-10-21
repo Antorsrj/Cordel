@@ -90,7 +90,6 @@ enum Incoming {
 
 pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaEvent>) {
     let mut joined: Option<Joined> = None;
-    let mut captured: Option<Frame> = None;
 
     loop {
         let incoming = match joined.as_mut() {
@@ -123,6 +122,9 @@ pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaE
                         let _ = events.send(MediaEvent::Joined(false));
                         let _ =
                             events.send(MediaEvent::Status("The room connection ended.".into()));
+                        let _ = events.send(MediaEvent::Ended {
+                            key: LOCAL_SHARE_KEY.into(),
+                        });
                         joined = None;
                     }
                 }
@@ -146,14 +148,6 @@ pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaE
                                 "Joined as {identity}. The microphone is publishing and remote \
                                  audio goes to the platform output device."
                             )));
-                            if let Some(frame) = captured.as_ref() {
-                                if let Err(err) = publish_frame(&mut session, frame, &events).await
-                                {
-                                    let _ = events.send(MediaEvent::Status(format!(
-                                        "The captured frame was not published: {err}"
-                                    )));
-                                }
-                            }
                             joined = Some(session);
                         }
                         Err(err) => {
@@ -184,16 +178,15 @@ pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaE
                                     }
                                 }
                             }
-                            captured = Some(frame.clone());
                             let _ = events.send(MediaEvent::Frame {
                                 key: LOCAL_SHARE_KEY.into(),
                                 publisher: "you".into(),
                                 state,
                                 frame,
                             });
-                            if state == ShareState::Preview {
+                            if state == ShareState::Preview && joined.is_none() {
                                 let _ = events.send(MediaEvent::Status(format!(
-                                    "Captured one {} frame ({size}). Join to publish it.",
+                                    "Captured one {} frame ({size}). Join, then capture again to publish.",
                                     session_label(session)
                                 )));
                             }
@@ -211,11 +204,10 @@ pub async fn run(mut commands: UnboundedReceiver<Command>, events: Sender<MediaE
                         let _ = session.room.close().await;
                         drop(session._audio);
                     }
-                    // The captured frame stays where it is, but it is not being
-                    // shared with anyone now.
-                    let _ = events.send(MediaEvent::State {
+                    // A later join must never publish a frame captured in an
+                    // earlier room or account session.
+                    let _ = events.send(MediaEvent::Ended {
                         key: LOCAL_SHARE_KEY.into(),
-                        state: ShareState::Preview,
                     });
                     let _ = events.send(MediaEvent::Joined(false));
                     let _ = events.send(MediaEvent::Status(

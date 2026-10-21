@@ -92,7 +92,17 @@ GRANT SELECT, INSERT ON accounts, memberships TO cordel_identity_app;
 GRANT SELECT, INSERT, UPDATE ON invitations, sessions, refresh_credentials, admin_grants TO cordel_identity_app;
 GRANT INSERT ON admin_audit TO cordel_identity_app;
 GRANT UPDATE (created_at) ON accounts TO cordel_identity_app;
+GRANT UPDATE (role) ON memberships TO cordel_identity_app;
 \i server/identity/runtime-grants-003.sql
+DO $$ BEGIN
+  IF has_column_privilege('cordel_identity_app', 'memberships', 'role', 'UPDATE') THEN
+    RAISE EXCEPTION 'Runtime role must not update membership roles';
+  END IF;
+  IF NOT has_column_privilege('cordel_identity_app', 'memberships', 'kicked_until', 'UPDATE')
+     OR NOT has_column_privilege('cordel_identity_app', 'memberships', 'banned_at', 'UPDATE') THEN
+    RAISE EXCEPTION 'Runtime role must update moderation state';
+  END IF;
+END $$;
 SET ROLE cordel_identity_app;
 BEGIN;
 SELECT 1 FROM accounts LIMIT 1 FOR SHARE;
