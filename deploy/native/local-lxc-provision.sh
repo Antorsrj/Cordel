@@ -25,12 +25,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=local-lxc-common.sh
+source "$SCRIPT_DIR/local-lxc-common.sh"
+
 # -----------------------------------------------------------------------------
 # Configurações
 # -----------------------------------------------------------------------------
-REPO_URL="https://github.com/Antorsrj/Cordel.git"
-DEFAULT_REPO_DIR="$HOME/Projects/Cordel"
-REPO_DIR="${CORDEL_REPO_DIR:-$DEFAULT_REPO_DIR}"
+REPO_DIR="${CORDEL_REPO_DIR:-$HOME/Projects/Cordel}"
 RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-1.99.1}"
 DB_NAME="cordel_identity_test_lxc_$(date +%s)"
 
@@ -46,114 +48,6 @@ else
   export CARGO_PROFILE_RELEASE_DEBUG=0
   export CARGO_INCREMENTAL=0
 fi
-
-log() {
-  printf '[provision] %s\n' "$*"
-}
-
-fail() {
-  printf '[provision][ERRO] %s\n' "$*" >&2
-  exit 1
-}
-
-free_gb() {
-  df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'
-}
-
-# -----------------------------------------------------------------------------
-# 0. Garantir que estamos dentro de um checkout do Cordel
-# -----------------------------------------------------------------------------
-clone_repo() {
-  local target="$1"
-  git clone "$REPO_URL" "$target" || return 1
-}
-
-# Um diretório que já tem .git é reaproveitado: busca e alinha com origin/main.
-refresh_repo() {
-  local target="$1"
-  [[ -d "$target/.git" ]] || return 1
-  log "Reaproveitando o checkout existente em $target..."
-  git -C "$target" fetch --quiet origin main || return 1
-  git -C "$target" reset --quiet --hard origin/main || return 1
-  return 0
-}
-
-is_checkout() {
-  [[ -f "$1/server/identity/Cargo.toml" ]]
-}
-
-find_repo_dir() {
-  # 1. Caminho configurado explicitamente.
-  if [[ -n "${CORDEL_REPO_DIR:-}" ]]; then
-    if is_checkout "$CORDEL_REPO_DIR"; then
-      REPO_DIR="$CORDEL_REPO_DIR"
-      return 0
-    fi
-    if [[ -d "$CORDEL_REPO_DIR/.git" ]]; then
-      if refresh_repo "$CORDEL_REPO_DIR" && is_checkout "$CORDEL_REPO_DIR"; then
-        REPO_DIR="$CORDEL_REPO_DIR"
-        return 0
-      fi
-    fi
-  fi
-
-  # 2. Caminho padrão, se for um checkout válido.
-  if is_checkout "$DEFAULT_REPO_DIR"; then
-    REPO_DIR="$DEFAULT_REPO_DIR"
-    return 0
-  fi
-
-  # 3. Qualquer checkout válido já presente no diretório do usuário.
-  local candidate
-  for candidate in "$HOME"/Cordel* "$HOME"/cordel* "$HOME"/Projects/Cordel*; do
-    if is_checkout "$candidate"; then
-      REPO_DIR="$candidate"
-      return 0
-    fi
-  done
-
-  # 4. Clone parcial existente: reaproveitar ou escolher outro destino.
-  local target
-  for target in "$DEFAULT_REPO_DIR" "$DEFAULT_REPO_DIR-main" "$HOME/cordel-checkout" "$HOME/Cordel"; do
-    if [[ -d "$target/.git" ]]; then
-      if refresh_repo "$target" && is_checkout "$target"; then
-        REPO_DIR="$target"
-        return 0
-      fi
-      log "Checkout em $target está incompleto; escolhendo outro destino."
-      continue
-    fi
-    if [[ -e "$target" ]]; then
-      if [[ ! -w "$target" ]]; then
-        log "Diretório $target existe e não é gravável por este usuário; escolhendo outro destino."
-        continue
-      fi
-      if [[ -z "$(ls -A "$target" 2>/dev/null)" ]]; then
-        log "Clonando em $target..."
-        if clone_repo "$target"; then
-          REPO_DIR="$target"
-          return 0
-        fi
-        continue
-      fi
-      log "Diretório $target já tem conteúdo e não é um repositório; escolhendo outro destino."
-      continue
-    fi
-    log "Clonando em $target..."
-    if clone_repo "$target"; then
-      REPO_DIR="$target"
-      return 0
-    fi
-  done
-
-  # 5. Último recurso: um diretório temporário, sempre gravável.
-  local temp
-  temp="$(mktemp -d "$HOME/cordel-checkout-XXXXXX")" || return 1
-  log "Clonando em $temp..."
-  clone_repo "$temp" || return 1
-  REPO_DIR="$temp"
-  return 0
-}
 
 if ! find_repo_dir; then
   fail "Não foi possível obter um checkout do Cordel. Defina CORDEL_REPO_DIR ou clone manualmente."
