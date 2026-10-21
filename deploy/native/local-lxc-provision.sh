@@ -14,11 +14,14 @@
 #
 #   scp local-lxc-provision.sh cordel@172.16.1.16:/tmp/
 #   ssh cordel@172.16.1.16
-#   cd /home/cordel/Projects/Cordel   # ou onde clonar o repositório
 #   bash /tmp/local-lxc-provision.sh
 #
-# Se o repositório ainda não estiver clonado no LXC, o script tenta clonar
-# automaticamente a partir do origin configurado no seu checkout local.
+# Rode com "bash <arquivo>". O arquivo copiado por scp normalmente não tem
+# permissão de execução, e "./script.sh" falharia com "Permission denied".
+#
+# Se o repositório ainda não estiver clonado no LXC, o script clona
+# automaticamente a partir do GitHub em um diretório gravável. Para forçar um
+# caminho, exporte CORDEL_REPO_DIR antes de rodar.
 
 set -euo pipefail
 
@@ -43,18 +46,72 @@ fail() {
 # -----------------------------------------------------------------------------
 # 0. Garantir que estamos dentro de um checkout do Cordel
 # -----------------------------------------------------------------------------
-if [[ ! -f "$REPO_DIR/Cargo.toml" ]] || [[ ! -f "$REPO_DIR/server/identity/Cargo.toml" ]]; then
-  if [[ -e "$REPO_DIR" ]]; then
-    # Diretório existe mas não é o repositório Cordel: clone em um caminho alternativo.
-    ALT_REPO_DIR="${REPO_DIR}-main"
-    log "Diretório $REPO_DIR existe mas não é o repositório Cordel. Clonando em $ALT_REPO_DIR..."
-    git clone "$REPO_URL" "$ALT_REPO_DIR" || fail "Falha ao clonar $REPO_URL para $ALT_REPO_DIR"
-    REPO_DIR="$ALT_REPO_DIR"
-  else
-    log "Checkout do Cordel não encontrado em $REPO_DIR. Clonando..."
-    mkdir -p "$(dirname "$REPO_DIR")"
-    git clone "$REPO_URL" "$REPO_DIR" || fail "Falha ao clonar $REPO_URL"
+clone_repo() {
+  local target="$1"
+  git clone "$REPO_URL" "$target" || return 1
+}
+
+find_repo_dir() {
+  # 1. Caminho configurado explicitamente.
+  if [[ -n "${CORDEL_REPO_DIR:-}" ]]; then
+    if [[ -f "$CORDEL_REPO_DIR/server/identity/Cargo.toml" ]]; then
+      REPO_DIR="$CORDEL_REPO_DIR"
+      return 0
+    fi
   fi
+
+  # 2. Caminho padrão, se for um checkout válido.
+  if [[ -f "$DEFAULT_REPO_DIR/server/identity/Cargo.toml" ]]; then
+    REPO_DIR="$DEFAULT_REPO_DIR"
+    return 0
+  fi
+
+  # 3. Qualquer checkout válido já presente no diretório do usuário.
+  local candidate
+  for candidate in "$HOME"/Cordel* "$HOME"/cordel* "$HOME"/Projects/Cordel*; do
+    if [[ -f "$candidate/server/identity/Cargo.toml" ]]; then
+      REPO_DIR="$candidate"
+      return 0
+    fi
+  done
+
+  # 4. Clonar. Escolhe um destino gravável e não existente.
+  local target
+  for target in "$DEFAULT_REPO_DIR" "$DEFAULT_REPO_DIR-main" "$HOME/cordel-checkout" "$HOME/Cordel"; do
+    if [[ -e "$target" ]]; then
+      if [[ ! -w "$target" ]]; then
+        log "Diretório $target existe e não é gravável por este usuário; escolhendo outro destino."
+        continue
+      fi
+      if [[ -z "$(ls -A "$target" 2>/dev/null)" ]]; then
+        log "Clonando em $target..."
+        if clone_repo "$target"; then
+          REPO_DIR="$target"
+          return 0
+        fi
+        continue
+      fi
+      log "Diretório $target já tem conteúdo; escolhendo outro destino."
+      continue
+    fi
+    log "Clonando em $target..."
+    if clone_repo "$target"; then
+      REPO_DIR="$target"
+      return 0
+    fi
+  done
+
+  # 5. Último recurso: um diretório temporário, sempre gravável.
+  local temp
+  temp="$(mktemp -d "$HOME/cordel-checkout-XXXXXX")" || return 1
+  log "Clonando em $temp..."
+  clone_repo "$temp" || return 1
+  REPO_DIR="$temp"
+  return 0
+}
+
+if ! find_repo_dir; then
+  fail "Não foi possível obter um checkout do Cordel. Defina CORDEL_REPO_DIR ou clone manualmente."
 fi
 
 cd "$REPO_DIR"
