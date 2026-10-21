@@ -4,6 +4,8 @@
 //! feasibility list is still measurable without a server. The worker owns the
 //! blocking transports and sends owned UI events; it never touches a Slint type.
 
+#[cfg(all(test, feature = "local-smoke"))]
+mod recovery_tests;
 mod session;
 #[cfg(all(test, feature = "local-smoke"))]
 mod session_tests;
