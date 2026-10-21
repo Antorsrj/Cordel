@@ -28,20 +28,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_LIB="$SCRIPT_DIR/local-lxc-common.sh"
-if [[ ! -f "$COMMON_LIB" ]]; then
-  printf '[provision][ERRO] local-lxc-common.sh nao encontrado em %s\n' "$SCRIPT_DIR" >&2
-  printf 'Copie deploy/native/local-lxc-common.sh para o mesmo diretorio.\n' >&2
+COMMON_LIB=""
+for candidate in \
+  "$SCRIPT_DIR/local-lxc-common.sh" \
+  "$HOME/local-lxc-common.sh" \
+  "/tmp/local-lxc-common.sh"; do
+  if [[ -f "$candidate" ]]; then
+    COMMON_LIB="$candidate"
+    break
+  fi
+done
+if [[ -z "$COMMON_LIB" ]]; then
+  printf '[provision][ERRO] local-lxc-common.sh nao encontrado. Procurado em:\n' >&2
+  printf '  %s\n' "$SCRIPT_DIR/local-lxc-common.sh" "$HOME/local-lxc-common.sh" \
+    "/tmp/local-lxc-common.sh" >&2
+  printf 'Copie com: scp deploy/native/local-lxc-common.sh <host>:/tmp/\n' >&2
   exit 1
 fi
 # shellcheck source=local-lxc-common.sh
 source "$COMMON_LIB"
 
 # A biblioteca compartilhada precisa estar na versao atual. Uma copia antiga
-# reutilizaria um checkout desatualizado e falharia mais adiante de forma
+# reutilizaria um checkout desatualizado e falharia mais adiente de forma
 # confusa.
 if ! declare -F use_checkout >/dev/null 2>&1; then
   fail "local-lxc-common.sh esta desatualizado em $COMMON_LIB.
-Copie a versao atual de deploy/native/local-lxc-common.sh para o mesmo diretorio."
+Copie a versao atual de deploy/native/local-lxc-common.sh."
 fi
 
 DB_NAME="cordel_identity_test_lxc_e2e_$(date +%s)"
@@ -177,8 +189,31 @@ log "Servidor respondendo em $ORIGIN"
 # 5. Canal e segundo usuario
 # -----------------------------------------------------------------------------
 log "Criando o canal de texto e o segundo usuario..."
+# O helper fica ao lado do script, mas o LXC pode ter os arquivos em
+# diretorios diferentes. Procura em varios lugares antes de desistir.
+PY_HELPER=""
+for candidate in \
+  "$SCRIPT_DIR/local-lxc-e2e.py" \
+  "$HOME/local-lxc-e2e.py" \
+  "/tmp/local-lxc-e2e.py" \
+  "$REPO_DIR/deploy/native/local-lxc-e2e.py"; do
+  if [[ -f "$candidate" ]]; then
+    PY_HELPER="$candidate"
+    break
+  fi
+done
+if [[ -z "$PY_HELPER" ]]; then
+  fail "local-lxc-e2e.py nao encontrado. Procurado em:
+  $SCRIPT_DIR/local-lxc-e2e.py
+  $HOME/local-lxc-e2e.py
+  /tmp/local-lxc-e2e.py
+  $REPO_DIR/deploy/native/local-lxc-e2e.py
+Copie o arquivo com: scp deploy/native/local-lxc-e2e.py <host>:/tmp/"
+fi
+log "Usando helper: $PY_HELPER"
+
 SUMMARY_FILE="$(mktemp)"
-python3 "$SCRIPT_DIR/local-lxc-e2e.py" \
+python3 "$PY_HELPER" \
   --origin "$ORIGIN" \
   --admin-login "$ADMIN_LOGIN" \
   --admin-password "$ADMIN_PASSWORD" \

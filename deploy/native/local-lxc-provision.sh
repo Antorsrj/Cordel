@@ -26,10 +26,21 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMMON_LIB="$SCRIPT_DIR/local-lxc-common.sh"
-if [[ ! -f "$COMMON_LIB" ]]; then
-  printf '[provision][ERRO] local-lxc-common.sh nao encontrado em %s\n' "$SCRIPT_DIR" >&2
-  printf 'Copie deploy/native/local-lxc-common.sh para o mesmo diretorio.\n' >&2
+COMMON_LIB=""
+for candidate in \
+  "$SCRIPT_DIR/local-lxc-common.sh" \
+  "$HOME/local-lxc-common.sh" \
+  "/tmp/local-lxc-common.sh"; do
+  if [[ -f "$candidate" ]]; then
+    COMMON_LIB="$candidate"
+    break
+  fi
+done
+if [[ -z "$COMMON_LIB" ]]; then
+  printf '[provision][ERRO] local-lxc-common.sh nao encontrado. Procurado em:\n' >&2
+  printf '  %s\n' "$SCRIPT_DIR/local-lxc-common.sh" "$HOME/local-lxc-common.sh" \
+    "/tmp/local-lxc-common.sh" >&2
+  printf 'Copie com: scp deploy/native/local-lxc-common.sh <host>:/tmp/\n' >&2
   exit 1
 fi
 # shellcheck source=local-lxc-common.sh
