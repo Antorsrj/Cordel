@@ -129,6 +129,15 @@ and the method names that matter are `ListRooms`, `ListParticipants`,
 `RemoveParticipant`. There is no `DeleteParticipant`; the correct name is
 `RemoveParticipant`.
 
+### 5b. A token TTL is enforced only at join time
+
+A token with an eight-second lifetime was used to join a room and the client
+then stayed connected for the full twenty-second session. The server logged
+`TokenExpiresAt` in the past and never disconnected the participant. A short
+TTL therefore bounds the **rejoin** window — how long a held token can be
+used to enter a room again — and not the length of a call that is already
+established. This is why the TTL cannot be the answer to the ADR-006 gap.
+
 ### 6. Axum can remove a participant from a room
 
 `RemoveParticipant` returned `200 OK`, and the client observed the
