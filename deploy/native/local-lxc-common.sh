@@ -15,6 +15,13 @@ if [[ -d "$HOME/.cargo/bin" ]]; then
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
+# The libwebrtc that LiveKit ships requires clang 21, the same rule the Linux
+# CI follows. Without it the media build fails with a clear panic.
+if command -v clang-21 >/dev/null 2>&1; then
+  export CC="clang-21"
+  export CXX="clang++-21"
+fi
+
 log() {
   printf '[provision] %s\n' "$*"
 }

@@ -105,6 +105,7 @@ find_helper || fail "media-admission.py nao encontrado."
 
 log "Compilando o servidor, o probe de midia e o exemplo de bootstrap..."
 command -v cargo >/dev/null 2>&1 || fail "cargo nao encontrado. Rode o provisionamento antes, ou exporte PATH=\"$HOME/.cargo/bin:\$PATH\"."
+command -v clang-21 >/dev/null 2>&1 || log "AVISO: clang-21 nao encontrado. O build de midia exige clang 21; rode o provisionamento antes."
 cargo build --manifest-path server/identity/Cargo.toml --locked --bin cordel-identity --example bootstrap_disposable_admin
 cargo build --manifest-path client/media/Cargo.toml --locked --features sdk --bin probe
 

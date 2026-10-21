@@ -114,13 +114,6 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # O libwebrtc embarcado do Phase 0 exige clang 21. O provisionamento local o
 # instala; sem ele, o build do Phase 0 falha, mas o servidor e o client/state
 # continuam compilando com o compilador padrao.
-if command -v clang-21 >/dev/null 2>&1; then
-  export CC="clang-21"
-  export CXX="clang++-21"
-elif [[ -z "${CC:-}" ]]; then
-  log "AVISO: clang-21 nao encontrado. O build do client/phase0 pode falhar."
-  log "       Rode deploy/native/local-lxc-provision.sh antes deste script."
-fi
 
 # A porta precisa estar livre: caso contrario o script testaria um servidor
 # antigo, ligado a outro banco.
@@ -236,6 +229,7 @@ export CORDEL_PHASE0_TEST_USER_ID="$ADMIN_USER_ID"
 export CORDEL_PHASE0_TEST_LOGIN="$ADMIN_LOGIN"
 export CORDEL_PHASE0_TEST_PEER_TOKEN="$MEMBER_TOKEN"
 
+command -v clang-21 >/dev/null 2>&1 || log "AVISO: clang-21 nao encontrado. O build do Phase 0 exige clang 21; rode o provisionamento antes."
 log "Rodando o teste do worker de chat (conectar, enviar, receber, reconectar)..."
 xvfb-run -a cargo test \
   --manifest-path client/phase0/Cargo.toml \
