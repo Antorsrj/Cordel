@@ -16,8 +16,8 @@ if [[ "${1:-}" == '--cleanup' ]]; then
   echo 'Temporary ADR-002 Rust toolchain and build cache removed from Cloud Shell.'
   exit 0
 fi
-[[ $# -eq 0 || "${1:-}" == '--with-db' || "${1:-}" == '--adr003' ]] || {
-  echo 'Usage: bash server/identity/cloud-shell-check.sh [--with-db|--adr003|--cleanup]' >&2
+[[ $# -eq 0 || "${1:-}" == '--with-db' || "${1:-}" == '--adr003' || "${1:-}" == '--adr004' ]] || {
+  echo 'Usage: bash server/identity/cloud-shell-check.sh [--with-db|--adr003|--adr004|--cleanup]' >&2
   exit 2
 }
 
@@ -47,7 +47,7 @@ cargo test --manifest-path protocol/Cargo.toml --jobs 1
 cargo fmt --manifest-path server/identity/Cargo.toml
 cargo clippy --manifest-path server/identity/Cargo.toml --all-targets --jobs 1 -- -D warnings
 cargo test --manifest-path server/identity/Cargo.toml --jobs 1
-if [[ "${1:-}" != '--adr003' ]]; then
+if [[ "${1:-}" != '--adr003' && "${1:-}" != '--adr004' ]]; then
   cargo fmt --manifest-path client/state/Cargo.toml
   cargo clippy --manifest-path client/state/Cargo.toml --all-targets --jobs 1 -- -D warnings
   cargo test --manifest-path client/state/Cargo.toml --jobs 1
@@ -63,7 +63,7 @@ cleanup_db() {
 }
 trap cleanup_db EXIT
 
-if [[ "${1:-}" == '--with-db' || "${1:-}" == '--adr003' ]]; then
+if [[ "${1:-}" == '--with-db' || "${1:-}" == '--adr003' || "${1:-}" == '--adr004' ]]; then
   for tool in initdb pg_ctl postgres psql pg_isready python3; do
     command -v "$tool" >/dev/null || { echo "Cloud Shell needs $tool for rootless PostgreSQL." >&2; exit 1; }
   done
@@ -81,8 +81,11 @@ if [[ "${1:-}" == '--with-db' || "${1:-}" == '--adr003' ]]; then
     --no-psqlrc --set=ON_ERROR_STOP=1 --quiet -c "CREATE DATABASE \"$test_db\"" >/dev/null
   export CORDEL_TEST_DATABASE_URL="postgresql://cordel_pg_test@127.0.0.1:$test_port/$test_db"
   cargo test --manifest-path server/identity/Cargo.toml disposable_database_identity_flow --jobs 1 -- --ignored --nocapture
-  if [[ "${1:-}" == '--adr003' ]]; then
+  if [[ "${1:-}" == '--adr003' || "${1:-}" == '--adr004' ]]; then
     cargo test --manifest-path server/identity/Cargo.toml disposable_database_community_flow --jobs 1 -- --ignored --nocapture
+    if [[ "${1:-}" == '--adr004' ]]; then
+      cargo test --manifest-path server/identity/Cargo.toml disposable_database_chat_flow --jobs 1 -- --ignored --nocapture
+    fi
     psql -h 127.0.0.1 -p "$test_port" -U cordel_pg_test -d "$test_db" \
       --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'
 CREATE ROLE cordel_identity_app NOLOGIN;
@@ -94,6 +97,7 @@ GRANT INSERT ON admin_audit TO cordel_identity_app;
 GRANT UPDATE (created_at) ON accounts TO cordel_identity_app;
 GRANT UPDATE (role) ON memberships TO cordel_identity_app;
 \i server/identity/runtime-grants-003.sql
+\i server/identity/runtime-grants-004.sql
 DO $$ BEGIN
   IF has_column_privilege('cordel_identity_app', 'memberships', 'role', 'UPDATE') THEN
     RAISE EXCEPTION 'Runtime role must not update membership roles';
@@ -102,20 +106,35 @@ DO $$ BEGIN
      OR NOT has_column_privilege('cordel_identity_app', 'memberships', 'banned_at', 'UPDATE') THEN
     RAISE EXCEPTION 'Runtime role must update moderation state';
   END IF;
+  IF NOT has_table_privilege('cordel_identity_app', 'messages', 'SELECT')
+     OR NOT has_table_privilege('cordel_identity_app', 'messages', 'INSERT') THEN
+    RAISE EXCEPTION 'Runtime role must read and insert chat messages';
+  END IF;
+  IF NOT has_column_privilege('cordel_identity_app', 'channels', 'last_seq', 'UPDATE') THEN
+    RAISE EXCEPTION 'Runtime role must advance the channel sequence';
+  END IF;
+  IF has_table_privilege('cordel_identity_app', 'messages', 'UPDATE')
+     OR has_table_privilege('cordel_identity_app', 'messages', 'DELETE') THEN
+    RAISE EXCEPTION 'Runtime role must not rewrite or delete committed messages';
+  END IF;
 END $$;
 SET ROLE cordel_identity_app;
 BEGIN;
 SELECT 1 FROM accounts LIMIT 1 FOR SHARE;
 SELECT 1 FROM memberships LIMIT 1 FOR UPDATE;
 SELECT 1 FROM channels LIMIT 1;
+SELECT 1 FROM messages LIMIT 1;
 ROLLBACK;
 SQL
-    echo 'ADR-003 restricted-role row-lock probe passed.'
+    echo 'ADR-003/004 restricted-role probe passed.'
   fi
   unset CORDEL_TEST_DATABASE_URL
 fi
 
-if [[ "${1:-}" == '--adr003' ]]; then
+if [[ "${1:-}" == '--adr004' ]]; then
+  tar -czf "$repo_root/cordel-adr004-tested.tar.gz" -C "$repo_root" server/identity protocol
+  echo 'ADR-004 checks passed. Download cordel-adr004-tested.tar.gz to return formatted source and Cargo.lock.'
+elif [[ "${1:-}" == '--adr003' ]]; then
   tar -czf "$repo_root/cordel-adr003-tested.tar.gz" -C "$repo_root" server/identity protocol
   echo 'ADR-003 checks passed. Download cordel-adr003-tested.tar.gz to return formatted source and Cargo.lock.'
 else

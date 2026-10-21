@@ -2,6 +2,9 @@
 
 #[cfg(test)]
 mod adr003_tests;
+#[cfg(test)]
+mod adr004_tests;
+mod chat;
 mod community;
 mod host_admin;
 mod host_identity;
@@ -419,6 +422,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/communities/{community_id}/members/{member_id}/ban",
             post(community::ban).delete(community::unban),
+        )
+        .route(
+            "/v1/channels/{channel_id}/messages",
+            get(chat::history).post(chat::send_message),
         )
         .layer(DefaultBodyLimit::max(16 * 1024))
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "Not found") })

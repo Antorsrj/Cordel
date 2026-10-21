@@ -42,6 +42,10 @@ Message content may include the restricted rich-text representation and image re
 - The server must reject unauthorized `after_seq` and subscription requests, not only unauthorized sends.
 - Redis or another bus can be considered when multiple Axum instances are needed.
 
+## Implementation note (2026-10-21)
+
+The first native slice follows `protocol::ChatEvent`: numeric `seq`, plain `body`, and additive `message_id`, `author_id`, and `created_at` fields in the flattened `extra` map. This is the native v1 subset, not a replacement for the rich `content` shape or decimal-string `seq` in [v1.md](../../contracts/v1.md); those remain the ADR-011 and browser-client target. The REST send is idempotent on `(channel_id, author_id, client_message_id)`, and history supports `after_seq`, `before_seq`, `limit`, and `has_more`. Local evidence (2026-10-21): Rust 1.98.1 and disposable PostgreSQL 16 passed the chat flow, including eight concurrent sends, and the restricted-role grants probe. WebSocket delivery, gap recovery, and revocation fan-out are the next slice.
+
 ## Verification and handoff
 
 - Test concurrent sends, duplicate retries, `Lagged` delivery, commit-before-publish failure, out-of-order arrival, reconnect, and history pagination.

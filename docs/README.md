@@ -15,7 +15,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 001 — Single host](adr/server/ADR-001-single-host-deployment.md) | 60% | Azure foundation and several network/reboot checks passed | Real UDP/TURN media, load and recovery evidence |
 | [Server 002 — Identity](adr/server/ADR-002-invite-only-identity.md) | 70% | Standalone API and grant are live with disposable flows | Client integration and recovery gates |
 | [Server 003 — Community policy](adr/server/ADR-003-community-authorization.md) | 60% | Source passed disposable database checks | Deploy and prove live moderation and policy consumers |
-| [Server 004 — Durable chat](adr/server/ADR-004-durable-chat.md) | 20% | Decision accepted | Implement ordered messages, WS and recovery |
+| [Server 004 — Durable chat](adr/server/ADR-004-durable-chat.md) | 45% | Ordered send/history and database flows passed | Implement WS, recovery, revocation, and client integration |
 | [Server 005 — LiveKit media](adr/server/ADR-005-livekit-media.md) | 40% | LiveKit foundation runs | Scoped admission and two-network voice/share proof |
 | [Server 006 — Media revocation](adr/server/ADR-006-media-revocation.md) | 0% | Proposed | Prove strict old-token denial and accept design |
 | [Server 007 — Backup operations](adr/server/ADR-007-backup-operations.md) | 0% | Proposed | Accept recovery targets and perform off-host restore |
