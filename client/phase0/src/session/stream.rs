@@ -52,6 +52,10 @@ const LOCAL_FRAME_INTERVAL: Duration = Duration::from_millis(250);
 pub(super) struct StreamShare {
     stop: tokio::sync::watch::Sender<bool>,
     running: Arc<AtomicBool>,
+    /// The published track. It is kept so the share that replaces it takes
+    /// exactly that one off the stage, instead of guessing which track belongs
+    /// to the screen.
+    pub(super) publication: livekit::prelude::LocalTrackPublication,
 }
 
 impl StreamShare {
@@ -150,12 +154,11 @@ pub(super) async fn start_share(
     // The first frame defines the track.
     let first = wait_for_first_frame(&frame_rx)?;
 
-    let publisher = Arc::new(ScreenPublisher::new(
-        first.width(),
-        first.height(),
-        "screen-stream",
-    ));
-    publisher.publish(&joined.room).await?;
+    let publisher = Arc::new(
+        ScreenPublisher::new(first.width(), first.height(), "screen-stream")
+            .with_frame_rate(rate as f64),
+    );
+    let publication = publisher.publish(&joined.room).await?;
     publisher.push(&first)?;
     let _ = events.send(MediaEvent::Status(format!(
         "Sharing the screen at {}x{} on the {} session.",
@@ -223,7 +226,11 @@ pub(super) async fn start_share(
         }
     });
 
-    joined.share = Some(StreamShare { stop, running });
+    joined.share = Some(StreamShare {
+        stop,
+        running,
+        publication,
+    });
     Ok(())
 }
 

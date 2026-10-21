@@ -27,7 +27,7 @@
 
 use std::fmt;
 
-use livekit::options::TrackPublishOptions;
+use livekit::options::{TrackPublishOptions, VideoEncoding};
 use livekit::prelude::{
     LocalAudioTrack, LocalTrack, LocalTrackPublication, LocalVideoTrack, RemoteVideoTrack,
     TrackSource,

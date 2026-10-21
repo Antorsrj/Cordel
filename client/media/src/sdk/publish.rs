@@ -1,9 +1,19 @@
+/// The bitrate budget of a screen share, in bits per second.
+///
+/// A screen of text and code compresses very well, and the default budget of
+/// the SDK reserves more than the picture needs.
+pub const SCREEN_BITRATE_BPS: u64 = 3_500_000;
+
+/// The frame rate of a screen share when the caller does not choose one.
+pub const DEFAULT_SCREEN_FRAME_RATE: f64 = 15.0;
+
 /// Publishes captured frames as a screen-share track.
 pub struct ScreenPublisher {
     source: NativeVideoSource,
     track: LocalVideoTrack,
     width: u32,
     height: u32,
+    frame_rate: f64,
 }
 
 impl ScreenPublisher {
@@ -20,7 +30,16 @@ impl ScreenPublisher {
             track,
             width,
             height,
+            frame_rate: DEFAULT_SCREEN_FRAME_RATE,
         }
+    }
+
+    /// Sets the frame rate the encoder is allowed to use. It follows the rate
+    /// the user chose for the share, so the picture keeps the smoothness that
+    /// was asked for.
+    pub fn with_frame_rate(mut self, frames_per_second: f64) -> Self {
+        self.frame_rate = frames_per_second;
+        self
     }
 
     /// The resolution the track was created with. WebRTC may adapt the stream
@@ -37,6 +56,13 @@ impl ScreenPublisher {
                 LocalTrack::Video(self.track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Screenshare,
+                    // A tela muda o tempo todo, e a taxa de bits padrao do
+                    // SDK reserva mais do que o conteudo precisa. O valor e
+                    // fixo para que a medicao nao dependa do padrao.
+                    video_encoding: Some(VideoEncoding {
+                        max_bitrate: SCREEN_BITRATE_BPS,
+                        max_framerate: self.frame_rate,
+                    }),
                     ..Default::default()
                 },
             )

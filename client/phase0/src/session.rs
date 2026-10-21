@@ -75,16 +75,10 @@ impl Joined {
     async fn stop_publishing(&mut self) {
         if let Some(share) = self.share.take() {
             share.stop();
-        }
-        let participant = self.room.local_participant();
-        let screenshares: Vec<_> = participant
-            .track_publications()
-            .values()
-            .filter(|publication| publication.source() == TrackSource::Screenshare)
-            .map(|publication| publication.sid())
-            .collect();
-        for sid in screenshares {
-            let _ = participant.unpublish_track(&sid).await;
+            let participant = self.room.local_participant();
+            if let Err(error) = participant.unpublish_track(&share.publication.sid()).await {
+                log::warn!("the screen share track was not taken off the stage: {error}");
+            }
         }
     }
 }
