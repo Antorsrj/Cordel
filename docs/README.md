@@ -4,7 +4,7 @@ Start with the [project overview](../README.md), then use the [ADR index](adr/RE
 
 ## How to read the percentages
 
-These are **rough completion estimates as of 2026-10-20**, not measured test coverage, delivery dates, or permission to start a product test. Each ADR has five milestones worth 20 points each: decision accepted; owned implementation or deliverable present; focused checks passed; integration or field evidence passed; and all Done criteria recorded. A partly completed milestone earns 10 points. A Proposed design earns no decision points until the owner accepts it; 0% does not mean no draft exists. An Accepted but unimplemented ADR therefore starts at 20%. Only the [status ledger's definition of Done](adr/STATUS.md#definition-of-done-for-one-adr), with evidence, can make an ADR 100%.
+These are **rough completion estimates as of 2026-10-21**, not measured test coverage, delivery dates, or permission to start a product test. Each ADR has five milestones worth 20 points each: decision accepted; owned implementation or deliverable present; focused checks passed; integration or field evidence passed; and all Done criteria recorded. A partly completed milestone earns 10 points. A Proposed design earns no decision points until the owner accepts it; 0% does not mean no draft exists. An Accepted but unimplemented ADR therefore starts at 20%. Only the [status ledger's definition of Done](adr/STATUS.md#definition-of-done-for-one-adr), with evidence, can make an ADR 100%.
 
 The percentages are a navigation aid. The owning ADR and status ledger remain authoritative if this snapshot becomes stale. Dependencies can block a mostly implemented ADR.
 
@@ -15,7 +15,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 001 — Single host](adr/server/ADR-001-single-host-deployment.md) | 60% | Azure foundation and several network/reboot checks passed | Real UDP/TURN media, load and recovery evidence |
 | [Server 002 — Identity](adr/server/ADR-002-invite-only-identity.md) | 70% | Standalone API and grant are live with disposable flows | Client integration and recovery gates |
 | [Server 003 — Community policy](adr/server/ADR-003-community-authorization.md) | 60% | Source passed disposable database checks | Deploy and prove live moderation and policy consumers |
-| [Server 004 — Durable chat](adr/server/ADR-004-durable-chat.md) | 45% | Ordered send/history and database flows passed | Implement WS, recovery, revocation, and client integration |
+| [Server 004 — Durable chat](adr/server/ADR-004-durable-chat.md) | 60% | Ordered send/history and authenticated WS fan-out, lag and revocation checks passed | Client WS/catch-up integration and commit-before-publish evidence |
 | [Server 005 — LiveKit media](adr/server/ADR-005-livekit-media.md) | 40% | LiveKit foundation runs | Scoped admission and two-network voice/share proof |
 | [Server 006 — Media revocation](adr/server/ADR-006-media-revocation.md) | 0% | Proposed | Prove strict old-token denial and accept design |
 | [Server 007 — Backup operations](adr/server/ADR-007-backup-operations.md) | 0% | Proposed | Accept recovery targets and perform off-host restore |

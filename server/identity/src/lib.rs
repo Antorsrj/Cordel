@@ -4,8 +4,11 @@
 mod adr003_tests;
 #[cfg(test)]
 mod adr004_tests;
+#[cfg(test)]
+mod adr004_ws_tests;
 mod chat;
 mod community;
+mod events;
 mod host_admin;
 mod host_identity;
 mod identity_handlers;
@@ -25,6 +28,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
+use cordel_protocol::ChatEvent;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -33,6 +37,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 const ACCESS_SECONDS: i64 = 300;
@@ -45,6 +50,7 @@ pub struct AppState {
     pub pool: PgPool,
     signing: Arc<Vec<u8>>,
     attempts: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+    pub(crate) chat_events: broadcast::Sender<ChatEvent>,
 }
 
 impl AppState {
@@ -52,10 +58,12 @@ impl AppState {
         if signing_key.len() < 32 {
             return Err("CORDEL_JWT_SECRET must contain at least 32 random bytes");
         }
+        let (chat_events, _) = broadcast::channel(512);
         Ok(Self {
             pool,
             signing: Arc::new(signing_key),
             attempts: Arc::new(Mutex::new(HashMap::new())),
+            chat_events,
         })
     }
 
@@ -427,6 +435,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/channels/{channel_id}/messages",
             get(chat::history).post(chat::send_message),
         )
+        .route("/v1/events", get(events::events))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "Not found") })
         .method_not_allowed_fallback(|| async {

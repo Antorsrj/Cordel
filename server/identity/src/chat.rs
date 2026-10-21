@@ -89,29 +89,42 @@ fn sequence(value: u64) -> Result<i64, ApiError> {
     i64::try_from(value).map_err(|_| ApiError::invalid())
 }
 
-fn event_from_row(channel_id: Uuid, row: &PgRow) -> ChatEvent {
-    let created_at: DateTime<Utc> = row.get("created_at");
+fn message_event(
+    channel_id: Uuid,
+    message_id: Uuid,
+    author_id: Uuid,
+    client_message_id: &str,
+    seq: u64,
+    body: &str,
+    created_at: DateTime<Utc>,
+) -> ChatEvent {
     let mut extra = BTreeMap::new();
-    extra.insert(
-        "message_id".to_owned(),
-        json!(row.get::<Uuid, _>("id").to_string()),
-    );
-    extra.insert(
-        "author_id".to_owned(),
-        json!(row.get::<Uuid, _>("author_id").to_string()),
-    );
+    extra.insert("message_id".to_owned(), json!(message_id.to_string()));
+    extra.insert("author_id".to_owned(), json!(author_id.to_string()));
     extra.insert(
         "created_at".to_owned(),
         json!(created_at.to_rfc3339_opts(SecondsFormat::Millis, true)),
     );
     ChatEvent {
         channel_id: channel_id.to_string(),
-        seq: row.get::<i64, _>("seq") as u64,
+        seq,
         kind: "message".to_owned(),
-        client_message_id: Some(row.get::<String, _>("client_message_id")),
-        body: Some(row.get("body")),
+        client_message_id: Some(client_message_id.to_owned()),
+        body: Some(body.to_owned()),
         extra,
     }
+}
+
+fn event_from_row(channel_id: Uuid, row: &PgRow) -> ChatEvent {
+    message_event(
+        channel_id,
+        row.get("id"),
+        row.get("author_id"),
+        &row.get::<String, _>("client_message_id"),
+        row.get::<i64, _>("seq") as u64,
+        &row.get::<String, _>("body"),
+        row.get("created_at"),
+    )
 }
 
 pub(super) async fn send_message(
@@ -175,17 +188,18 @@ pub(super) async fn send_message(
 
     let last_seq = channel.get::<i64, _>("last_seq");
     let next_seq = last_seq.checked_add(1).ok_or_else(ApiError::internal)?;
-    sqlx::query(
+    let message_id = Uuid::new_v4();
+    let created_at: DateTime<Utc> = sqlx::query_scalar(
         "INSERT INTO messages (id,channel_id,author_id,client_message_id,seq,body) \
-         VALUES ($1,$2,$3,$4,$5,$6)",
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING created_at",
     )
-    .bind(Uuid::new_v4())
+    .bind(message_id)
     .bind(channel_id)
     .bind(principal.account_id)
     .bind(client_message_id)
     .bind(next_seq)
     .bind(&payload.body)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|error| {
         if is_unique(&error) {
@@ -205,6 +219,18 @@ pub(super) async fn send_message(
         return Err(conflict());
     }
     tx.commit().await.map_err(|_| ApiError::internal())?;
+
+    let event = message_event(
+        channel_id,
+        message_id,
+        principal.account_id,
+        client_message_id,
+        next_seq as u64,
+        &payload.body,
+        created_at,
+    );
+    // Delivery is best effort; subscribers recover anything missed from history.
+    let _ = state.chat_events.send(event);
 
     Ok((
         StatusCode::CREATED,

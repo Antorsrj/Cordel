@@ -85,6 +85,7 @@ if [[ "${1:-}" == '--with-db' || "${1:-}" == '--adr003' || "${1:-}" == '--adr004
     cargo test --manifest-path server/identity/Cargo.toml disposable_database_community_flow --jobs 1 -- --ignored --nocapture
     if [[ "${1:-}" == '--adr004' ]]; then
       cargo test --manifest-path server/identity/Cargo.toml disposable_database_chat_flow --jobs 1 -- --ignored --nocapture
+      cargo test --manifest-path server/identity/Cargo.toml disposable_database_websocket_flow --jobs 1 -- --ignored --nocapture
     fi
     psql -h 127.0.0.1 -p "$test_port" -U cordel_pg_test -d "$test_db" \
       --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'

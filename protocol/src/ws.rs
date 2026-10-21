@@ -88,6 +88,88 @@ impl WsFrame {
         }
     }
 
+    pub fn ready(community_id: impl Into<String>) -> Self {
+        let mut fields = Map::new();
+        fields.insert(
+            "community_id".to_owned(),
+            Value::String(community_id.into()),
+        );
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "ready".to_owned(),
+            fields,
+        }
+    }
+
+    pub fn subscribe(channel_id: impl Into<String>) -> Self {
+        let mut fields = Map::new();
+        fields.insert("channel_id".to_owned(), Value::String(channel_id.into()));
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "subscribe".to_owned(),
+            fields,
+        }
+    }
+
+    pub fn unsubscribe(channel_id: impl Into<String>) -> Self {
+        let mut fields = Map::new();
+        fields.insert("channel_id".to_owned(), Value::String(channel_id.into()));
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "unsubscribe".to_owned(),
+            fields,
+        }
+    }
+
+    pub fn subscribed(channel_id: impl Into<String>, last_seq: u64) -> Self {
+        let mut fields = Map::new();
+        fields.insert("channel_id".to_owned(), Value::String(channel_id.into()));
+        fields.insert("last_seq".to_owned(), Value::from(last_seq));
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "subscribed".to_owned(),
+            fields,
+        }
+    }
+
+    pub fn unsubscribed(channel_id: impl Into<String>) -> Self {
+        let mut fields = Map::new();
+        fields.insert("channel_id".to_owned(), Value::String(channel_id.into()));
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "unsubscribed".to_owned(),
+            fields,
+        }
+    }
+
+    pub fn error(code: impl Into<String>, message: impl Into<String>) -> Self {
+        let mut fields = Map::new();
+        fields.insert("code".to_owned(), Value::String(code.into()));
+        fields.insert("message".to_owned(), Value::String(message.into()));
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "error".to_owned(),
+            fields,
+        }
+    }
+
+    pub fn access_revoked(community_id: impl Into<String>, authorization_revision: u64) -> Self {
+        let mut fields = Map::new();
+        fields.insert(
+            "community_id".to_owned(),
+            Value::String(community_id.into()),
+        );
+        fields.insert(
+            "authorization_revision".to_owned(),
+            Value::from(authorization_revision),
+        );
+        Self {
+            v: PROTOCOL_VERSION,
+            kind: "access_revoked".to_owned(),
+            fields,
+        }
+    }
+
     pub fn check_version(&self) -> Result<(), FrameError> {
         if self.v == PROTOCOL_VERSION {
             Ok(())
@@ -102,7 +184,17 @@ impl WsFrame {
         self.check_version()?;
         if matches!(
             self.kind.as_str(),
-            "ack" | "lagged" | "send" | "subscribe" | "error"
+            "ack"
+                | "lagged"
+                | "send"
+                | "subscribe"
+                | "unsubscribe"
+                | "subscribed"
+                | "unsubscribed"
+                | "ready"
+                | "error"
+                | "access_revoked"
+                | "pong"
         ) {
             return Ok(None);
         }
@@ -179,6 +271,51 @@ mod tests {
                 .get("after_seq")
                 .and_then(serde_json::Value::as_u64),
             Some(4)
+        );
+    }
+
+    #[test]
+    fn control_frames_are_not_chat_events() {
+        let frames = [
+            WsFrame::ready("community"),
+            WsFrame::subscribe("channel"),
+            WsFrame::unsubscribe("channel"),
+            WsFrame::subscribed("channel", 3),
+            WsFrame::unsubscribed("channel"),
+            WsFrame::error("invalid_frame", "bad"),
+            WsFrame::access_revoked("community", 4),
+        ];
+        for frame in frames {
+            let parsed: WsFrame =
+                serde_json::from_str(&serde_json::to_string(&frame).unwrap()).unwrap();
+            assert_eq!(parsed.as_chat_event().unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn subscription_and_revocation_frames_carry_their_fields() {
+        let subscribe = WsFrame::subscribe("channel");
+        assert_eq!(subscribe.kind, "subscribe");
+        assert_eq!(
+            subscribe.fields.get("channel_id").and_then(Value::as_str),
+            Some("channel")
+        );
+
+        let subscribed = WsFrame::subscribed("channel", 7);
+        assert_eq!(subscribed.kind, "subscribed");
+        assert_eq!(
+            subscribed.fields.get("last_seq").and_then(Value::as_u64),
+            Some(7)
+        );
+
+        let revoked = WsFrame::access_revoked("community", 9);
+        assert_eq!(revoked.kind, "access_revoked");
+        assert_eq!(
+            revoked
+                .fields
+                .get("authorization_revision")
+                .and_then(Value::as_u64),
+            Some(9)
         );
     }
 
