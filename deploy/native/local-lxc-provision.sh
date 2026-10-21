@@ -183,6 +183,7 @@ sudo apt-get install -y --no-install-recommends \
   build-essential \
   curl \
   git \
+  gnupg \
   pkg-config \
   libclang-dev \
   libssl-dev \
@@ -199,6 +200,25 @@ sudo apt-get install -y --no-install-recommends \
   libxi-dev libxext-dev \
   libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
   xvfb
+
+log "Instalando clang 21 para o WebRTC (mesma fonte do CI)..."
+LLVM_KEY="/tmp/llvm-snapshot.asc"
+curl -fsSL --proto '=https' --tlsv1.2 \
+  https://apt.llvm.org/llvm-snapshot.gpg.key -o "$LLVM_KEY"
+key_fingerprint=$(gpg --show-keys --with-colons "$LLVM_KEY" | awk -F: '$1 == "fpr" { print $10; exit }')
+if [[ "$key_fingerprint" != "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421" ]]; then
+  fail "Assinatura do repositório LLVM inesperada: $key_fingerprint"
+fi
+sudo install -m 644 "$LLVM_KEY" /usr/share/keyrings/llvm-snapshot.asc
+echo 'deb [signed-by=/usr/share/keyrings/llvm-snapshot.asc] https://apt.llvm.org/noble/ llvm-toolchain-noble-21 main' \
+  | sudo tee /etc/apt/sources.list.d/llvm21.list >/dev/null
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends clang-21
+clang++-21 --version | head -1
+
+# O libwebrtc embarcado exige clang 21; o clang padrão do Ubuntu 24.04 é o 18.
+export CC="clang-21"
+export CXX="clang++-21"
 
 # -----------------------------------------------------------------------------
 # 2. Rust toolchain (alinhado com o CI/local: 1.99.1)
@@ -266,8 +286,8 @@ elif [[ "${PHASE0_GB:-0}" -lt 8 ]]; then
   log "AVISO: apenas ${PHASE0_GB} GB livres. Pulando client/phase0 para não esgotar o disco."
   log "       Rode depois com mais espaço, ou com CORDEL_SKIP_PHASE0=0."
 else
-  log "Rodando testes de client/phase0..."
-  cargo test \
+  log "Rodando testes de client/phase0 (com xvfb, como no CI)..."
+  xvfb-run -a cargo test \
     --manifest-path client/phase0/Cargo.toml \
     --locked
 
