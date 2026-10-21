@@ -141,6 +141,12 @@ log "Compilando o servidor..."
 cargo build --manifest-path server/identity/Cargo.toml --locked \
   --bin cordel-identity --example bootstrap_disposable_admin
 
+# O cliente precisa do feature local-smoke para aceitar um origin http. Compilar
+# sem ele produz um binario que recusa o endereco local, e ele substitui
+# silenciosamente o binario que funciona.
+log "Compilando o cliente com o feature local-smoke..."
+cargo build --manifest-path client/phase0/Cargo.toml --locked --features local-smoke
+
 log "Aplicando migrations e criando as contas..."
 "$REPO_DIR/server/identity/target/debug/cordel-identity" migrate
 CORDEL_DISPOSABLE_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
@@ -206,7 +212,7 @@ cat <<EOF
 [media]   CORDEL_API_ORIGIN="http://127.0.0.1:$API_PORT" \\
 [media]   CORDEL_CHANNEL_ID="$TEXT_CHANNEL" \\
 [media]   CORDEL_VOICE_CHANNEL_ID="$VOICE_CHANNEL" \\
-[media]   cargo run --manifest-path client/phase0/Cargo.toml --features local-smoke
+[media]   ./client/phase0/target/debug/cordel-phase0
 [media]
 [media] Para encerrar: kill $SERVER_PID
 [media] Os containers ficam: $DB_CONTAINER, $LIVEKIT_CONTAINER, $CADDY_CONTAINER
