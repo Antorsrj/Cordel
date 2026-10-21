@@ -72,10 +72,14 @@ display and no audio device. It passed on the LXC on 2026-10-21.
 
 ## The media gate
 
-The local proof also runs the Server 005 gate and drain checks, so the
-moderation path is exercised without the Azure deployment. The gate needs the
-LiveKit service the media script starts, so the script runs the checks while
-the container is up.
+`local-lxc-gate.sh` proves the Server 006 admission gate with a real reverse
+proxy. It installs Caddy from the upstream repository, starts the LiveKit
+container, the identity service with its gate listener, and a Caddy proxy that
+asks the gate before it forwards the signaling upgrade. The proof joins
+through the proxy with a valid admission, applies a moderation action, and
+then shows that the same token is refused with 403 through the same proxy.
+It needs the `sudo` password for the system packages and the database, and it
+leaves the system Caddy service alone.
 
 ## Limits
 

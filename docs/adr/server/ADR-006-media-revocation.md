@@ -158,8 +158,14 @@ A disposable PostgreSQL 16 database and a local LiveKit v1.13.10 proved the
 path: a member held an admission and was in the room, a moderation action
 advanced the generation, the gate then refused the held token, a fresh
 admission for the new generation passed again, a revoked session was refused,
-and the room of the previous generation was gone. The provisioning and
-media scripts on the disposable LXC reproduce the surrounding flow.
+and the room of the previous generation was gone.
+
+On the disposable LXC a real Caddy reverse proxy proved the same thing through
+the path a client actually uses: the client joined through the proxy with a
+valid admission, a moderation action advanced the generation and drained the
+room, and the **same token was refused with 403 through the same proxy**.
+`deploy/native/local-lxc-gate.sh` installs Caddy, starts the service, the
+gate and the proxy, and runs that proof.
 
 ### Still open
 
