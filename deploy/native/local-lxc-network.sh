@@ -60,7 +60,7 @@ cleanup() {
   # The rules are removed even when the proof fails halfway.
   iptables -D OUTPUT -p tcp --dport "$API_PORT" -j REJECT 2>/dev/null || true
   iptables -D INPUT -p tcp --dport "$API_PORT" -j REJECT 2>/dev/null || true
-  rm -f "$READY_FILE"
+  rm -f "$READY_FILE" "$READY_FILE.outage"
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
@@ -135,15 +135,10 @@ SUMMARY="$(python3 "$REPO_DIR/deploy/native/local-lxc-e2e.py" \
   --admin-password "$ADMIN_PASSWORD" \
   --member-login "$MEMBER_LOGIN" \
   --member-password "$MEMBER_PASSWORD")"
-read -r COMMUNITY_ID ADMIN_TOKEN MEMBER_TOKEN MEMBER_USER_ID < <(
+read -r COMMUNITY_ID CHANNEL ADMIN_TOKEN MEMBER_TOKEN MEMBER_USER_ID < <(
   printf '%s' "$SUMMARY" |
-    python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["community_id"], d["admin_token"], d["member_token"], d["member_user_id"])'
+    python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["community_id"], d["channel_id"], d["admin_token"], d["member_token"], d["member_user_id"])'
 )
-CHANNEL="$(curl -s -X POST "$ORIGIN/v1/communities/$COMMUNITY_ID/channels" \
-  -H "content-type: application/json" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"kind":"text","name":"general"}' |
-  python3 -c 'import json,sys; print(json.load(sys.stdin)["channel_id"])')"
 log "Canal de texto: $CHANNEL"
 
 # -----------------------------------------------------------------------------
@@ -177,6 +172,8 @@ log "O cliente conectou. Cortando a rede por $OUTAGE_SECONDS segundos..."
 
 iptables -I OUTPUT -p tcp --dport "$API_PORT" -j REJECT
 iptables -I INPUT -p tcp --dport "$API_PORT" -j REJECT
+# O instante da queda e o que o cliente usa para medir a recuperacao.
+date +%s%3N >"$READY_FILE.outage"
 sleep "$OUTAGE_SECONDS"
 log "A rede voltou. Enviando a mensagem depois da interrupcao..."
 

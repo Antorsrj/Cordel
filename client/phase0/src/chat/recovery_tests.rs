@@ -11,7 +11,7 @@
 
 use std::fs;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use super::session::{run_with, Config};
 use super::UiEvent;
@@ -72,15 +72,33 @@ fn the_worker_recovers_after_a_network_interruption() {
     assert!(connected, "the worker never reported a live connection");
     fs::write(&ready_file, b"ready").expect("the harness reads the ready file");
 
+    // The harness writes the moment it cut the network. The recovery is the
+    // time from that moment to the message arriving.
+    let outage_file = format!("{ready_file}.outage");
+    let mut outage = None;
+    while Instant::now() < deadline && outage.is_none() {
+        outage = fs::read_to_string(&outage_file)
+            .ok()
+            .and_then(|value| value.trim().parse::<u128>().ok());
+        if outage.is_none() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    let outage: u128 = outage.expect("the harness did not record the interruption");
+
     // The harness sends a message once the network is back. Receiving it proves
-    // the chat is usable again, and the elapsed time is the recovery.
+    // the chat is usable again.
     let mut recovered = false;
     let mut elapsed = Duration::ZERO;
     while Instant::now() < deadline {
         match ui_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(UiEvent::Message { body, .. }) if body == "after the interruption" => {
                 recovered = true;
-                elapsed = Instant::now().elapsed();
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("the clock is after the epoch")
+                    .as_millis();
+                elapsed = Duration::from_millis(now.saturating_sub(outage) as u64);
                 break;
             }
             Ok(_) => {}
@@ -91,6 +109,8 @@ fn the_worker_recovers_after_a_network_interruption() {
         recovered,
         "the worker never received the message sent after the interruption"
     );
+    // The time is measured from the moment the network was cut, so it
+    // includes the length of the interruption itself.
     println!(
         "recovery after the interruption: {} ms",
         elapsed.as_millis()
