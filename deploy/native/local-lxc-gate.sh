@@ -13,15 +13,17 @@
 # O passo 4 e o que fecha a lacuna do ADR-006: com o gate no caminho, um
 # token ja emitido nao devolve a entrada a um membro moderado.
 #
-# Como usar no LXC (Ubuntu 24.04, como root ou com sudo):
+# Como usar no LXC (Ubuntu 24.04):
 #
 #   scp deploy/native/local-lxc-gate.sh deploy/native/local-lxc-common.sh \
 #       deploy/native/media-admission.py cordel@172.16.1.16:/tmp/
 #   ssh cordel@172.16.1.16
-#   sudo bash /tmp/local-lxc-gate.sh
+#   bash /tmp/local-lxc-gate.sh
 #
-# O script instala o Caddy se faltar, e para tudo o que ele iniciou ao
-# terminar. Ele nao mexe no servico do sistema do Caddy.
+# O script roda como o usuario normal e usa sudo so para instalar o Caddy e
+# usar o PostgreSQL, porque o toolchain do Rust fica na pasta do usuario. Ele
+# para tudo o que iniciou ao terminar e nao mexe no servico do sistema do
+# Caddy.
 
 set -euo pipefail
 
@@ -108,26 +110,35 @@ find_helper() {
 # -----------------------------------------------------------------------------
 # 1. Dependencias
 # -----------------------------------------------------------------------------
+# O script roda como o usuario normal e usa sudo so onde o sistema exige. O
+# toolchain do Rust fica na pasta do usuario, entao rodar como root faria o
+# build procurar um rustup que nao existe.
+SUDO=""
 if [[ $EUID -ne 0 ]]; then
-  log "Este script precisa de root. Rode com sudo."
-  exit 1
+  SUDO="sudo"
+  log "Verificando o acesso do sudo..."
+  $SUDO true || fail "O usuario precisa de sudo para instalar o Caddy e usar o PostgreSQL."
 fi
+
 export DEBIAN_FRONTEND=noninteractive
 log "Instalando as dependencias do sistema..."
-apt-get update -y >/dev/null
-apt-get install -y --no-install-recommends \
+$SUDO apt-get update -y >/dev/null
+$SUDO apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg debian-keyring debian-archive-keyring apt-transport-https \
   postgresql >/dev/null
 
 if ! command -v caddy >/dev/null 2>&1; then
   log "Instalando o Caddy pelo repositorio oficial..."
-  install -d -m 0755 /usr/share/keyrings
+  $SUDO install -d -m 0755 /usr/share/keyrings
   curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key |
-    gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    gpg --dearmor --yes -o /tmp/caddy-stable-archive-keyring.gpg
+  $SUDO install -m 0644 /tmp/caddy-stable-archive-keyring.gpg \
+    /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
-    -o /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -y >/dev/null
-  apt-get install -y --no-install-recommends caddy >/dev/null
+    -o /tmp/caddy-stable.list
+  $SUDO install -m 0644 /tmp/caddy-stable.list /etc/apt/sources.list.d/caddy-stable.list
+  $SUDO apt-get update -y >/dev/null
+  $SUDO apt-get install -y --no-install-recommends caddy >/dev/null
 fi
 log "Caddy: $(caddy version)"
 
@@ -183,11 +194,11 @@ curl -s -o /dev/null "http://127.0.0.1:$SIGNAL_PORT/" || fail "O LiveKit nao sub
 # 4. Banco e servidor
 # -----------------------------------------------------------------------------
 log "Garantindo que o PostgreSQL esteja rodando..."
-systemctl start postgresql 2>/dev/null || service postgresql start 2>/dev/null || true
-su - postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\"" >/dev/null 2>&1 || true
+$SUDO systemctl start postgresql 2>/dev/null || $SUDO service postgresql start 2>/dev/null || true
+$SUDO -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" >/dev/null 2>&1 || true
 log "Criando o banco descartavel: $DB_NAME"
-su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" | grep -q 1 \
-  || su - postgres -c "createdb $DB_NAME"
+$SUDO -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 \
+  || $SUDO -u postgres createdb "$DB_NAME"
 export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/$DB_NAME"
 
 log "Aplicando migrations e criando o primeiro admin..."

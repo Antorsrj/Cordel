@@ -10,9 +10,19 @@ REPO_URL="${REPO_URL:-https://github.com/Antorsrj/Cordel.git}"
 DEFAULT_REPO_DIR="${DEFAULT_REPO_DIR:-$HOME/Projects/Cordel}"
 
 # The Rust toolchain lives in the user's cargo home when rustup installed it,
-# and a non-login shell does not have it on the path.
+# and a non-login shell does not have it on the path. When the script runs as
+# root, the toolchain of the first user that has one is used instead, with its
+# own rustup home, so the build finds the same toolchain.
 if [[ -d "$HOME/.cargo/bin" ]]; then
   export PATH="$HOME/.cargo/bin:$PATH"
+elif ! command -v cargo >/dev/null 2>&1; then
+  for candidate in /home/*/.cargo/bin; do
+    if [[ -x "$candidate/cargo" ]]; then
+      export PATH="$candidate:$PATH"
+      export RUSTUP_HOME="$(dirname "$candidate")/../.rustup"
+      break
+    fi
+  done
 fi
 
 # The libwebrtc that LiveKit ships requires clang 21, the same rule the Linux
