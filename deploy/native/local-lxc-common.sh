@@ -32,12 +32,26 @@ clone_repo() {
 }
 
 # Um diretorio que ja tem .git e reaproveitado: busca e alinha com origin/main.
+# Um checkout com alteracoes locais e preservado, com um aviso.
 refresh_repo() {
   local target="$1"
   [[ -d "$target/.git" ]] || return 1
-  log "Reaproveitando o checkout existente em $target..."
+  if [[ -n "$(git -C "$target" status --porcelain 2>/dev/null)" ]]; then
+    log "ATENCAO: $target tem alteracoes locais; mantendo como esta."
+    return 0
+  fi
+  log "Atualizando $target para origin/main..."
   git -C "$target" fetch --quiet origin main || return 1
   git -C "$target" reset --quiet --hard origin/main || return 1
+  return 0
+}
+
+# Define REPO_DIR com um checkout valido e o alinha com origin/main.
+use_checkout() {
+  local target="$1"
+  is_checkout "$target" || return 1
+  refresh_repo "$target" || log "AVISO: nao foi possivel atualizar $target; usando como esta."
+  REPO_DIR="$target"
   return 0
 }
 
@@ -48,26 +62,17 @@ find_repo_dir() {
   local candidate target temp
 
   if [[ -n "${CORDEL_REPO_DIR:-}" ]]; then
-    if is_checkout "$CORDEL_REPO_DIR"; then
-      REPO_DIR="$CORDEL_REPO_DIR"
+    if use_checkout "$CORDEL_REPO_DIR"; then
       return 0
-    fi
-    if [[ -d "$CORDEL_REPO_DIR/.git" ]]; then
-      if refresh_repo "$CORDEL_REPO_DIR" && is_checkout "$CORDEL_REPO_DIR"; then
-        REPO_DIR="$CORDEL_REPO_DIR"
-        return 0
-      fi
     fi
   fi
 
-  if is_checkout "$DEFAULT_REPO_DIR"; then
-    REPO_DIR="$DEFAULT_REPO_DIR"
+  if use_checkout "$DEFAULT_REPO_DIR"; then
     return 0
   fi
 
   for candidate in "$HOME"/Cordel* "$HOME"/cordel* "$HOME"/Projects/Cordel*; do
-    if is_checkout "$candidate"; then
-      REPO_DIR="$candidate"
+    if use_checkout "$candidate"; then
       return 0
     fi
   done
