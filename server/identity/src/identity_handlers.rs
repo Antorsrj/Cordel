@@ -38,6 +38,7 @@ async fn create_session(
 
 pub(super) async fn redeem(
     State(state): State<AppState>,
+    ClientIp(address): ClientIp,
     payload: Result<Json<RedeemRequest>, JsonRejection>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let body = payload.map_err(json_error)?.0;
@@ -51,7 +52,12 @@ pub(super) async fn redeem(
     {
         return Err(ApiError::invalid());
     }
-    state.limit("invite-redemption", 100)?;
+    state.limit_address(
+        address,
+        "invite-redemption",
+        100,
+        INVITE_ATTEMPTS_PER_ADDRESS,
+    )?;
     let password_hash = hash_password_async(body.password).await?;
     let mut tx = state.pool.begin().await.map_err(|_| ApiError::internal())?;
     let invite = sqlx::query("SELECT id,community_id,uses_remaining,expires_at FROM invitations WHERE code_hash=$1 FOR UPDATE")
@@ -96,11 +102,17 @@ pub(super) async fn redeem(
 
 pub(super) async fn login(
     State(state): State<AppState>,
+    ClientIp(address): ClientIp,
     payload: Result<Json<LoginRequest>, JsonRejection>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let body = payload.map_err(json_error)?.0;
     let key = normalize_login(&body.login).unwrap_or_default();
-    state.limit(&format!("login:{key}"), 10)?;
+    state.limit_address(
+        address,
+        &format!("login:{key}"),
+        10,
+        LOGIN_ATTEMPTS_PER_ADDRESS,
+    )?;
     if key.is_empty() || body.password.len() > 128 {
         return Err(ApiError::unauthenticated());
     }
@@ -129,10 +141,11 @@ pub(super) async fn login(
 
 pub(super) async fn refresh(
     State(state): State<AppState>,
+    ClientIp(address): ClientIp,
     payload: Result<Json<RefreshRequest>, JsonRejection>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let body = payload.map_err(json_error)?.0;
-    state.limit("refresh", 300)?;
+    state.limit_address(address, "refresh", 300, REFRESH_ATTEMPTS_PER_ADDRESS)?;
     if body.refresh_token.len() != 64
         || !body
             .refresh_token

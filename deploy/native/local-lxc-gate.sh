@@ -160,7 +160,11 @@ cargo build --manifest-path server/identity/Cargo.toml --locked \
 cargo build --manifest-path client/media/Cargo.toml --locked --features sdk --bin probe
 
 API_PORT="$(pick_port "$API_PORT")" || fail "Nenhuma porta livre para a API."
+# A porta do gate precisa ser diferente da da API.
 GATE_PORT="$(pick_port "$GATE_PORT")" || fail "Nenhuma porta livre para o gate."
+if [[ "$GATE_PORT" == "$API_PORT" ]]; then
+  GATE_PORT="$(pick_port $((GATE_PORT + 1)))" || fail "Nenhuma porta livre para o gate."
+fi
 PROXY_PORT="$(pick_port "$PROXY_PORT")" || fail "Nenhuma porta livre para o proxy."
 SIGNAL_PORT="$(pick_port "$SIGNAL_PORT")" || fail "Nenhuma porta livre para o LiveKit."
 WEBHOOK_PORT="$(pick_port "$WEBHOOK_PORT")" || fail "Nenhuma porta livre para o webhook."
@@ -252,10 +256,11 @@ cat >"$WORK_DIR/Caddyfile" <<EOF
 http://127.0.0.1:$PROXY_PORT {
     @livekit path /rtc /rtc/*
     handle @livekit {
+        # O token chega no header Authorization, que o proxy copia para o
+        # subrequest. Ele nunca entra na URL.
         forward_auth 127.0.0.1:$GATE_PORT {
             uri /v1/livekit/authorize
             method GET
-            header_up X-Cordel-Livekit-Token {query.access_token}
         }
         reverse_proxy 127.0.0.1:$SIGNAL_PORT
     }

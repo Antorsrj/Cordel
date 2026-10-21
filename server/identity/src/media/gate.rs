@@ -14,7 +14,6 @@ use base64::Engine as _;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 
 use super::*;
 
@@ -149,9 +148,9 @@ impl MediaConfig {
 ///
 /// The SDK sends it as `Authorization: Bearer <token>`. The reverse proxy
 /// copies the original headers to the gate, so the token arrives untouched.
-/// A token in the query string is accepted as well, for a client that puts it
-/// there.
-fn request_token<'a>(headers: &'a HeaderMap, query: Option<&'a String>) -> Option<&'a str> {
+/// A token in the URL is **not** accepted: it would land in the access log of
+/// every hop between the client and the service.
+fn request_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -165,23 +164,16 @@ fn request_token<'a>(headers: &'a HeaderMap, query: Option<&'a String>) -> Optio
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
         })
-        .or_else(|| {
-            query
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-        })
 }
 
 /// `GET /v1/livekit/authorize` — the gate the reverse proxy calls before it
 /// proxies the LiveKit signaling upgrade.
 pub(crate) async fn authorize(
     State(state): State<AppState>,
-    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let media = state.media.as_ref().ok_or_else(ApiError::not_found)?;
-    let token =
-        request_token(&headers, query.get("access_token")).ok_or_else(ApiError::unauthenticated)?;
+    let token = request_token(&headers).ok_or_else(ApiError::unauthenticated)?;
     media.config.authorize_room(&state.pool, token).await?;
     Ok(StatusCode::OK)
 }

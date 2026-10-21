@@ -9,6 +9,10 @@ mod adr004_tests;
 #[cfg(test)]
 mod adr004_ws_tests;
 mod chat;
+mod client_ip;
+mod routes;
+pub use client_ip::ClientIp;
+pub use routes::{gate_router, router};
 mod community;
 mod events;
 mod host_admin;
@@ -43,6 +47,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::{BTreeMap, HashMap};
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::broadcast;
@@ -51,6 +56,14 @@ use uuid::Uuid;
 const ACCESS_SECONDS: i64 = 300;
 const REFRESH_DAYS: i64 = 30;
 const AUTH_WINDOW: StdDuration = StdDuration::from_secs(600);
+/// How many login attempts one address may make in the window. It is high
+/// enough for one office behind one address and low enough that one noisy
+/// client does not fill the window for everybody else.
+const LOGIN_ATTEMPTS_PER_ADDRESS: usize = 60;
+/// How many invitation redemptions one address may make in the window.
+const INVITE_ATTEMPTS_PER_ADDRESS: usize = 100;
+/// How many refresh attempts one address may make in the window.
+const REFRESH_ATTEMPTS_PER_ADDRESS: usize = 300;
 const ADMIN_GRANT_SECONDS: i64 = 600;
 
 #[derive(Clone)]
@@ -108,7 +121,33 @@ impl AppState {
         }
     }
 
+    /// Count one attempt against a key.
+    ///
+    /// There is no shared bucket: a single unauthenticated client must not be
+    /// able to deny the service to everybody else. Each caller limits its own
+    /// key, and the caller also limits the client address.
     fn limit(&self, key: &str, max_per_key: usize) -> Result<(), ApiError> {
+        self.count(key, max_per_key)
+    }
+
+    /// Count one attempt against the client address.
+    ///
+    /// The address is optional: a request without a known address, which only
+    /// happens in an internal test, is limited by its key alone.
+    fn limit_address(
+        &self,
+        address: Option<IpAddr>,
+        key: &str,
+        max_per_key: usize,
+        max_per_address: usize,
+    ) -> Result<(), ApiError> {
+        if let Some(address) = address {
+            self.count(&format!("ip:{address}"), max_per_address)?;
+        }
+        self.count(key, max_per_key)
+    }
+
+    fn count(&self, key: &str, max_per_key: usize) -> Result<(), ApiError> {
         let mut attempts = self.attempts.lock().map_err(|_| ApiError::internal())?;
         let now = Instant::now();
         // Keep bounded memory even for unique guessed logins.
@@ -118,12 +157,6 @@ impl AppState {
                 !times.is_empty()
             });
         }
-        let global = attempts.entry("global".to_owned()).or_default();
-        global.retain(|time| now.duration_since(*time) < AUTH_WINDOW);
-        if global.len() >= 600 {
-            return Err(ApiError::rate_limited());
-        }
-        global.push(now);
         let per_key = attempts.entry(key.to_owned()).or_default();
         per_key.retain(|time| now.duration_since(*time) < AUTH_WINDOW);
         if per_key.len() >= max_per_key {
@@ -448,85 +481,6 @@ struct EmptyResponse {
 /// It is bound to its own loopback listener and is never forwarded to by the
 /// public path. The reverse proxy calls it before it proxies the LiveKit
 /// signaling upgrade, and a non-2xx answer keeps the client out of the room.
-pub fn gate_router(state: AppState) -> Router {
-    Router::new()
-        .route("/v1/livekit/authorize", get(media::gate::authorize))
-        .layer(DefaultBodyLimit::max(16 * 1024))
-        .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "Not found") })
-        .method_not_allowed_fallback(|| async {
-            ApiError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "method_not_allowed",
-                "Method not allowed",
-            )
-        })
-        .with_state(state)
-}
-
-pub fn router(state: AppState) -> Router {
-    let mut router = Router::new()
-        .route("/v1/accounts", post(registration_disabled))
-        .route("/v1/accounts/from-invite", post(redeem))
-        .route("/v1/sessions", post(login))
-        .route("/v1/sessions/refresh", post(refresh))
-        .route("/v1/sessions/current", delete(logout))
-        .route(
-            "/v1/sessions/admin-grant",
-            post(unlock_admin).delete(lock_admin),
-        )
-        .route("/v1/me", get(me))
-        .route(
-            "/v1/communities/{community_id}/invitations",
-            post(create_invite),
-        )
-        .route(
-            "/v1/communities/{community_id}",
-            get(community::get_community).patch(community::update_community),
-        )
-        .route(
-            "/v1/communities/{community_id}/channels",
-            get(community::list_channels).post(community::create_channel),
-        )
-        .route(
-            "/v1/communities/{community_id}/members/{member_id}/kick",
-            post(community::kick),
-        )
-        .route(
-            "/v1/communities/{community_id}/members/{member_id}/ban",
-            post(community::ban).delete(community::unban),
-        )
-        .route(
-            "/v1/channels/{channel_id}/messages",
-            get(chat::history).post(chat::send_message),
-        )
-        .route("/v1/events", get(events::events));
-
-    // The media routes exist only when the host configured a LiveKit service.
-    if state.media.is_some() {
-        router = router
-            .route(
-                "/v1/voice-channels/{channel_id}/admission",
-                post(media::admission),
-            )
-            .route(
-                "/v1/livekit/webhook",
-                post(media::webhook::handler).layer(DefaultBodyLimit::max(64 * 1024)),
-            );
-    }
-
-    router
-        .layer(DefaultBodyLimit::max(16 * 1024))
-        .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "Not found") })
-        .method_not_allowed_fallback(|| async {
-            ApiError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "method_not_allowed",
-                "Method not allowed",
-            )
-        })
-        .with_state(state)
-}
-
 async fn registration_disabled() -> ApiError {
     ApiError::new(
         StatusCode::FORBIDDEN,

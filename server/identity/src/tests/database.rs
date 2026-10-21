@@ -72,6 +72,7 @@ async fn disposable_database_identity_flow() {
 
     let admin = login(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(LoginRequest {
             login: "Admin".into(),
             password: "correct horse battery staple".into(),
@@ -139,6 +140,7 @@ async fn disposable_database_identity_flow() {
     let code = invite.invite_code.clone();
     let first = redeem(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RedeemRequest {
             invite_code: code.clone(),
             login: "Alice".into(),
@@ -147,6 +149,7 @@ async fn disposable_database_identity_flow() {
     );
     let second = redeem(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RedeemRequest {
             invite_code: code.clone(),
             login: "Bob".into(),
@@ -162,6 +165,7 @@ async fn disposable_database_identity_flow() {
     let winner = a.ok().or_else(|| b.ok()).unwrap().0;
     let replay = redeem(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RedeemRequest {
             invite_code: code,
             login: "Third".into(),
@@ -213,6 +217,7 @@ async fn disposable_database_identity_flow() {
     .0;
     let collision = redeem(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RedeemRequest {
             invite_code: collision_invite.invite_code.clone(),
             login: "Admin".into(),
@@ -234,6 +239,7 @@ async fn disposable_database_identity_flow() {
         .unwrap();
     let expired = redeem(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RedeemRequest {
             invite_code: collision_invite.invite_code,
             login: "Unused".into(),
@@ -329,6 +335,7 @@ async fn disposable_database_identity_flow() {
 
     let rotated = refresh(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RefreshRequest {
             refresh_token: winner.refresh_token.clone(),
         })),
@@ -338,6 +345,7 @@ async fn disposable_database_identity_flow() {
     .0;
     let reuse = refresh(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RefreshRequest {
             refresh_token: winner.refresh_token,
         })),
@@ -346,6 +354,7 @@ async fn disposable_database_identity_flow() {
     assert_eq!(reuse.unwrap_err().status, StatusCode::UNAUTHORIZED);
     let revoked = refresh(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(RefreshRequest {
             refresh_token: rotated.refresh_token,
         })),
@@ -355,6 +364,7 @@ async fn disposable_database_identity_flow() {
 
     let again = login(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(LoginRequest {
             login: "Alice".into(),
             password: "correct horse battery staple".into(),
@@ -364,6 +374,7 @@ async fn disposable_database_identity_flow() {
     let active_user = if again.is_ok() { "Alice" } else { "Bob" };
     let active = login(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(LoginRequest {
             login: active_user.into(),
             password: "correct horse battery staple".into(),
@@ -381,6 +392,7 @@ async fn disposable_database_identity_flow() {
     assert_eq!(
         refresh(
             State(state.clone()),
+            ClientIp(None),
             Ok(Json(RefreshRequest {
                 refresh_token: active.refresh_token
             }))
@@ -405,6 +417,7 @@ async fn disposable_database_identity_flow() {
     );
     assert!(login(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(LoginRequest {
             login: "Admin".into(),
             password: "correct horse battery staple".into()
@@ -414,6 +427,7 @@ async fn disposable_database_identity_flow() {
     .is_err());
     assert!(login(
         State(state.clone()),
+        ClientIp(None),
         Ok(Json(LoginRequest {
             login: "Admin".into(),
             password: "new correct horse battery staple".into()
