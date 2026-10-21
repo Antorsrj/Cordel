@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, ListView } from "std-widgets.slint";
 
 export struct ChatLine {
     author: string,
@@ -193,6 +193,7 @@ export component ShareWindow inherits Window {
 }
 
 export component AppWindow inherits Window {
+
     title: "Cordel Phase 0";
     preferred-width: 1100px;
     preferred-height: 720px;
@@ -221,7 +222,7 @@ export component AppWindow inherits Window {
     in-out property <bool> fake-media: false;
 
     callback join();
-    callback capture-frame();
+    callback capture-frame(string);
     callback stop-share();
     callback leave();
     callback identity-login(string, string);
@@ -372,12 +373,18 @@ export component AppWindow inherits Window {
                 clicked => { root.join(); }
             }
 
+            fps-picker := ComboBox {
+                width: 110px;
+                model: ["15 fps", "30 fps", "60 fps"];
+                current-value: "15 fps";
+                accessible-label: "Frames per second of the screen share";
+            }
             Button {
                 text: "Share screen";
                 enabled: !root.busy;
                 accessible-role: AccessibleRole.button;
                 accessible-label: "Share the screen after confirmation";
-                clicked => { root.capture-frame(); }
+                clicked => { root.capture-frame(fps-picker.current-value); }
             }
             Button {
                 text: "Stop sharing";

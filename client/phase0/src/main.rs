@@ -10,11 +10,12 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use cordel_media::capture::SessionKind;
-use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use crate::account::AccountEvent;
 use crate::chat::{phase0_messages, Command as ChatCommand, UiEvent as ChatUiEvent};
 use crate::identity::Command as IdentityCommand;
+use crate::session::stream;
 use crate::session::Command;
 use crate::share::{DetachedWindow, MediaEvent, Shares};
 
@@ -122,8 +123,13 @@ fn main() -> anyhow::Result<()> {
     });
     ui.on_capture_frame({
         let commands = commands.clone();
-        move || {
-            let _ = commands.send(Command::CaptureFrame);
+        move |value: SharedString| {
+            let rate = match value.as_str() {
+                "30 fps" => 30,
+                "60 fps" => 60,
+                _ => stream::DEFAULT_FRAME_RATE,
+            };
+            let _ = commands.send(Command::CaptureFrame { rate });
         }
     });
     ui.on_leave({

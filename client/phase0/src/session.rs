@@ -40,7 +40,7 @@ const SHARE_FRAME_INTERVAL: Duration = Duration::from_millis(66);
 
 pub enum Command {
     Join,
-    CaptureFrame,
+    CaptureFrame { rate: u32 },
     StopShare,
     Leave,
 }
@@ -164,7 +164,7 @@ pub async fn run(
                     }
                     busy(&events, false);
                 }
-                Command::CaptureFrame => {
+                Command::CaptureFrame { rate } => {
                     busy(&events, true);
                     let session = SessionKind::detect();
                     let _ = events.send(MediaEvent::Status(format!(
@@ -173,7 +173,8 @@ pub async fn run(
                         session_label(session)
                     )));
                     if let Some(session) = joined.as_mut() {
-                        match stream::start_share(session, TargetKind::Screen, &events).await {
+                        match stream::start_share(session, TargetKind::Screen, rate, &events).await
+                        {
                             Ok(()) => {}
                             Err(err) => {
                                 let _ = events.send(MediaEvent::Status(format!(
@@ -216,7 +217,7 @@ pub async fn run(
 }
 
 include!("session/publish.rs");
-mod stream;
+pub(crate) mod stream;
 
 /// Follows the room while it is joined: shares appearing, shares ending,
 /// participants leaving and the connection dropping.

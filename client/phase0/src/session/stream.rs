@@ -1,12 +1,14 @@
 /// Captures the screen continuously and republishes it as a screen-share
 /// track.
 ///
-/// The capturer delivers frames on its own thread, or asks for one at a time
-/// through `tick`, depending on the backend. A dedicated task holds both the
-/// capturer and the publisher: it advances the backend, forwards the frames
-/// that arrive, and stops the capturer when the share ends. The number of
-/// frames per second is measured and reported, because a screen share that
-/// only shows a still frame is a failure the user can see.
+/// The capturer of the WebRTC has thread affinity, and a task of the runtime
+/// can move between workers between awaits. Everything that touches the
+/// capturer therefore lives in one dedicated thread: it lists the sources, it
+/// starts the capture, and it asks for a frame. Another task receives the
+/// frames, publishes them, and reports the measured rate. A frame of a
+/// 2560x1440 screen is about 14 MB, and converting and encoding it costs real
+/// time, so the rate is capped here rather than by the interface.
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,8 +19,16 @@ use cordel_media::sdk::{ScreenPublisher, SdkDesktopCapture};
 
 use super::*;
 
-/// How often the task asks the backend for a frame and forwards what arrived.
-const STREAM_INTERVAL: Duration = Duration::from_millis(66);
+/// The rates the shell offers. A screen share of 2560x1440 costs about 14 MB
+/// per frame, and converting and encoding it takes real time, so the rate is
+/// the user's choice.
+/// The default rate. It is the safest one for a full-screen capture.
+pub(crate) const DEFAULT_FRAME_RATE: u32 = 15;
+
+/// The interval between published frames for a given rate.
+fn interval_for_rate(rate: u32) -> Duration {
+    Duration::from_millis((1000 / rate.max(1)) as u64)
+}
 
 /// How long the first frame may take. It has to cover the portal picker.
 const FIRST_FRAME_DEADLINE: Duration = Duration::from_secs(90);
@@ -26,21 +36,19 @@ const FIRST_FRAME_DEADLINE: Duration = Duration::from_secs(90);
 /// How often the measured rate is reported.
 const REPORT_INTERVAL: Duration = Duration::from_secs(1);
 
-/// How often the local preview gets a frame. The stage throttles what it
-/// paints, so the preview follows the same pace.
-const LOCAL_FRAME_INTERVAL: Duration = Duration::from_millis(66);
-
-/// The handle of a running share. The task that holds the capturer stops it
-/// when this is signalled.
+/// The handle of a running share. The capture thread stops when this is
+/// signalled.
 pub(super) struct StreamShare {
     stop: tokio::sync::watch::Sender<bool>,
+    running: Arc<AtomicBool>,
 }
 
 impl StreamShare {
-    /// Ask the share to end. The task stops the capturer and releases the
-    /// capture permission.
+    /// Ask the share to end. The capture thread stops and releases the capture
+    /// permission.
     pub(super) fn stop(&self) {
         let _ = self.stop.send(true);
+        self.running.store(false, Ordering::Relaxed);
     }
 }
 
@@ -51,30 +59,82 @@ impl StreamShare {
 pub(super) async fn start_share(
     joined: &mut Joined,
     kind: TargetKind,
+    rate: u32,
     events: &Sender<MediaEvent>,
 ) -> anyhow::Result<()> {
+    let stream_interval = interval_for_rate(rate);
+    let local_interval = stream_interval;
     let source = CaptureSource::Auto.resolve(SessionKind::detect());
-    let mut backend = SdkDesktopCapture::with_source(kind, source)?;
-    let target: CaptureTarget = match backend.targets()?.into_iter().next() {
-        Some(target) => target,
-        // The portal lists nothing before the grant, because the picker decides
-        // the surface; the placeholder title is only used for logging.
-        None if backend.source() == CaptureSource::Portal => {
-            CaptureTarget::new(0, "portal picker", kind)
-        }
-        None => anyhow::bail!("no capture source was listed"),
-    };
+    let (frame_tx, frame_rx) = mpsc::channel::<Frame>();
+    let running = Arc::new(AtomicBool::new(true));
+    let capture_running = running.clone();
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
-    let (sender, receiver) = mpsc::channel::<Frame>();
-    backend.start(
-        &target,
-        Box::new(move |frame| {
-            let _ = sender.send(frame);
-        }),
-    )?;
+    // Tudo que toca o capturador vive nesta thread.
+    let capture = std::thread::spawn(move || {
+        let mut backend = match SdkDesktopCapture::with_source(kind, source) {
+            Ok(backend) => backend,
+            Err(error) => {
+                let _ = ready_tx.send(Err(format!("{error:?}")));
+                return;
+            }
+        };
+        let target: CaptureTarget = match backend.targets() {
+            Ok(targets) => match targets.into_iter().next() {
+                Some(target) => target,
+                // The portal lists nothing before the grant, because the picker
+                // decides the surface; the placeholder title is only used for
+                // logging.
+                None if backend.source() == CaptureSource::Portal => {
+                    CaptureTarget::new(0, "portal picker", kind)
+                }
+                None => {
+                    let _ = ready_tx.send(Err("no capture source was listed".to_owned()));
+                    return;
+                }
+            },
+            Err(error) => {
+                let _ = ready_tx.send(Err(format!("{error:?}")));
+                return;
+            }
+        };
+        let sender = frame_tx.clone();
+        if let Err(error) = backend.start(
+            &target,
+            Box::new(move |frame| {
+                let _ = sender.send(frame);
+            }),
+        ) {
+            let _ = ready_tx.send(Err(format!("{error:?}")));
+            return;
+        }
+        let _ = ready_tx.send(Ok(()));
+        while capture_running.load(Ordering::Relaxed) {
+            if let Err(error) = backend.tick() {
+                log::warn!("screen capture error ({error:?})");
+            }
+            std::thread::sleep(stream_interval);
+        }
+        // The capturer must release the capture permission.
+        let _ = backend.stop();
+    });
+
+    // The capture thread reports whether it could start.
+    match ready_rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(Ok(())) => {}
+        Ok(Err(message)) => {
+            let _ = capture.join();
+            anyhow::bail!("the capture did not start: {message}");
+        }
+        Err(_) => {
+            let _ = capture.join();
+            anyhow::bail!("the capture did not start");
+        }
+    }
 
     // The first frame defines the track.
-    let first = wait_for_first_frame(&receiver, &mut backend)?;
+    let first = wait_for_first_frame(&frame_rx)?;
+
     let publisher = Arc::new(ScreenPublisher::new(
         first.width(),
         first.height(),
@@ -98,45 +158,42 @@ pub(super) async fn start_share(
     let (stop, mut stopped) = tokio::sync::watch::channel(false);
     let report = events.clone();
     tokio::spawn(async move {
-        let mut backend = backend;
         let mut last_report = Instant::now();
-        let mut local = Instant::now() - LOCAL_FRAME_INTERVAL;
+        let mut local = Instant::now() - local_interval;
         let mut frames = 0u32;
         loop {
-            // A espera pelo fim do share e a captura correm juntas: esperar
-            // apenas pela mudanca do valor travaria a task depois do primeiro
-            // frame, e a tela pararia de andar.
+            // Waiting for the end of the share and the capture run together:
+            // waiting only for the value to change would stall the task after
+            // the first frame, and the screen would stop moving.
             tokio::select! {
                 _ = stopped.changed() => break,
-                _ = tokio::time::sleep(STREAM_INTERVAL) => {}
+                _ = tokio::time::sleep(stream_interval) => {}
             }
-            if let Err(error) = backend.tick() {
-                let _ = report.send(MediaEvent::Status(format!(
-                    "Screen capture stopped: {error}"
-                )));
-                break;
-            }
+            // Only the last frame of the interval is published. Dropping the
+            // rest keeps the rate low and the interface responsive.
+            let mut latest = None;
             loop {
-                match receiver.try_recv() {
-                    Ok(frame) => {
-                        frames += 1;
-                        if let Err(error) = publisher.push(&frame) {
-                            log::warn!("screen frame not pushed: {error}");
-                        }
-                        // O preview local e o mesmo quadro que vai para o
-                        // outro lado, entao ele tambem precisa andar.
-                        if local.elapsed() >= LOCAL_FRAME_INTERVAL {
-                            local = Instant::now();
-                            let _ = report.send(MediaEvent::Frame {
-                                key: LOCAL_SHARE_KEY.into(),
-                                publisher: "you".into(),
-                                state: ShareState::Live,
-                                frame,
-                            });
-                        }
-                    }
+                match frame_rx.try_recv() {
+                    Ok(frame) => latest = Some(frame),
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => break,
+                }
+            }
+            if let Some(frame) = latest {
+                frames += 1;
+                if let Err(error) = publisher.push(&frame) {
+                    log::warn!("screen frame not pushed: {error}");
+                }
+                // The local preview is the same frame that goes to the other
+                // side, so it has to move with the stream.
+                if local.elapsed() >= local_interval {
+                    local = Instant::now();
+                    let _ = report.send(MediaEvent::Frame {
+                        key: LOCAL_SHARE_KEY.into(),
+                        publisher: "you".into(),
+                        state: ShareState::Live,
+                        frame,
+                    });
                 }
             }
             if last_report.elapsed() >= REPORT_INTERVAL {
@@ -149,23 +206,16 @@ pub(super) async fn start_share(
                 )));
             }
         }
-        // The capturer must release the capture permission.
-        let _ = backend.stop();
     });
 
-    joined.share = Some(StreamShare { stop });
+    joined.share = Some(StreamShare { stop, running });
     Ok(())
 }
 
-/// Wait for the first frame, advancing the backend while it waits.
-fn wait_for_first_frame(
-    receiver: &mpsc::Receiver<Frame>,
-    backend: &mut dyn ScreenCapture,
-) -> anyhow::Result<Frame> {
+/// Wait for the first frame the capture thread produces.
+fn wait_for_first_frame(receiver: &mpsc::Receiver<Frame>) -> anyhow::Result<Frame> {
     let deadline = Instant::now() + FIRST_FRAME_DEADLINE;
     while Instant::now() < deadline {
-        // A pull-based backend only produces a frame when it is asked.
-        backend.tick()?;
         if let Ok(frame) = receiver.try_recv() {
             return Ok(frame);
         }
