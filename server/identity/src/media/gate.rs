@@ -14,11 +14,14 @@ use base64::Engine as _;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 use super::*;
 
-/// The header the reverse proxy uses to pass the LiveKit token. A header keeps
-/// the token out of the gate's access log, where a query parameter would land.
+/// The LiveKit SDK sends the access token in the `Authorization` header, not
+/// in the query string. The header keeps the token out of every access log and
+/// out of the URL. The query parameter is still accepted, because a client may
+/// put it there.
 pub(crate) const TOKEN_HEADER: &str = "x-cordel-livekit-token";
 
 /// The claims of a LiveKit access token.
@@ -142,17 +145,43 @@ impl MediaConfig {
     }
 }
 
+/// Read the LiveKit token from the request.
+///
+/// The SDK sends it as `Authorization: Bearer <token>`. The reverse proxy
+/// copies the original headers to the gate, so the token arrives untouched.
+/// A token in the query string is accepted as well, for a client that puts it
+/// there.
+fn request_token<'a>(headers: &'a HeaderMap, query: Option<&'a String>) -> Option<&'a str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get(TOKEN_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            query
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+        })
+}
+
 /// `GET /v1/livekit/authorize` — the gate the reverse proxy calls before it
 /// proxies the LiveKit signaling upgrade.
 pub(crate) async fn authorize(
     State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let media = state.media.as_ref().ok_or_else(ApiError::not_found)?;
-    let token = headers
-        .get(TOKEN_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(ApiError::unauthenticated)?;
+    let token =
+        request_token(&headers, query.get("access_token")).ok_or_else(ApiError::unauthenticated)?;
     media.config.authorize_room(&state.pool, token).await?;
     Ok(StatusCode::OK)
 }

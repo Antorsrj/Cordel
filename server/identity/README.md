@@ -41,7 +41,7 @@ ADR-004 migration `4` adds `channels.last_seq` and the `messages` table. Apply [
 
 A second loopback listener, `CORDEL_MEDIA_GATE_ADDR` (default `127.0.0.1:3001`), carries `GET /v1/livekit/authorize`. The reverse proxy calls it before it proxies the LiveKit signaling upgrade, and a non-2xx answer keeps the client out of the room. The route is not on the public `/v1/*` path.
 
-The gate refuses a token unless its signature, issuer, and expiry are valid, the room names a known voice channel, the generation equals the community's current `authorization_revision`, the account is an active member, and the app session named in the token is still live. The token arrives in the `X-Cordel-Livekit-Token` header, so it does not land in the gate's access log.
+The gate refuses a token unless its signature, issuer, and expiry are valid, the room names a known voice channel, the generation equals the community's current `authorization_revision`, the account is an active member, and the app session named in the token is still live. The token arrives in the `Authorization` header, which is where the LiveKit SDK puts it and what the reverse proxy copies to the gate, so it never lands in a URL or an access log. A token in the query string is accepted too.
 
 A moderation action deletes the rooms of the previous generation through the LiveKit server API, which disconnects everyone in them so the members rejoin in the current room. `CORDEL_LIVEKIT_API_URL` points at the host-local server API; without it the moderation response reports `media_drained: false`, because the action is not fully applied while a moderated account is still in a room.
 

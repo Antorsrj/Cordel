@@ -100,11 +100,17 @@ is through the gate. The Caddy configuration becomes:
     }
 ```
 
-The token travels in a header rather than in the gate's query string, so it
-does not land in the gate's access log. After the change, check three things
-before admitting real users: a valid admission still joins, a stale
-generation is refused with 403, and the LiveKit port is still unreachable
-from outside the host.
+The LiveKit SDK sends the access token in the `Authorization` header, not in
+the query string, and the reverse proxy copies the request headers to the
+gate subrequest. The gate therefore reads the token from `Authorization`, and
+the `header_up` line only covers a client that puts it in the query. Either
+way the token stays out of the URL and out of the access log.
+
+After the change, check three things before admitting real users: a valid
+admission still joins, a stale generation is refused with 403, and the LiveKit
+port is still unreachable from outside the host. The local script
+`deploy/native/local-lxc-gate.sh` runs exactly that check against a real
+proxy.
 
 ## Current evidence and next gate
 

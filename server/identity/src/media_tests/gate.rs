@@ -9,7 +9,7 @@ async fn gate(state: &AppState, token: &str) -> StatusCode {
             Request::builder()
                 .method("GET")
                 .uri("/v1/livekit/authorize")
-                .header("x-cordel-livekit-token", token)
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -48,7 +48,7 @@ async fn disposable_database_media_gate_flow() {
             Request::builder()
                 .method("GET")
                 .uri("/v1/livekit/authorize")
-                .header("x-cordel-livekit-token", &room_token)
+                .header("authorization", format!("Bearer {room_token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
