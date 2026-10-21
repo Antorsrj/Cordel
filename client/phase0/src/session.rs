@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context};
 use cordel_media::capture::{SessionKind, TargetKind};
 use cordel_media::devices::AudioDeviceControl;
+use cordel_media::frame::resize_bgra;
 use cordel_media::sdk::{publish_microphone, received_to_frame, remote_video_stream, SdkAudio};
 use cordel_state::{MediaAdmissionClient, NativeHttpsTransport};
 use futures_util::StreamExt;
@@ -32,6 +33,11 @@ use tokio::sync::watch;
 
 use crate::share::{MediaEvent, LOCAL_SHARE_KEY};
 use crate::ShareState;
+
+/// The width of the copy of a remote frame that travels to the interface.
+/// The picture is painted scaled, so a smaller copy looks the same and keeps
+/// the queue affordable.
+const REMOTE_FRAME_WIDTH: u32 = 1280;
 
 /// How often a remote share is allowed to hand a frame to the UI. A screen share
 /// does not need 30 fps to look live on this stage, and the conversion runs on the
@@ -344,6 +350,10 @@ fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: S
                 log::warn!("a frame from {publisher} uses a layout this build does not handle");
                 continue;
             };
+            // A copia que viaja para a interface e reduzida. O quadro original
+            // tem a resolucao capturada, e a fila que leva o quadro ate a
+            // thread da interface nao aguenta isso a cada quadro.
+            let frame = resize_bgra(&frame, REMOTE_FRAME_WIDTH);
             if events
                 .send(MediaEvent::Frame {
                     key: key.clone(),

@@ -261,6 +261,52 @@ impl Frame {
     }
 }
 
+/// Reduces a frame to at most `max_width` pixels wide, with the nearest
+/// neighbour.
+///
+/// The interface paints a frame scaled, so the picture does not need the
+/// captured resolution. A frame of a 2560x1440 screen is about 14 MB, and
+/// the queue that carries it to the interface thread cannot afford that at
+/// fifteen frames a second. The source keeps its own resolution; only the copy
+/// that travels is smaller.
+pub fn resize_bgra(frame: &Frame, max_width: u32) -> Frame {
+    if max_width == 0 || frame.width() <= max_width {
+        return frame.clone();
+    }
+    let width = max_width;
+    let height = (frame.height() as u64 * width as u64 / frame.width() as u64) as u32;
+    if height == 0 {
+        return frame.clone();
+    }
+    let source = frame.data();
+    let source_stride = frame.stride() as usize;
+    let target_stride = width as usize * 4;
+    let mut data = Vec::with_capacity(target_stride * height as usize);
+    for target_row in 0..height as usize {
+        let source_row = target_row * frame.height() as usize / height as usize;
+        let start = source_row * source_stride;
+        if start + source_stride > source.len() {
+            break;
+        }
+        let row = &source[start..start + source_stride];
+        for target_column in 0..width as usize {
+            let source_column = target_column * frame.width() as usize / width as usize;
+            let pixel = source_column * 4;
+            if pixel + 4 <= row.len() {
+                data.extend_from_slice(&row[pixel..pixel + 4]);
+            }
+        }
+    }
+    Frame::new(
+        width,
+        height,
+        target_stride as u32,
+        PixelFormat::Bgra8,
+        data,
+    )
+    .unwrap_or_else(|_| frame.clone())
+}
+
 /// Builds a synthetic BGRA frame. Used by the probe to exercise the render path
 /// without a capture backend, so a missing portal or permission cannot hide a
 /// regression in the conversion code.
