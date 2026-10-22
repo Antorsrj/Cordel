@@ -1,6 +1,8 @@
 //! Pixel conversion and frame validation, verified without any hardware.
 
-use cordel_media::frame::{synthetic_bgra, Frame, FrameError, PixelFormat};
+use cordel_media::frame::{
+    fit_display, resize_bgra, synthetic_bgra, Frame, FrameError, PixelFormat,
+};
 
 fn rgba(frame: &Frame) -> Vec<u8> {
     frame.to_rgba8()
@@ -72,6 +74,28 @@ fn i420_colour_survives_the_round_trip_through_the_ui_layout() {
     assert!(g <= 6, "green channel was {g}");
     assert!(b <= 6, "blue channel was {b}");
     assert_eq!(a, 255);
+}
+
+/// A remote screen is I420. `resize_bgra` cannot read it and returns the
+/// original, which is the 2560x1440 picture that cost about 135 ms to paint.
+/// Four of those in one drain are the 545 ms warnings from issue #25.
+#[test]
+fn a_remote_screen_is_shrunk_before_the_interface_converts_it() {
+    let frame = i420(2560, 1440, 16, 128, 128);
+    let untouched = resize_bgra(frame.clone(), 960);
+    assert_eq!(
+        untouched.width(),
+        2560,
+        "resize_bgra leaves an I420 frame at the captured size"
+    );
+    let fitted = fit_display(frame, 960);
+    assert!(fitted.width() <= 960);
+    assert_eq!(fitted.width() % 2, 0);
+    assert_eq!(fitted.height() % 2, 0);
+    assert_eq!(fitted.format(), PixelFormat::I420);
+    assert!(fitted.pixels() <= 960 * 540);
+    let rgba = rgba(&fitted);
+    assert_eq!(pixel(&rgba, fitted.width(), 0, 0), [0, 0, 0, 255]);
 }
 
 #[test]

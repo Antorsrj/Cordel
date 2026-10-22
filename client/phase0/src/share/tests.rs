@@ -31,6 +31,7 @@ fn share_frame(
         publisher,
         ShareState::Live,
         cordel_media::frame::synthetic_bgra(size.0, size.1, phase),
+        0,
     )
     .expect("the first picture of a share is announced")
 }
@@ -43,6 +44,7 @@ fn local_frame(slots: &FrameSlots, state: ShareState, phase: u8) -> MediaEvent {
         "you",
         state,
         cordel_media::frame::synthetic_bgra(640, 360, phase),
+        0,
     )
     .expect("the first picture of a share is announced")
 }
@@ -117,7 +119,10 @@ fn two_publishers_are_separate_tiles_and_keep_their_identity_when_one_ends() {
     shares.apply(frame_event(&slots, "b", "bruno", 200));
     assert_eq!(stage_keys(&shares), ["a", "b"]);
 
-    let note = shares.apply(MediaEvent::Ended { key: "a".into() });
+    let note = shares.apply(MediaEvent::Ended {
+        epoch: 0,
+        key: "a".into(),
+    });
     assert_eq!(note.as_deref(), Some("ana stopped sharing."));
     assert_eq!(
         stage_keys(&shares),
@@ -284,7 +289,8 @@ fn an_unknown_share_is_ignored_rather_than_invented() {
     let (shares, _slots) = stage();
     assert!(shares
         .apply(MediaEvent::Ended {
-            key: "never-seen".into()
+            key: "never-seen".into(),
+            epoch: 0,
         })
         .is_none());
     assert!(shares
@@ -458,7 +464,10 @@ fn an_ended_share_takes_its_tile_and_its_window_with_it() {
     shares.detach("a");
     assert!(shares.detached_tile().is_some());
 
-    shares.apply(MediaEvent::Ended { key: "a".into() });
+    shares.apply(MediaEvent::Ended {
+        epoch: 0,
+        key: "a".into(),
+    });
     assert!(shares.detached_tile().is_none(), "nothing left to present");
     assert_eq!(shares.model().row_count(), 1);
 
@@ -547,7 +556,10 @@ fn a_detached_window_hides_when_its_share_ends() {
         .expect("the detached window was created");
     assert!(open.window().is_visible());
 
-    shares.apply(MediaEvent::Ended { key: "a".into() });
+    shares.apply(MediaEvent::Ended {
+        epoch: 0,
+        key: "a".into(),
+    });
     window.sync(shares.detached_tile());
     assert!(
         !open.window().is_visible(),

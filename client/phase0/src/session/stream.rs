@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cordel_media::capture::{CaptureSource, CaptureTarget, ScreenCapture, TargetKind};
-use cordel_media::frame::{resize_bgra, Frame};
+use cordel_media::frame::{fit_display, Frame};
 use cordel_media::sdk::{ScreenPublisher, SdkDesktopCapture};
 
 use super::*;
@@ -24,6 +24,19 @@ use super::*;
 /// the user's choice.
 /// The default rate. It is the safest one for a full-screen capture.
 pub(crate) const DEFAULT_FRAME_RATE: u32 = 15;
+
+/// A Share screen click while a publication is already open.
+///
+/// The click does not publish a second track and it does not restart the one
+/// that is live. Stop sharing ends it. A restart would be a new track id,
+/// which is the publication the viewer was stacking.
+pub(super) fn accept_share_click(publication_open: bool) -> Result<(), &'static str> {
+    if publication_open {
+        Err("Already sharing the screen. Stop sharing before sharing it again.")
+    } else {
+        Ok(())
+    }
+}
 
 /// The interval between published frames for a given rate.
 fn interval_for_rate(rate: u32) -> Duration {
@@ -52,10 +65,13 @@ const LOCAL_FRAME_INTERVAL: Duration = Duration::from_millis(250);
 pub(super) struct StreamShare {
     stop: tokio::sync::watch::Sender<bool>,
     running: Arc<AtomicBool>,
-    /// The published track. It is kept so the share that replaces it takes
-    /// exactly that one off the stage, instead of guessing which track belongs
-    /// to the screen.
+    /// The published track. It is kept so stopping the share takes exactly
+    /// that one off the stage, instead of guessing which track belongs to the
+    /// screen.
     pub(super) publication: livekit::prelude::LocalTrackPublication,
+    /// Pictures from this publication carry this epoch. Stopping the share
+    /// ends the local tile at the same epoch.
+    pub(super) epoch: u64,
 }
 
 impl StreamShare {
@@ -77,11 +93,24 @@ pub(super) async fn start_share(
     rate: u32,
     events: &MediaOut,
 ) -> anyhow::Result<()> {
+    // A second click must not publish another track. Stop sharing is what ends
+    // the one that is already up. Replacing it here is what gave every click a
+    // new track id, and the viewer then had one tile per click.
+    if let Err(message) = accept_share_click(joined.share.is_some()) {
+        let _ = events.send(MediaEvent::Status(message.to_owned()));
+        return Ok(());
+    }
+    // Only a click that will open a publication mentions the picker. A second
+    // click is the no-op above, and it must not claim a share is starting.
+    let session = SessionKind::detect();
+    let _ = events.send(MediaEvent::Status(format!(
+        "Sharing the screen on the {} session. Confirm the system picker if it \
+         appears.",
+        super::session_label(session)
+    )));
+    joined.local_epoch = joined.local_epoch.saturating_add(1);
+    let epoch = joined.local_epoch;
     let stream_interval = interval_for_rate(rate);
-
-    // O share anterior sai do palco antes do novo. Sem isso, cada captura
-    // deixaria o track publicado e o outro lado veria um tile por captura.
-    joined.stop_publishing().await;
 
     let source = CaptureSource::Auto.resolve(SessionKind::detect());
     let (frame_tx, frame_rx) = mpsc::channel::<Frame>();
@@ -178,7 +207,8 @@ pub(super) async fn start_share(
         LOCAL_SHARE_KEY,
         "you",
         ShareState::Live,
-        resize_bgra(first, UI_FRAME_WIDTH),
+        fit_display(first, UI_FRAME_WIDTH),
+        epoch,
     );
 
     let (stop, mut stopped) = tokio::sync::watch::channel(false);
@@ -218,7 +248,8 @@ pub(super) async fn start_share(
                         LOCAL_SHARE_KEY,
                         "you",
                         ShareState::Live,
-                        resize_bgra(frame, UI_FRAME_WIDTH),
+                        fit_display(frame, UI_FRAME_WIDTH),
+                        epoch,
                     );
                 }
             }
@@ -238,6 +269,7 @@ pub(super) async fn start_share(
         stop,
         running,
         publication,
+        epoch,
     });
     Ok(())
 }

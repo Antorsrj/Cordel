@@ -16,13 +16,12 @@
 //! events from a second task would mean giving that task the only handle to the
 //! session the shell is still publishing on.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use cordel_media::capture::{SessionKind, TargetKind};
 use cordel_media::devices::AudioDeviceControl;
-use cordel_media::frame::resize_bgra;
+use cordel_media::frame::fit_display;
 use cordel_media::sdk::{publish_microphone, received_to_frame, remote_video_stream, SdkAudio};
 use cordel_state::{MediaAdmissionClient, NativeHttpsTransport};
 use futures_util::StreamExt;
@@ -54,35 +53,43 @@ pub enum Command {
 struct Joined {
     room: Room,
     room_events: UnboundedReceiver<RoomEvent>,
-    /// The shares being followed: media track key -> publishing identity. It is
-    /// what lets a reconnection and a disconnect attribute tiles correctly.
-    tracked: HashMap<String, String>,
+    /// The remote shares being decoded. Stopping one drops its video stream.
+    follows: follow::RemoteFollows,
     /// Held for the session. The platform audio module is reference counted, and
     /// its device selection is what allows the microphone to open at all.
     _audio: SdkAudio,
-    /// The screen share in progress, if any. A second capture replaces it,
-    /// because the frame decides the track size.
+    /// The screen share in progress, if any. A second click does not publish
+    /// another track; Stop sharing is what ends this one.
     share: Option<stream::StreamShare>,
+    /// Epoch of the local publication. The next one is newer, so a picture
+    /// from the publication that stopped cannot recreate the local tile.
+    local_epoch: u64,
 }
 
 impl Joined {
-    /// Stops the share and takes it off the stage. Used when the capture is
-    /// replaced and when leaving.
+    /// Stops the share and takes it off the stage. Used when the user stops
+    /// sharing and when leaving.
     ///
-    /// Without the unpublish, every capture left its track published and the
-    /// other side collected one tile per capture.
-    async fn stop_publishing(&mut self) {
-        if let Some(share) = self.share.take() {
-            share.stop();
-            let participant = self.room.local_participant();
-            let sid = share.publication.sid();
-            match participant.unpublish_track(&sid).await {
-                Ok(_) => log::info!("the screen track {sid} left the stage"),
-                Err(error) => {
-                    log::warn!("the screen share track was not taken off the stage: {error}")
-                }
+    /// The local tile ends at this publication's epoch, so a picture still in
+    /// flight cannot put it back. The next Share screen uses a newer epoch.
+    async fn stop_publishing(&mut self, events: &MediaOut) {
+        let Some(share) = self.share.take() else {
+            return;
+        };
+        let epoch = share.epoch;
+        share.stop();
+        let participant = self.room.local_participant();
+        let sid = share.publication.sid();
+        match participant.unpublish_track(&sid).await {
+            Ok(_) => log::info!("the screen track {sid} left the stage"),
+            Err(error) => {
+                log::warn!("the screen share track was not taken off the stage: {error}")
             }
         }
+        let _ = events.send(MediaEvent::Ended {
+            key: LOCAL_SHARE_KEY.into(),
+            epoch,
+        });
     }
 }
 
@@ -117,28 +124,23 @@ pub async fn run(
         match incoming {
             Incoming::Command(None) => return,
             Incoming::Room(event) => {
+                let Some(event) = event else {
+                    // The room channel ended without a Leave command. The
+                    // session is gone, and the tiles should not outlive it.
+                    if let Some(mut session) = joined.take() {
+                        session.stop_publishing(&events).await;
+                        for (key, epoch) in session.follows.end_all() {
+                            let _ = events.send(MediaEvent::Ended { key, epoch });
+                        }
+                    }
+                    let _ = events.send(MediaEvent::Joined(false));
+                    let _ = events.send(MediaEvent::Status("The room connection ended.".into()));
+                    continue;
+                };
                 let Some(session) = joined.as_mut() else {
                     continue;
                 };
-                match event {
-                    Some(event) => handle_room_event(session, *event, &events),
-                    None => {
-                        // The room channel ended without a Leave command. The
-                        // session is gone, and the tiles should not outlive it.
-                        let stale: Vec<String> =
-                            session.tracked.drain().map(|(key, _)| key).collect();
-                        for key in stale {
-                            let _ = events.send(MediaEvent::Ended { key });
-                        }
-                        let _ = events.send(MediaEvent::Joined(false));
-                        let _ =
-                            events.send(MediaEvent::Status("The room connection ended.".into()));
-                        let _ = events.send(MediaEvent::Ended {
-                            key: LOCAL_SHARE_KEY.into(),
-                        });
-                        joined = None;
-                    }
-                }
+                handle_room_event(session, *event, &events);
             }
             Incoming::Command(Some(command)) => match command {
                 Command::Join => {
@@ -150,7 +152,7 @@ pub async fn run(
                         Ok(mut session) => {
                             // Someone may be sharing already: the stage follows the
                             // room, not only what happens after this client joins.
-                            register_remote_shares(&session.room, &events, &mut session.tracked);
+                            register_remote_shares(&mut session, &events);
                             let _ = events.send(MediaEvent::Joined(true));
                             // Two clients can share one screen during testing, so the
                             // status line says which identity this window joined as.
@@ -169,12 +171,6 @@ pub async fn run(
                 }
                 Command::CaptureFrame { rate } => {
                     busy(&events, true);
-                    let session = SessionKind::detect();
-                    let _ = events.send(MediaEvent::Status(format!(
-                        "Sharing the screen on the {} session. Confirm the system picker if it \
-                         appears.",
-                        session_label(session)
-                    )));
                     if let Some(session) = joined.as_mut() {
                         match stream::start_share(session, TargetKind::Screen, rate, &events).await
                         {
@@ -194,20 +190,22 @@ pub async fn run(
                 }
                 Command::StopShare => {
                     if let Some(session) = joined.as_mut() {
-                        session.stop_publishing().await;
+                        session.stop_publishing(&events).await;
                     }
                     let _ = events.send(MediaEvent::Status("Stopped sharing the screen.".into()));
                 }
                 Command::Leave => {
                     if let Some(mut session) = joined.take() {
-                        session.stop_publishing().await;
+                        session.stop_publishing(&events).await;
                         let _ = session.room.close().await;
                         drop(session._audio);
                     }
                     // A later join must never publish a frame captured in an
-                    // earlier room or account session.
+                    // earlier room or account session. The epoch is zero when
+                    // stop_publishing already ended the live publication.
                     let _ = events.send(MediaEvent::Ended {
                         key: LOCAL_SHARE_KEY.into(),
+                        epoch: 0,
                     });
                     let _ = events.send(MediaEvent::Joined(false));
                     let _ = events.send(MediaEvent::Status(
@@ -220,6 +218,7 @@ pub async fn run(
 }
 
 include!("session/publish.rs");
+mod follow;
 pub(crate) mod stream;
 
 /// Follows the room while it is joined: shares appearing, shares ending,
@@ -237,16 +236,14 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
             let RemoteTrack::Video(track) = track else {
                 return;
             };
-            let publisher = participant.identity().to_string();
-            let key = share_key(&publisher, publication.sid());
-            if session
-                .tracked
-                .insert(key.clone(), publisher.clone())
-                .is_none()
-            {
-                log::info!("a share appeared: {key}");
-                pump_share(track, key, publisher, events.clone());
-            }
+            follow_video(
+                session,
+                participant.identity().to_string(),
+                publication.sid().to_string(),
+                publication.source(),
+                track,
+                events,
+            );
         }
         RoomEvent::TrackUnsubscribed {
             track,
@@ -255,11 +252,8 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
         } => {
             if matches!(track, RemoteTrack::Video(_)) {
                 let publisher = participant.identity().to_string();
-                end_share(
-                    events,
-                    &mut session.tracked,
-                    &share_key(&publisher, publication.sid()),
-                );
+                let key = share_key(&publisher, publication.sid());
+                end_followed(session, events, &key);
             }
         }
         RoomEvent::TrackUnpublished {
@@ -269,24 +263,18 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
             let publisher = participant.identity().to_string();
             let key = share_key(&publisher, publication.sid());
             log::info!("a share ended: {key}");
-            end_share(events, &mut session.tracked, &key);
+            end_followed(session, events, &key);
         }
         RoomEvent::ParticipantDisconnected(participant) => {
             let leaving = participant.identity().to_string();
-            let keys: Vec<String> = session
-                .tracked
-                .iter()
-                .filter(|(_, publisher)| **publisher == leaving)
-                .map(|(key, _)| key.clone())
-                .collect();
-            for key in keys {
-                end_share(events, &mut session.tracked, &key);
+            for (key, epoch) in session.follows.end_publisher(&leaving) {
+                let _ = events.send(MediaEvent::Ended { key, epoch });
             }
         }
         RoomEvent::Reconnecting => {
-            for key in session.tracked.keys() {
+            for key in session.follows.keys() {
                 let _ = events.send(MediaEvent::State {
-                    key: key.clone(),
+                    key,
                     state: ShareState::Reconnecting,
                 });
             }
@@ -297,12 +285,12 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
         RoomEvent::Reconnected => {
             // A full reconnect re-issues track identifiers, so the old keys cannot
             // be reused: the catalog is rebuilt from what the room reports, and the
-            // tiles come back under the same publishers.
-            let stale: Vec<String> = session.tracked.drain().map(|(key, _)| key).collect();
-            for key in stale {
-                let _ = events.send(MediaEvent::Ended { key });
+            // tiles come back under the same publishers. The old decoders stop
+            // here, or they would keep the tiles the end events removed.
+            for (key, epoch) in session.follows.end_all() {
+                let _ = events.send(MediaEvent::Ended { key, epoch });
             }
-            register_remote_shares(&session.room, events, &mut session.tracked);
+            register_remote_shares(session, events);
             let _ = events.send(MediaEvent::Status(
                 "Reconnected. The share list was refreshed.".into(),
             ));
@@ -313,48 +301,111 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
 
 /// Adds every video publication the room already has. Called on joining (someone
 /// may be sharing already) and after a reconnection.
-fn register_remote_shares(room: &Room, events: &MediaOut, tracked: &mut HashMap<String, String>) {
-    for participant in room.remote_participants().values() {
+fn register_remote_shares(session: &mut Joined, events: &MediaOut) {
+    for participant in session.room.remote_participants().values() {
         let publisher = participant.identity().to_string();
         for publication in participant.track_publications().values() {
             if let Some(RemoteTrack::Video(track)) = publication.track() {
-                let key = share_key(&publisher, publication.sid());
-                if tracked.insert(key.clone(), publisher.clone()).is_none() {
-                    pump_share(track, key, publisher.clone(), events.clone());
-                }
+                follow_video(
+                    session,
+                    publisher.clone(),
+                    publication.sid().to_string(),
+                    publication.source(),
+                    track,
+                    events,
+                );
             }
         }
     }
 }
 
-/// Forwards one remote share's frames to the UI thread for as long as the track
-/// delivers them.
-fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: MediaOut) {
+/// Follows one remote video track. A screen share replaces the previous screen
+/// share from the same participant and stops that decoder.
+fn follow_video(
+    session: &mut Joined,
+    publisher: String,
+    sid: String,
+    source: TrackSource,
+    track: RemoteVideoTrack,
+    events: &MediaOut,
+) {
+    let exclusive = source == TrackSource::Screenshare;
+    let watched = session.follows.watch(&publisher, &sid, exclusive);
+    for (key, epoch) in watched.ended {
+        log::info!("a share ended: {key}");
+        let _ = events.send(MediaEvent::Ended { key, epoch });
+    }
+    if !watched.fresh {
+        return;
+    }
+    let key = share_key(&publisher, &sid);
+    log::info!("a share appeared: {key}");
+    pump_share(
+        track,
+        key,
+        publisher,
+        watched.epoch,
+        watched.stop,
+        events.clone(),
+    );
+}
+
+/// Forwards one remote share's frames until the track ends or the follow is
+/// stopped. Leaving the function drops the track and the stream, which is what
+/// releases the decoder and its native queue.
+fn pump_share(
+    track: RemoteVideoTrack,
+    key: String,
+    publisher: String,
+    epoch: u64,
+    mut stop: tokio::sync::watch::Receiver<bool>,
+    events: MediaOut,
+) {
     tokio::spawn(async move {
         let mut stream = remote_video_stream(&track);
         let mut last = Instant::now() - SHARE_FRAME_INTERVAL;
-        while let Some(frame) = stream.next().await {
-            if last.elapsed() < SHARE_FRAME_INTERVAL {
-                continue;
+        loop {
+            tokio::select! {
+                biased;
+                changed = stop.changed() => {
+                    if changed.is_err() || *stop.borrow() {
+                        break;
+                    }
+                }
+                frame = stream.next() => {
+                    let Some(frame) = frame else {
+                        break;
+                    };
+                    if *stop.borrow() {
+                        break;
+                    }
+                    if last.elapsed() < SHARE_FRAME_INTERVAL {
+                        continue;
+                    }
+                    last = Instant::now();
+                    let Some(frame) = received_to_frame(&frame) else {
+                        log::warn!(
+                            "a frame from {publisher} uses a layout this build does not handle"
+                        );
+                        continue;
+                    };
+                    // The copy that reaches the interface is smaller. A remote
+                    // frame is I420, and the BGRA shrink leaves that at the
+                    // captured size, which is what made four tiles cost about
+                    // 545 ms to paint.
+                    let frame = fit_display(frame, UI_FRAME_WIDTH);
+                    events.frame(&key, &publisher, ShareState::Live, frame, epoch);
+                }
             }
-            last = Instant::now();
-            let Some(frame) = received_to_frame(&frame) else {
-                log::warn!("a frame from {publisher} uses a layout this build does not handle");
-                continue;
-            };
-            // A copia que viaja para a interface e reduzida. O quadro original
-            // tem a resolucao capturada, e a interface nao pinta um quadro
-            // desse tamanho a cada quadro.
-            let frame = resize_bgra(frame, UI_FRAME_WIDTH);
-            events.frame(&key, &publisher, ShareState::Live, frame);
         }
     });
 }
 
-fn end_share(events: &MediaOut, tracked: &mut HashMap<String, String>, key: &str) {
-    if tracked.remove(key).is_some() {
+fn end_followed(session: &mut Joined, events: &MediaOut, key: &str) {
+    if let Some(epoch) = session.follows.end(key) {
         let _ = events.send(MediaEvent::Ended {
             key: key.to_string(),
+            epoch,
         });
     }
 }

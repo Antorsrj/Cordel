@@ -69,7 +69,10 @@ fn run(events: MediaOut, commands: Receiver<Control>) {
                 // The newest one goes first, so ending twice reaches the state
                 // with no share at all.
                 if let Some(publisher) = publishers.pop() {
-                    if !events.send(MediaEvent::Ended { key: publisher.key }) {
+                    if !events.send(MediaEvent::Ended {
+                        key: publisher.key,
+                        epoch: 0,
+                    }) {
                         return;
                     }
                 }
@@ -135,6 +138,6 @@ fn add(events: &MediaOut, publishers: &mut Vec<Publisher>, next: &mut usize) -> 
 fn share(events: &MediaOut, publisher: &Publisher) -> bool {
     let (width, height, _) = LOOK[publisher.look];
     let frame: Frame = cordel_media::frame::synthetic_bgra(width, height, publisher.phase);
-    events.frame(&publisher.key, &publisher.label, ShareState::Live, frame);
+    events.frame(&publisher.key, &publisher.label, ShareState::Live, frame, 0);
     true
 }

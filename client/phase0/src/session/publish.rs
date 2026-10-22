@@ -64,8 +64,9 @@ async fn join_room(
     Ok(Joined {
         room,
         room_events,
-        tracked: HashMap::new(),
+        follows: follow::RemoteFollows::new(),
         _audio: audio,
         share: None,
+        local_epoch: 0,
     })
 }
