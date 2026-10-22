@@ -98,6 +98,49 @@ fn a_remote_screen_is_shrunk_before_the_interface_converts_it() {
     assert_eq!(pixel(&rgba, fitted.width(), 0, 0), [0, 0, 0, 255]);
 }
 
+/// A portrait frame is already under the width cap and used to be returned
+/// whole. Both sides of the copy have to fit.
+#[test]
+fn a_tall_frame_is_shrunk_on_both_sides() {
+    let portrait = i420(400, 2000, 16, 128, 128);
+    let fitted = fit_display(portrait, 960);
+    assert!(fitted.width() <= 960, "width {}", fitted.width());
+    assert!(fitted.height() <= 960, "height {}", fitted.height());
+    assert_eq!(fitted.width() % 2, 0);
+    assert_eq!(fitted.height() % 2, 0);
+    assert_eq!(fitted.format(), PixelFormat::I420);
+    assert!(fitted.height() < 2000);
+
+    let packed = synthetic_bgra(400, 2000, 1);
+    let fitted = fit_display(packed, 960);
+    assert!(fitted.width() <= 960, "width {}", fitted.width());
+    assert!(fitted.height() <= 960, "height {}", fitted.height());
+    assert_eq!(fitted.format(), PixelFormat::Bgra8);
+
+    let small = i420(32, 18, 16, 128, 128);
+    let fitted = fit_display(small, 960);
+    assert_eq!((fitted.width(), fitted.height()), (32, 18));
+}
+
+/// A strip is already under the cap on one side. Rounding the other side to
+/// zero used to return the original, so a 2x2000 frame stayed 2000 tall and a
+/// 2000x1 frame stayed 2000 wide.
+#[test]
+fn a_strip_is_clamped_instead_of_passed_through() {
+    let tall = fit_display(i420(2, 2000, 16, 128, 128), 960);
+    assert_eq!((tall.width(), tall.height()), (2, 960));
+    let wide = fit_display(i420(2000, 1, 16, 128, 128), 960);
+    assert_eq!((wide.width(), wide.height()), (960, 2));
+
+    let tall = fit_display(synthetic_bgra(1, 2000, 1), 960);
+    assert_eq!((tall.width(), tall.height()), (1, 960));
+    let wide = fit_display(synthetic_bgra(2000, 1, 1), 960);
+    assert_eq!((wide.width(), wide.height()), (960, 1));
+    let packed_tall = fit_display(synthetic_bgra(2, 2000, 1), 960);
+    assert!(packed_tall.width() <= 960 && packed_tall.height() <= 960);
+    assert!(packed_tall.height() < 2000);
+}
+
 #[test]
 fn i420_handles_odd_dimensions() {
     // 3x3 has chroma planes of 2x2, which is where naive code reads out of bounds.

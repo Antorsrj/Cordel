@@ -67,6 +67,5 @@ async fn join_room(
         follows: follow::RemoteFollows::new(),
         _audio: audio,
         share: None,
-        local_epoch: 0,
     })
 }

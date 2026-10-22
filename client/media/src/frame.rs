@@ -318,24 +318,79 @@ pub fn resize_bgra(frame: Frame, max_width: u32) -> Frame {
 /// `resize_bgra` only understands packed BGRA. A remote screen arrives as
 /// I420, and that function then gives the original back, so the interface
 /// converts every pixel of a 2560x1440 frame. This is the copy the interface
-/// is willing to paint: at most `max_width` pixels wide, in the frame's own
-/// layout. I420 keeps even dimensions, which is what its chroma planes need.
-pub fn fit_display(frame: Frame, max_width: u32) -> Frame {
-    if max_width == 0 || frame.width() <= max_width {
+/// is willing to paint: neither side longer than `max_edge`, in the frame's
+/// own layout. I420 keeps even dimensions, which is what its chroma planes need.
+/// A strip whose other side would round to zero is clamped instead of returned
+/// whole: a 2x2000 frame becomes 2x`max_edge` (even) rather than staying 2000 tall.
+pub fn fit_display(frame: Frame, max_edge: u32) -> Frame {
+    let even = frame.format() == PixelFormat::I420;
+    let Some((width, height)) = fitted_size(frame.width(), frame.height(), max_edge, even) else {
         return frame;
-    }
+    };
     match frame.format() {
-        PixelFormat::Bgra8 | PixelFormat::Rgba8 => resize_bgra(frame, max_width),
-        PixelFormat::I420 => fit_i420(frame, max_width),
+        PixelFormat::Bgra8 | PixelFormat::Rgba8 => scale_packed(frame, width, height),
+        PixelFormat::I420 => scale_i420(frame, width, height),
     }
 }
 
-/// Nearest-neighbour I420 shrink. The planes stay tight, so [`Frame::packed`]
-/// can check the result.
-fn fit_i420(frame: Frame, max_width: u32) -> Frame {
-    let width = max_width & !1;
-    let height =
-        ((u64::from(frame.height()) * u64::from(width) / u64::from(frame.width())) as u32) & !1;
+/// `a * b / denom`, saturated to `u32`. A cast would truncate a ratio past
+/// `u32::MAX` and the fitted width would come out smaller than the cap.
+fn scale_u32(a: u32, b: u32, denom: u32) -> u32 {
+    if denom == 0 {
+        return u32::MAX;
+    }
+    let product = u64::from(a).saturating_mul(u64::from(b)) / u64::from(denom);
+    u32::try_from(product).unwrap_or(u32::MAX)
+}
+
+/// The size of a copy that fits inside `max_edge` on both sides.
+/// `None` when the frame is already inside that box, or when there is nothing
+/// to scale. `even` keeps both sides even, which I420's chroma planes need.
+fn fitted_size(width: u32, height: u32, max_edge: u32, even: bool) -> Option<(u32, u32)> {
+    if max_edge == 0 || width == 0 || height == 0 {
+        return None;
+    }
+    if width <= max_edge && height <= max_edge {
+        return None;
+    }
+    let mut target_w = width
+        .min(max_edge)
+        .min(scale_u32(max_edge, width, height).max(1));
+    let mut target_h = scale_u32(height, target_w, width).max(1);
+    if target_h > max_edge {
+        target_h = max_edge;
+        target_w = scale_u32(width, target_h, height).max(1).min(max_edge);
+    }
+    if target_w > max_edge {
+        target_w = max_edge;
+    }
+    if even {
+        // Two is the smallest even side. A cap below that cannot hold an I420
+        // copy, so the caller keeps the original.
+        if max_edge < 2 {
+            return None;
+        }
+        target_w = target_w.max(2) & !1;
+        target_h = target_h.max(2) & !1;
+        if target_w > max_edge {
+            target_w = max_edge & !1;
+        }
+        if target_h > max_edge {
+            target_h = max_edge & !1;
+        }
+        if target_w < 2 || target_h < 2 {
+            return None;
+        }
+    }
+    if target_w == width && target_h == height {
+        return None;
+    }
+    Some((target_w, target_h))
+}
+
+/// Nearest-neighbour shrink to an exact size. The planes stay tight, so
+/// [`Frame::packed`] can check the result.
+fn scale_i420(frame: Frame, width: u32, height: u32) -> Frame {
     if width == 0 || height == 0 {
         return frame;
     }
@@ -371,6 +426,53 @@ fn fit_i420(frame: Frame, max_width: u32) -> Frame {
         }
     }
     Frame::packed(width, height, PixelFormat::I420, out).unwrap_or(frame)
+}
+
+/// Nearest-neighbour shrink of a packed 4-byte frame to an exact size.
+/// `resize_bgra` derives the height from the width, which turns a 2000x1
+/// strip back into the original when that height rounds to zero.
+fn scale_packed(frame: Frame, width: u32, height: u32) -> Frame {
+    if width == 0 || height == 0 {
+        return frame;
+    }
+    let format = frame.format();
+    let source_stride = frame.stride() as usize;
+    let target_stride = width as usize * 4;
+    let src_w = frame.width() as usize;
+    let src_h = frame.height() as usize;
+    let mut data = Vec::with_capacity(target_stride * height as usize);
+    {
+        let source = frame.data();
+        for target_row in 0..height as usize {
+            let source_row = target_row * src_h / height as usize;
+            let start = source_row * source_stride;
+            if start >= source.len() {
+                break;
+            }
+            let row_end = (start + source_stride).min(source.len());
+            let row = &source[start..row_end];
+            for target_column in 0..width as usize {
+                let source_column = target_column * src_w / width as usize;
+                let pixel = source_column * 4;
+                if pixel + 4 <= row.len() {
+                    data.extend_from_slice(&row[pixel..pixel + 4]);
+                }
+            }
+        }
+    }
+    Frame::new(width, height, target_stride as u32, format, data).unwrap_or(frame)
+}
+
+#[cfg(test)]
+mod fitted_size_tests {
+    use super::fitted_size;
+
+    /// `max_edge * width / height` is 4294968000. A cast to `u32` keeps 704,
+    /// which is under the cap, so the copy would be 704 wide instead of 960.
+    #[test]
+    fn a_ratio_past_u32_max_keeps_the_cap() {
+        assert_eq!(fitted_size(4_473_925, 1, 960, false), Some((960, 1)));
+    }
 }
 
 /// Builds a synthetic BGRA frame. Used by the probe to exercise the render path

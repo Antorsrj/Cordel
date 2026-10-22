@@ -31,14 +31,12 @@ pub(super) struct Watched {
 
 /// The remote video tracks the shell is following.
 pub(super) struct RemoteFollows {
-    next_epoch: u64,
     follows: HashMap<String, Followed>,
 }
 
 impl RemoteFollows {
     pub(super) fn new() -> Self {
         Self {
-            next_epoch: 0,
             follows: HashMap::new(),
         }
     }
@@ -51,8 +49,16 @@ impl RemoteFollows {
     ///
     /// When `exclusive` is set, every other exclusive track from that
     /// participant is stopped. The returned receiver is how the decoder task
-    /// learns that it must drop the stream.
-    pub(super) fn watch(&mut self, publisher: &str, track_sid: &str, exclusive: bool) -> Watched {
+    /// learns that it must drop the stream. `epochs` is the process counter:
+    /// a new room must not start it over, because the stage still remembers
+    /// the epoch that ended.
+    pub(super) fn watch(
+        &mut self,
+        publisher: &str,
+        track_sid: &str,
+        exclusive: bool,
+        epochs: &mut u64,
+    ) -> Watched {
         let key = format!("{publisher}/{track_sid}");
         if let Some(existing) = self.follows.get(&key) {
             return Watched {
@@ -76,8 +82,7 @@ impl RemoteFollows {
                 }
             }
         }
-        self.next_epoch = self.next_epoch.saturating_add(1);
-        let epoch = self.next_epoch;
+        let epoch = super::issue_epoch(epochs);
         let (stop, receiver) = watch::channel(false);
         self.follows.insert(
             key,
