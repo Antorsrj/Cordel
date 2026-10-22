@@ -40,6 +40,9 @@ cargo build --release --features full
 ```
 
 Features: `ui` (Slint image surface), `sdk` (LiveKit adapters), `full` (both).
+The `client-media` CI job runs format, Clippy, and tests with `--features ui`.
+The `phase0` job compiles this crate with `sdk` and `ui`, so CI does not
+download WebRTC a second time for a separate media job.
 The LiveKit crate downloads its native WebRTC binary on the first build. Screen
 capture also needs the GLib, PipeWire and GBM development packages
 (`glib-2.0`/`gio-2.0`, `libpipewire-0.3`, `gbm`, `libdrm`). Those are required by

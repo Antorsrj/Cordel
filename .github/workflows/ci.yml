@@ -1,0 +1,187 @@
+# CI for pull requests into main.
+#
+# There is no paths filter. Every job below runs on every pull request, push
+# to main, and manual dispatch. A required status check that does not run
+# blocks the merge, so these jobs are not skipped for docs-only changes.
+#
+# Stable check names (workflow "CI" plus the job name):
+#   CI / protocol
+#   CI / client-state
+#   CI / client-media
+#   CI / server-identity
+#   CI / phase0
+#   CI / cargo-audit
+#
+# Left out on purpose:
+# - server/identity disposable_database_media_drain_flow needs a real LiveKit
+#   and CORDEL_TEST_LIVEKIT_URL / CORDEL_TEST_LIVEKIT_API_URL. The identity job
+#   passes --skip for that test. The other ignored identity tests run against
+#   the PostgreSQL 16 service, one at a time, because they share one database.
+# - client/phase0 does not pass --ignored. These stay manual because they need
+#   a local Axum server and CORDEL_PHASE0_TEST_*:
+#   the_worker_connects_sends_and_receives_a_message,
+#   two_clients_exchange_messages_over_the_live_session, and
+#   the_worker_recovers_after_a_network_interruption (issue #10).
+# - client/media job uses --features ui. The LiveKit sdk feature is compiled
+#   by the phase0 job, which depends on cordel-media with sdk and ui. That
+#   avoids a second WebRTC download. client/phase0-media is the retired spike;
+#   it has no job. cargo-audit still reads its lockfile.
+# - Rust is pinned to 1.99.1, the same toolchain as deploy/native/local-lxc-provision.sh.
+#   Swatinem/rust-cache keys each crate by that toolchain and its Cargo.lock.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  protocol:
+    name: protocol
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/rust-crate
+        with:
+          manifest: protocol/Cargo.toml
+          workspace: protocol
+
+  client-state:
+    name: client-state
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/rust-crate
+        with:
+          manifest: client/state/Cargo.toml
+          workspace: client/state
+
+  client-media:
+    name: client-media
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Slint build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libfontconfig1-dev libfreetype6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxext-dev
+      - uses: ./.github/actions/rust-crate
+        with:
+          manifest: client/media/Cargo.toml
+          workspace: client/media
+          features: ui
+
+  server-identity:
+    name: server-identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cordel
+          POSTGRES_PASSWORD: cordel
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cordel -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create disposable identity database
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          db_name="cordel_identity_test_ci"
+          PGPASSWORD=cordel psql -h 127.0.0.1 -U cordel -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE ${db_name}"
+          echo "CORDEL_TEST_DATABASE_URL=postgres://cordel:cordel@127.0.0.1:5432/${db_name}" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/rust-crate
+        with:
+          manifest: server/identity/Cargo.toml
+          workspace: server/identity
+          # One thread: the ignored tests truncate the same disposable database.
+          # The LiveKit drain flow is excluded by name.
+          ignored-args: --ignored --test-threads=1 --skip disposable_database_media_drain_flow
+
+  phase0:
+    name: phase0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CC: clang-21
+      CXX: clang++-21
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang pkg-config libclang-dev \
+            libdbus-1-dev \
+            libglib2.0-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libfontconfig1-dev libfreetype6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libasound2-dev libpulse-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxext-dev xvfb
+      - name: Install clang 21 for WebRTC
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm-snapshot.asc
+          key_fingerprint=$(gpg --show-keys --with-colons /tmp/llvm-snapshot.asc | awk -F: '$1 == "fpr" { print $10; exit }')
+          test "$key_fingerprint" = 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+          sudo install -m 644 /tmp/llvm-snapshot.asc /usr/share/keyrings/llvm-snapshot.asc
+          echo 'deb [signed-by=/usr/share/keyrings/llvm-snapshot.asc] https://apt.llvm.org/noble/ llvm-toolchain-noble-21 main' \
+            | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-21
+          clang++-21 --version
+      - uses: ./.github/actions/rust-crate
+        with:
+          manifest: client/phase0/Cargo.toml
+          workspace: client/phase0
+          test-wrapper: xvfb-run -a
+          release: "true"
+
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Audit lockfiles
+        run: |
+          set -euo pipefail
+          locks=(
+            protocol/Cargo.lock
+            client/state/Cargo.lock
+            client/media/Cargo.lock
+            client/phase0/Cargo.lock
+            client/phase0-media/Cargo.lock
+            server/identity/Cargo.lock
+          )
+          for lock in "${locks[@]}"; do
+            echo "::group::cargo audit ${lock}"
+            cargo audit --file "$lock"
+            echo "::endgroup::"
+          done

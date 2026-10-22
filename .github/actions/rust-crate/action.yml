@@ -1,0 +1,117 @@
+name: Rust crate checks
+description: Format, Clippy, and tests for one Cordel crate on the pinned Rust 1.99.1 toolchain.
+
+inputs:
+  manifest:
+    description: Path to the crate Cargo.toml
+    required: true
+  workspace:
+    description: Directory that contains that Cargo.toml and Cargo.lock
+    required: true
+  features:
+    description: Value for cargo --features. Empty uses the crate default features.
+    required: false
+    default: ""
+  test-wrapper:
+    description: Command prefix for cargo test, such as xvfb-run -a
+    required: false
+    default: ""
+  ignored-args:
+    description: Arguments after cargo test -- for an extra ignored-test run. Empty skips that run.
+    required: false
+    default: ""
+  release:
+    description: Also run cargo build --locked --release when true
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Select Rust 1.99.1
+      uses: dtolnay/rust-toolchain@1.99.1
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.workspace }}
+        shared-key: toolchain-1.99.1-${{ inputs.workspace }}
+        cache-on-failure: "true"
+
+    - name: Check formatting
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
+      run: cargo fmt --manifest-path "$MANIFEST" --all -- --check
+
+    - name: Clippy
+      id: clippy
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
+        FEATURES: ${{ inputs.features }}
+      run: |
+        set -o pipefail
+        args=(--manifest-path "$MANIFEST" --locked --all-targets)
+        if [[ -n "$FEATURES" ]]; then
+          args+=(--features "$FEATURES")
+        fi
+        cargo clippy "${args[@]}" -- -D warnings 2>&1 | tee /tmp/cordel-clippy.log
+
+    - name: Show Clippy error in the check result
+      if: failure() && steps.clippy.outcome == 'failure'
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        from pathlib import Path
+        import re
+
+        output = Path("/tmp/cordel-clippy.log").read_text(errors="replace")
+        excerpt = re.sub(r"\x1b\[[0-9;]*m", "", output[-3000:])
+        excerpt = excerpt.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error title=Clippy failure::{excerpt}")
+        PY
+
+    - name: Test
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
+        FEATURES: ${{ inputs.features }}
+        TEST_WRAPPER: ${{ inputs.test-wrapper }}
+      run: |
+        args=(--manifest-path "$MANIFEST" --locked)
+        if [[ -n "$FEATURES" ]]; then
+          args+=(--features "$FEATURES")
+        fi
+        if [[ -n "$TEST_WRAPPER" ]]; then
+          # The wrapper is a fixed command prefix from this repository, such as xvfb-run -a.
+          # shellcheck disable=SC2086
+          $TEST_WRAPPER cargo test "${args[@]}"
+        else
+          cargo test "${args[@]}"
+        fi
+
+    - name: Test ignored database flows
+      if: inputs.ignored-args != ''
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
+        IGNORED_ARGS: ${{ inputs.ignored-args }}
+      run: |
+        # shellcheck disable=SC2086
+        cargo test --manifest-path "$MANIFEST" --locked -- $IGNORED_ARGS
+
+    - name: Release build
+      if: inputs.release == 'true'
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
+        FEATURES: ${{ inputs.features }}
+      run: |
+        args=(--manifest-path "$MANIFEST" --locked --release)
+        if [[ -n "$FEATURES" ]]; then
+          args+=(--features "$FEATURES")
+        fi
+        cargo build "${args[@]}"
