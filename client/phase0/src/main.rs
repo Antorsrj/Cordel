@@ -126,13 +126,12 @@ fn main() -> anyhow::Result<()> {
     });
     ui.on_capture_frame({
         let commands = commands.clone();
-        move |value: SharedString| {
-            let rate = match value.as_str() {
-                "30 fps" => 30,
-                "60 fps" => 60,
-                _ => stream::DEFAULT_FRAME_RATE,
-            };
-            let _ = commands.send(Command::CaptureFrame { rate });
+        move |frame_rate: SharedString, quality: SharedString| {
+            let request = stream::share_request(frame_rate.as_str(), quality.as_str());
+            let _ = commands.send(Command::CaptureFrame {
+                rate: request.rate,
+                quality: request.quality,
+            });
         }
     });
     ui.on_leave({

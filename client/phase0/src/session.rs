@@ -22,6 +22,7 @@ use anyhow::{anyhow, Context};
 use cordel_media::capture::{SessionKind, TargetKind};
 use cordel_media::devices::AudioDeviceControl;
 use cordel_media::frame::fit_display;
+use cordel_media::quality::ScreenShareBitrate;
 use cordel_media::sdk::{publish_microphone, received_to_frame, remote_video_stream, SdkAudio};
 use cordel_state::{MediaAdmissionClient, NativeHttpsTransport};
 use futures_util::StreamExt;
@@ -44,7 +45,10 @@ const SHARE_FRAME_INTERVAL: Duration = Duration::from_millis(66);
 
 pub enum Command {
     Join,
-    CaptureFrame { rate: u32 },
+    CaptureFrame {
+        rate: u32,
+        quality: ScreenShareBitrate,
+    },
     StopShare,
     Leave,
 }
@@ -180,13 +184,14 @@ async fn run_session(
                     }
                     busy(&events, false);
                 }
-                Command::CaptureFrame { rate } => {
+                Command::CaptureFrame { rate, quality } => {
                     busy(&events, true);
                     if let Some(session) = joined.as_mut() {
                         match stream::start_share(
                             session,
                             TargetKind::Screen,
                             rate,
+                            quality,
                             &events,
                             &mut publication_epoch,
                         )

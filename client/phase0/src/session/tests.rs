@@ -1,3 +1,5 @@
+use cordel_media::quality::ScreenShareBitrate;
+
 use super::*;
 
 #[test]
@@ -10,6 +12,52 @@ fn session_label_names_the_unknown_case_instead_of_hiding_it() {
 #[test]
 fn a_share_key_is_the_publisher_and_the_track() {
     assert_eq!(share_key("ana", "TR_123"), "ana/TR_123");
+}
+
+#[test]
+fn the_share_click_keeps_the_frame_rate_and_reads_the_quality() {
+    let standard = stream::share_request("15 fps", ScreenShareBitrate::Standard.label());
+    assert_eq!(standard.rate, 15);
+    assert_eq!(standard.quality, ScreenShareBitrate::DEFAULT);
+    assert_eq!(standard.quality.bits_per_second(), 5_000_000);
+
+    let sharp = stream::share_request("60 fps", ScreenShareBitrate::SharpText.label());
+    assert_eq!(sharp.rate, 60);
+    assert_eq!(sharp.quality.bits_per_second(), 8_000_000);
+
+    let economical = stream::share_request("30 fps", ScreenShareBitrate::Economical.label());
+    assert_eq!(economical.rate, 30);
+    assert_eq!(economical.quality.bits_per_second(), 3_500_000);
+
+    let high = stream::share_request("15 fps", ScreenShareBitrate::High.label());
+    assert_eq!(high.quality.kilobits_per_second(), 6_000);
+
+    let unknown = stream::share_request("other", "not a preset");
+    assert_eq!(unknown.rate, stream::DEFAULT_FRAME_RATE);
+    assert_eq!(unknown.quality, ScreenShareBitrate::DEFAULT);
+}
+
+#[test]
+fn the_quality_picker_lists_every_preset_and_starts_at_the_default() {
+    let ui = include_str!("../../ui/app.slint");
+    let picker = ui
+        .split_once("quality-picker := ComboBox {")
+        .expect("quality picker")
+        .1
+        .split_once("Button {")
+        .expect("share button after the picker")
+        .0;
+    for preset in ScreenShareBitrate::ALL {
+        assert!(
+            picker.contains(&format!("\"{}\"", preset.label())),
+            "the quality picker is missing {}",
+            preset.label()
+        );
+    }
+    assert!(picker.contains(&format!(
+        "current-value: \"{}\"",
+        ScreenShareBitrate::DEFAULT.label()
+    )));
 }
 
 #[test]
