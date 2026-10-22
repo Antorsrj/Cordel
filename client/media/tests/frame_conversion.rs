@@ -98,6 +98,30 @@ fn a_remote_screen_is_shrunk_before_the_interface_converts_it() {
     assert_eq!(pixel(&rgba, fitted.width(), 0, 0), [0, 0, 0, 255]);
 }
 
+/// A portrait frame is already under the width cap and used to be returned
+/// whole. Both sides of the copy have to fit.
+#[test]
+fn a_tall_frame_is_shrunk_on_both_sides() {
+    let portrait = i420(400, 2000, 16, 128, 128);
+    let fitted = fit_display(portrait, 960);
+    assert!(fitted.width() <= 960, "width {}", fitted.width());
+    assert!(fitted.height() <= 960, "height {}", fitted.height());
+    assert_eq!(fitted.width() % 2, 0);
+    assert_eq!(fitted.height() % 2, 0);
+    assert_eq!(fitted.format(), PixelFormat::I420);
+    assert!(fitted.height() < 2000);
+
+    let packed = synthetic_bgra(400, 2000, 1);
+    let fitted = fit_display(packed, 960);
+    assert!(fitted.width() <= 960, "width {}", fitted.width());
+    assert!(fitted.height() <= 960, "height {}", fitted.height());
+    assert_eq!(fitted.format(), PixelFormat::Bgra8);
+
+    let small = i420(32, 18, 16, 128, 128);
+    let fitted = fit_display(small, 960);
+    assert_eq!((fitted.width(), fitted.height()), (32, 18));
+}
+
 #[test]
 fn i420_handles_odd_dimensions() {
     // 3x3 has chroma planes of 2x2, which is where naive code reads out of bounds.

@@ -61,9 +61,6 @@ struct Joined {
     /// The screen share in progress, if any. A second click does not publish
     /// another track; Stop sharing is what ends this one.
     share: Option<stream::StreamShare>,
-    /// Epoch of the local publication. The next one is newer, so a picture
-    /// from the publication that stopped cannot recreate the local tile.
-    local_epoch: u64,
 }
 
 impl Joined {
@@ -108,6 +105,10 @@ pub async fn run(
     access: watch::Receiver<Option<String>>,
 ) {
     let mut joined: Option<Joined> = None;
+    // Shares outlives every room, and a tombstone is never lowered. This
+    // counter is the process's, so Leave and Join cannot hand the stage a
+    // picture it still treats as ended.
+    let mut publication_epoch = 0u64;
 
     loop {
         let incoming = match joined.as_mut() {
@@ -129,9 +130,7 @@ pub async fn run(
                     // session is gone, and the tiles should not outlive it.
                     if let Some(mut session) = joined.take() {
                         session.stop_publishing(&events).await;
-                        for (key, epoch) in session.follows.end_all() {
-                            let _ = events.send(MediaEvent::Ended { key, epoch });
-                        }
+                        emit_remote_ends(&mut session.follows, &events);
                     }
                     let _ = events.send(MediaEvent::Joined(false));
                     let _ = events.send(MediaEvent::Status("The room connection ended.".into()));
@@ -140,7 +139,7 @@ pub async fn run(
                 let Some(session) = joined.as_mut() else {
                     continue;
                 };
-                handle_room_event(session, *event, &events);
+                handle_room_event(session, *event, &events, &mut publication_epoch);
             }
             Incoming::Command(Some(command)) => match command {
                 Command::Join => {
@@ -152,7 +151,7 @@ pub async fn run(
                         Ok(mut session) => {
                             // Someone may be sharing already: the stage follows the
                             // room, not only what happens after this client joins.
-                            register_remote_shares(&mut session, &events);
+                            register_remote_shares(&mut session, &events, &mut publication_epoch);
                             let _ = events.send(MediaEvent::Joined(true));
                             // Two clients can share one screen during testing, so the
                             // status line says which identity this window joined as.
@@ -172,7 +171,14 @@ pub async fn run(
                 Command::CaptureFrame { rate } => {
                     busy(&events, true);
                     if let Some(session) = joined.as_mut() {
-                        match stream::start_share(session, TargetKind::Screen, rate, &events).await
+                        match stream::start_share(
+                            session,
+                            TargetKind::Screen,
+                            rate,
+                            &events,
+                            &mut publication_epoch,
+                        )
+                        .await
                         {
                             Ok(()) => {}
                             Err(err) => {
@@ -197,16 +203,13 @@ pub async fn run(
                 Command::Leave => {
                     if let Some(mut session) = joined.take() {
                         session.stop_publishing(&events).await;
+                        // Remote tiles are not the local publication. Without
+                        // these ends they stay on the stage, renderer included,
+                        // after the room is gone.
+                        emit_remote_ends(&mut session.follows, &events);
                         let _ = session.room.close().await;
                         drop(session._audio);
                     }
-                    // A later join must never publish a frame captured in an
-                    // earlier room or account session. The epoch is zero when
-                    // stop_publishing already ended the live publication.
-                    let _ = events.send(MediaEvent::Ended {
-                        key: LOCAL_SHARE_KEY.into(),
-                        epoch: 0,
-                    });
                     let _ = events.send(MediaEvent::Joined(false));
                     let _ = events.send(MediaEvent::Status(
                         "Left the room. The microphone is released.".into(),
@@ -226,7 +229,7 @@ pub(crate) mod stream;
 ///
 /// Keys are the media track identity, so a tile keeps its identity while another
 /// share ends or is detached (`docs/ux/journal.md`).
-fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) {
+fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut, epochs: &mut u64) {
     match event {
         RoomEvent::TrackSubscribed {
             track,
@@ -243,6 +246,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
                 publication.source(),
                 track,
                 events,
+                epochs,
             );
         }
         RoomEvent::TrackUnsubscribed {
@@ -290,7 +294,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
             for (key, epoch) in session.follows.end_all() {
                 let _ = events.send(MediaEvent::Ended { key, epoch });
             }
-            register_remote_shares(session, events);
+            register_remote_shares(session, events, epochs);
             let _ = events.send(MediaEvent::Status(
                 "Reconnected. The share list was refreshed.".into(),
             ));
@@ -301,7 +305,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
 
 /// Adds every video publication the room already has. Called on joining (someone
 /// may be sharing already) and after a reconnection.
-fn register_remote_shares(session: &mut Joined, events: &MediaOut) {
+fn register_remote_shares(session: &mut Joined, events: &MediaOut, epochs: &mut u64) {
     for participant in session.room.remote_participants().values() {
         let publisher = participant.identity().to_string();
         for publication in participant.track_publications().values() {
@@ -313,6 +317,7 @@ fn register_remote_shares(session: &mut Joined, events: &MediaOut) {
                     publication.source(),
                     track,
                     events,
+                    epochs,
                 );
             }
         }
@@ -328,9 +333,10 @@ fn follow_video(
     source: TrackSource,
     track: RemoteVideoTrack,
     events: &MediaOut,
+    epochs: &mut u64,
 ) {
     let exclusive = source == TrackSource::Screenshare;
-    let watched = session.follows.watch(&publisher, &sid, exclusive);
+    let watched = session.follows.watch(&publisher, &sid, exclusive, epochs);
     for (key, epoch) in watched.ended {
         log::info!("a share ended: {key}");
         let _ = events.send(MediaEvent::Ended { key, epoch });
@@ -401,6 +407,13 @@ fn pump_share(
     });
 }
 
+/// Tells the stage that every remote share of this room has ended.
+fn emit_remote_ends(follows: &mut follow::RemoteFollows, events: &MediaOut) {
+    for (key, epoch) in follows.end_all() {
+        let _ = events.send(MediaEvent::Ended { key, epoch });
+    }
+}
+
 fn end_followed(session: &mut Joined, events: &MediaOut, key: &str) {
     if let Some(epoch) = session.follows.end(key) {
         let _ = events.send(MediaEvent::Ended {
@@ -414,6 +427,16 @@ fn end_followed(session: &mut Joined, events: &MediaOut, key: &str) {
 /// tile position.
 fn share_key(identity: &str, sid: impl std::fmt::Display) -> String {
     format!("{identity}/{sid}")
+}
+
+/// The next publication epoch.
+///
+/// The stage tombstone for a track only moves forward, and it outlives the
+/// room. A counter that started again at zero would make the local preview
+/// after Leave and Join the same epoch the stage had already ended.
+fn issue_epoch(epochs: &mut u64) -> u64 {
+    *epochs = epochs.saturating_add(1);
+    *epochs
 }
 
 fn busy(events: &MediaOut, busy: bool) {

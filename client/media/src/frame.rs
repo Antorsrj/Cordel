@@ -318,24 +318,47 @@ pub fn resize_bgra(frame: Frame, max_width: u32) -> Frame {
 /// `resize_bgra` only understands packed BGRA. A remote screen arrives as
 /// I420, and that function then gives the original back, so the interface
 /// converts every pixel of a 2560x1440 frame. This is the copy the interface
-/// is willing to paint: at most `max_width` pixels wide, in the frame's own
-/// layout. I420 keeps even dimensions, which is what its chroma planes need.
-pub fn fit_display(frame: Frame, max_width: u32) -> Frame {
-    if max_width == 0 || frame.width() <= max_width {
+/// is willing to paint: neither side longer than `max_edge`, in the frame's
+/// own layout. I420 keeps even dimensions, which is what its chroma planes need.
+pub fn fit_display(frame: Frame, max_edge: u32) -> Frame {
+    let Some(width) = fitted_width(frame.width(), frame.height(), max_edge) else {
         return frame;
-    }
+    };
     match frame.format() {
-        PixelFormat::Bgra8 | PixelFormat::Rgba8 => resize_bgra(frame, max_width),
-        PixelFormat::I420 => fit_i420(frame, max_width),
+        PixelFormat::Bgra8 | PixelFormat::Rgba8 => resize_bgra(frame, width),
+        PixelFormat::I420 => fit_i420(frame, width, max_edge),
     }
 }
 
+/// The width of a copy that fits inside `max_edge` on both sides.
+/// `None` when the frame is already inside that box, or when there is nothing
+/// to scale.
+fn fitted_width(width: u32, height: u32, max_edge: u32) -> Option<u32> {
+    if max_edge == 0 || width == 0 || height == 0 {
+        return None;
+    }
+    if width <= max_edge && height <= max_edge {
+        return None;
+    }
+    let by_width = width.min(max_edge);
+    let by_height = ((u64::from(max_edge) * u64::from(width)) / u64::from(height)) as u32;
+    Some(by_width.min(by_height.max(1)).max(1))
+}
+
 /// Nearest-neighbour I420 shrink. The planes stay tight, so [`Frame::packed`]
-/// can check the result.
-fn fit_i420(frame: Frame, max_width: u32) -> Frame {
-    let width = max_width & !1;
-    let height =
-        ((u64::from(frame.height()) * u64::from(width) / u64::from(frame.width())) as u32) & !1;
+/// can check the result. `width` is the fitted width; `max_edge` caps the
+/// height when rounding would leave a side outside the box.
+fn fit_i420(frame: Frame, width: u32, max_edge: u32) -> Frame {
+    let mut width = width & !1;
+    let mut height = ((u64::from(frame.height()) * u64::from(width)
+        / u64::from(frame.width().max(1))) as u32)
+        & !1;
+    if height > max_edge {
+        height = max_edge & !1;
+        width = ((u64::from(frame.width()) * u64::from(height) / u64::from(frame.height().max(1)))
+            as u32)
+            & !1;
+    }
     if width == 0 || height == 0 {
         return frame;
     }

@@ -24,7 +24,7 @@
 //! invisible item, so hiding a tile would leave the rest of the stage squeezed
 //! beside a gap.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -40,8 +40,9 @@ mod track;
 
 pub use events::{FrameSlots, MediaEvent, MediaOut};
 
-/// The shell's own capture is a view like any other; a stable key means a second
-/// capture replaces the first instead of adding a tile.
+/// The shell's own preview. The key is stable for the life of the process, so
+/// the local picture is one tile. A later publication shows in that tile only
+/// when its epoch is newer than the publication the stage already ended.
 pub const LOCAL_SHARE_KEY: &str = "local/screen-frame";
 
 /// The width of a picture the interface is willing to paint.
@@ -84,6 +85,9 @@ pub struct Shares {
     /// The epoch of the picture on the stage. An older end must not remove a
     /// share that was published again under the same track.
     live_epoch: RefCell<HashMap<String, u64>>,
+    /// The oversized-picture warning is logged once. Every later picture is
+    /// reduced the same way, and a warning per frame drowned the log.
+    logged_shrink: Cell<bool>,
 }
 
 impl Shares {
@@ -96,6 +100,7 @@ impl Shares {
             painted: RefCell::new(HashMap::new()),
             ended_epoch: RefCell::new(HashMap::new()),
             live_epoch: RefCell::new(HashMap::new()),
+            logged_shrink: Cell::new(false),
         })
     }
 
@@ -234,12 +239,16 @@ impl Shares {
     /// first picture of a share is always painted: it is what puts the share
     /// on the stage.
     fn paint(&self, key: &str, publisher: String, state: ShareState, frame: Frame) -> bool {
-        let frame = if frame.width() > MAX_PAINT_WIDTH {
-            log::warn!(
-                "a picture of {}x{} arrived at the interface and was reduced",
-                frame.width(),
-                frame.height()
-            );
+        let frame = if frame.width() > MAX_PAINT_WIDTH || frame.height() > MAX_PAINT_WIDTH {
+            if !self.logged_shrink.get() {
+                log::warn!(
+                    "a picture of {}x{} arrived at the interface and was reduced; further ones \
+                     are reduced quietly",
+                    frame.width(),
+                    frame.height()
+                );
+                self.logged_shrink.set(true);
+            }
             cordel_media::frame::fit_display(frame, MAX_PAINT_WIDTH)
         } else {
             frame

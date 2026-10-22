@@ -92,6 +92,7 @@ pub(super) async fn start_share(
     kind: TargetKind,
     rate: u32,
     events: &MediaOut,
+    epochs: &mut u64,
 ) -> anyhow::Result<()> {
     // A second click must not publish another track. Stop sharing is what ends
     // the one that is already up. Replacing it here is what gave every click a
@@ -108,8 +109,7 @@ pub(super) async fn start_share(
          appears.",
         super::session_label(session)
     )));
-    joined.local_epoch = joined.local_epoch.saturating_add(1);
-    let epoch = joined.local_epoch;
+    let epoch = super::issue_epoch(epochs);
     let stream_interval = interval_for_rate(rate);
 
     let source = CaptureSource::Auto.resolve(SessionKind::detect());

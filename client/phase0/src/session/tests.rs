@@ -27,10 +27,12 @@ fn sharing_again_does_not_open_a_second_publication() {
 fn ten_screen_tracks_from_one_participant_keep_one_decoder() {
     let publisher = "6f885a53-41ee-41b9-b5d8-a4f7bec009bc";
     let mut follows = follow::RemoteFollows::new();
+    let mut epochs = 0;
     let mut receivers = Vec::new();
     for click in 0..10 {
-        let watched = follows.watch(publisher, &format!("TR_{click}"), true);
+        let watched = follows.watch(publisher, &format!("TR_{click}"), true, &mut epochs);
         assert!(watched.fresh);
+        assert_eq!(watched.epoch, click + 1);
         assert_eq!(watched.ended.len(), if click == 0 { 0 } else { 1 });
         receivers.push(watched.stop);
     }
@@ -52,10 +54,63 @@ fn ten_screen_tracks_from_one_participant_keep_one_decoder() {
 
     // A different person, and a non-screen video, are not the same publication.
     let mut follows = follow::RemoteFollows::new();
-    let ana = follows.watch("ana", "screen", true);
-    let bruno = follows.watch("bruno", "screen", true);
-    let camera = follows.watch("ana", "camera", false);
+    let mut epochs = 0;
+    let ana = follows.watch("ana", "screen", true, &mut epochs);
+    let bruno = follows.watch("bruno", "screen", true, &mut epochs);
+    let camera = follows.watch("ana", "camera", false, &mut epochs);
     assert!(ana.ended.is_empty() && bruno.ended.is_empty() && camera.ended.is_empty());
     assert_eq!(follows.keys().len(), 3);
     assert!(!*ana.stop.borrow());
+}
+
+/// Leave drops the room, and Join used to build a new follow set whose epochs
+/// started at 1 again. The stage still holds the tombstone, so the counter
+/// that both the local share and the remote follows draw from keeps moving.
+#[test]
+fn rejoining_issues_a_newer_epoch_than_the_share_that_ended() {
+    let mut epochs = 0;
+    let mut follows = follow::RemoteFollows::new();
+    let first = follows.watch("ana", "TR_screen", true, &mut epochs);
+    assert_eq!(first.epoch, 1);
+    let local = issue_epoch(&mut epochs);
+    assert_eq!(local, 2);
+    assert_eq!(follows.end_all(), vec![("ana/TR_screen".to_string(), 1)]);
+
+    let mut follows = follow::RemoteFollows::new();
+    let again = follows.watch("ana", "TR_screen", true, &mut epochs);
+    let again_local = issue_epoch(&mut epochs);
+    assert_eq!(again.epoch, 3);
+    assert_eq!(again_local, 4);
+}
+
+/// Leave has to tell the stage about every remote share. Dropping the room
+/// stops the decoders, and without these events the tiles and renderers stay.
+#[test]
+fn leaving_emits_an_end_for_every_remote_share() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let events = MediaOut::new(tx);
+    let mut epochs = 0;
+    let mut follows = follow::RemoteFollows::new();
+    follows.watch("ana", "TR_a", true, &mut epochs);
+    follows.watch("bruno", "TR_b", true, &mut epochs);
+    emit_remote_ends(&mut follows, &events);
+    drop(events);
+
+    let mut ends = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            MediaEvent::Ended { key, epoch } => ends.push((key, epoch)),
+            MediaEvent::Frame { .. }
+            | MediaEvent::State { .. }
+            | MediaEvent::Status(_)
+            | MediaEvent::Busy(_)
+            | MediaEvent::Joined(_) => panic!("leave should only end the remote shares"),
+        }
+    }
+    ends.sort();
+    assert_eq!(
+        ends,
+        vec![("ana/TR_a".to_string(), 1), ("bruno/TR_b".to_string(), 2)]
+    );
+    assert!(follows.keys().is_empty());
 }
