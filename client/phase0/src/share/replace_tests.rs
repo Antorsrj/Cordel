@@ -231,6 +231,40 @@ fn a_reconnect_restores_the_share_only_at_a_newer_epoch() {
     assert!(shares.renderer_held(key));
 }
 
+/// A new track from the same person replaces the share that is in the
+/// detached window. The window follows the new key, and a late picture of
+/// the old track does not bring that tile back.
+#[test]
+fn a_new_track_replaces_a_detached_share() {
+    let (shares, slots) = stage();
+    let old = "ana/TR_old";
+    let new = "ana/TR_new";
+    shares.apply(picture_at(&slots, old, "ana", 2));
+    shares.detach(old);
+    assert!(keys(&shares).is_empty());
+    assert!(shares.renderer_held(old));
+
+    shares.apply(picture_at(&slots, new, "ana", 3));
+    assert!(
+        keys(&shares).is_empty(),
+        "the replacement stays in the detached window"
+    );
+    assert_eq!(
+        shares.detached_tile().map(|tile| tile.key.to_string()),
+        Some(new.to_string())
+    );
+    assert!(!shares.renderer_held(old));
+    assert!(shares.renderer_held(new));
+
+    shares.apply(picture_at(&slots, old, "ana", 2));
+    assert!(keys(&shares).is_empty());
+    assert_eq!(
+        shares.detached_tile().map(|tile| tile.key.to_string()),
+        Some(new.to_string())
+    );
+    assert!(!shares.renderer_held(old));
+}
+
 /// The detached window follows the publication. Ending that epoch closes it
 /// and releases the renderer; a newer epoch comes back on the stage.
 #[test]

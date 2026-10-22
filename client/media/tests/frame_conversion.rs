@@ -122,6 +122,25 @@ fn a_tall_frame_is_shrunk_on_both_sides() {
     assert_eq!((fitted.width(), fitted.height()), (32, 18));
 }
 
+/// A strip is already under the cap on one side. Rounding the other side to
+/// zero used to return the original, so a 2x2000 frame stayed 2000 tall and a
+/// 2000x1 frame stayed 2000 wide.
+#[test]
+fn a_strip_is_clamped_instead_of_passed_through() {
+    let tall = fit_display(i420(2, 2000, 16, 128, 128), 960);
+    assert_eq!((tall.width(), tall.height()), (2, 960));
+    let wide = fit_display(i420(2000, 1, 16, 128, 128), 960);
+    assert_eq!((wide.width(), wide.height()), (960, 2));
+
+    let tall = fit_display(synthetic_bgra(1, 2000, 1), 960);
+    assert_eq!((tall.width(), tall.height()), (1, 960));
+    let wide = fit_display(synthetic_bgra(2000, 1, 1), 960);
+    assert_eq!((wide.width(), wide.height()), (960, 1));
+    let packed_tall = fit_display(synthetic_bgra(2, 2000, 1), 960);
+    assert!(packed_tall.width() <= 960 && packed_tall.height() <= 960);
+    assert!(packed_tall.height() < 2000);
+}
+
 #[test]
 fn i420_handles_odd_dimensions() {
     // 3x3 has chroma planes of 2x2, which is where naive code reads out of bounds.

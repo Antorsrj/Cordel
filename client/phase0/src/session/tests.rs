@@ -114,3 +114,42 @@ fn leaving_emits_an_end_for_every_remote_share() {
     );
     assert!(follows.keys().is_empty());
 }
+
+/// `Command::Leave` is what calls `emit_remote_ends`. The helper test above
+/// still passes if that call is removed; this one sends the command.
+#[tokio::test]
+async fn leave_command_emits_an_end_for_every_remote_share() {
+    let mut epochs = 0;
+    let mut follows = follow::RemoteFollows::new();
+    follows.watch("ana", "TR_a", true, &mut epochs);
+    follows.watch("bruno", "TR_b", true, &mut epochs);
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let events = MediaOut::new(event_tx);
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_access_tx, access_rx) = watch::channel(None);
+    command_tx
+        .send(Command::Leave)
+        .expect("the command is sent");
+    drop(command_tx);
+
+    run_session(command_rx, events, access_rx, Some(follows)).await;
+
+    let mut ends = Vec::new();
+    let mut joined = None;
+    while let Ok(event) = event_rx.try_recv() {
+        match event {
+            MediaEvent::Ended { key, epoch } => ends.push((key, epoch)),
+            MediaEvent::Joined(value) => joined = Some(value),
+            MediaEvent::Status(_) => {}
+            MediaEvent::Frame { .. } | MediaEvent::State { .. } | MediaEvent::Busy(_) => {
+                panic!("leave should end the remote shares and mark the room left")
+            }
+        }
+    }
+    ends.sort();
+    assert_eq!(
+        ends,
+        vec![("ana/TR_a".to_string(), 1), ("bruno/TR_b".to_string(), 2)]
+    );
+    assert_eq!(joined, Some(false));
+}

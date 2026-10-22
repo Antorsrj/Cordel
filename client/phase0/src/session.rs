@@ -100,9 +100,21 @@ enum Incoming {
 }
 
 pub async fn run(
+    commands: UnboundedReceiver<Command>,
+    events: MediaOut,
+    access: watch::Receiver<Option<String>>,
+) {
+    run_session(commands, events, access, None).await
+}
+
+/// `seeded_follows` is how the Leave command is tested without a LiveKit room.
+/// A real session replaces it with that session's follows, and Leave emits
+/// from this one value, so the test and the room take the same path.
+async fn run_session(
     mut commands: UnboundedReceiver<Command>,
     events: MediaOut,
     access: watch::Receiver<Option<String>>,
+    mut seeded_follows: Option<follow::RemoteFollows>,
 ) {
     let mut joined: Option<Joined> = None;
     // Shares outlives every room, and a tombstone is never lowered. This
@@ -203,12 +215,21 @@ pub async fn run(
                 Command::Leave => {
                     if let Some(mut session) = joined.take() {
                         session.stop_publishing(&events).await;
-                        // Remote tiles are not the local publication. Without
-                        // these ends they stay on the stage, renderer included,
-                        // after the room is gone.
-                        emit_remote_ends(&mut session.follows, &events);
+                        // One slot for the test's follows and the room's. The
+                        // emit below is the only one, so dropping this call
+                        // drops both.
+                        seeded_follows = Some(std::mem::replace(
+                            &mut session.follows,
+                            follow::RemoteFollows::new(),
+                        ));
                         let _ = session.room.close().await;
                         drop(session._audio);
+                    }
+                    // Remote tiles are not the local publication. Without
+                    // these ends they stay on the stage, renderer included,
+                    // after the room is gone.
+                    if let Some(mut follows) = seeded_follows.take() {
+                        emit_remote_ends(&mut follows, &events);
                     }
                     let _ = events.send(MediaEvent::Joined(false));
                     let _ = events.send(MediaEvent::Status(
@@ -291,9 +312,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut, 
             // be reused: the catalog is rebuilt from what the room reports, and the
             // tiles come back under the same publishers. The old decoders stop
             // here, or they would keep the tiles the end events removed.
-            for (key, epoch) in session.follows.end_all() {
-                let _ = events.send(MediaEvent::Ended { key, epoch });
-            }
+            emit_remote_ends(&mut session.follows, events);
             register_remote_shares(session, events, epochs);
             let _ = events.send(MediaEvent::Status(
                 "Reconnected. The share list was refreshed.".into(),
