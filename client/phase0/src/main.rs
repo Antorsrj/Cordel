@@ -191,7 +191,9 @@ fn main() -> anyhow::Result<()> {
             // The control events come before the pictures. They are cheap, and
             // a share that ended has to leave the stage before the interface
             // spends its time on the pictures of the shares that are still
-            // there.
+            // there. A picture of a publication that has already ended does
+            // not create its tile again; the decoder sends one more after the
+            // end, and that is what used to stack one tile per click.
             let started = std::time::Instant::now();
             let mut pictures = Vec::new();
             while let Ok(event) = incoming.try_recv() {

@@ -28,7 +28,11 @@ pub enum MediaEvent {
         state: ShareState,
     },
     /// The source stopped publishing, or access to it was revoked.
-    Ended { key: String },
+    ///
+    /// `epoch` is the publication the media side stopped following. A picture
+    /// from that publication, or an older one, must not create the tile again.
+    /// A later publication of the same track uses a newer epoch.
+    Ended { key: String, epoch: u64 },
     /// The same share, new connection state. Used for reconnection, which is a
     /// presentation change and not a new share.
     State { key: String, state: ShareState },
@@ -52,6 +56,9 @@ pub struct Waiting {
     /// note: the interface does not need to hear about a picture it is going
     /// to replace anyway.
     pub pending: bool,
+    /// Which publication this picture belongs to. The stage ignores it when
+    /// that publication has already ended.
+    pub epoch: u64,
 }
 
 /// The newest picture of each share, waiting for the interface.
@@ -103,8 +110,8 @@ impl MediaOut {
     /// travels only when the interface does not know yet that there is a
     /// picture to take, so a share that delivers a hundred frames a second
     /// leaves one note in the queue and not a hundred.
-    pub fn frame(&self, key: &str, publisher: &str, state: ShareState, frame: Frame) {
-        if let Some(event) = announce(&self.slots, key, publisher, state, frame) {
+    pub fn frame(&self, key: &str, publisher: &str, state: ShareState, frame: Frame, epoch: u64) {
+        if let Some(event) = announce(&self.slots, key, publisher, state, frame, epoch) {
             self.send(event);
         }
     }
@@ -121,6 +128,7 @@ pub fn announce(
     publisher: &str,
     state: ShareState,
     frame: Frame,
+    epoch: u64,
 ) -> Option<MediaEvent> {
     let mut notify = false;
     if let Ok(mut slots) = slots.lock() {
@@ -128,6 +136,7 @@ pub fn announce(
             Some(waiting) => {
                 waiting.frame = Some(frame);
                 waiting.state = state;
+                waiting.epoch = epoch;
                 notify = !waiting.pending;
                 waiting.pending = true;
             }
@@ -138,6 +147,7 @@ pub fn announce(
                         frame: Some(frame),
                         state,
                         pending: true,
+                        epoch,
                     },
                 );
                 notify = true;

@@ -313,6 +313,66 @@ pub fn resize_bgra(frame: Frame, max_width: u32) -> Frame {
     }
 }
 
+/// Shrinks a frame so the interface never converts a full screen.
+///
+/// `resize_bgra` only understands packed BGRA. A remote screen arrives as
+/// I420, and that function then gives the original back, so the interface
+/// converts every pixel of a 2560x1440 frame. This is the copy the interface
+/// is willing to paint: at most `max_width` pixels wide, in the frame's own
+/// layout. I420 keeps even dimensions, which is what its chroma planes need.
+pub fn fit_display(frame: Frame, max_width: u32) -> Frame {
+    if max_width == 0 || frame.width() <= max_width {
+        return frame;
+    }
+    match frame.format() {
+        PixelFormat::Bgra8 | PixelFormat::Rgba8 => resize_bgra(frame, max_width),
+        PixelFormat::I420 => fit_i420(frame, max_width),
+    }
+}
+
+/// Nearest-neighbour I420 shrink. The planes stay tight, so [`Frame::packed`]
+/// can check the result.
+fn fit_i420(frame: Frame, max_width: u32) -> Frame {
+    let width = max_width & !1;
+    let height =
+        ((u64::from(frame.height()) * u64::from(width) / u64::from(frame.width())) as u32) & !1;
+    if width == 0 || height == 0 {
+        return frame;
+    }
+    let src_w = frame.width() as usize;
+    let src_h = frame.height() as usize;
+    let src_cw = src_w.div_ceil(2);
+    let src_ch = src_h.div_ceil(2);
+    let (dst_w, dst_h) = (width as usize, height as usize);
+    let (dst_cw, dst_ch) = (dst_w / 2, dst_h / 2);
+    let mut out = Vec::with_capacity(dst_w * dst_h + 2 * dst_cw * dst_ch);
+    {
+        let data = frame.data();
+        let y_plane = &data[..src_w * src_h];
+        let u_plane = &data[src_w * src_h..src_w * src_h + src_cw * src_ch];
+        let v_plane = &data[src_w * src_h + src_cw * src_ch..];
+        for y in 0..dst_h {
+            let sy = y * src_h / dst_h;
+            for x in 0..dst_w {
+                out.push(y_plane[sy * src_w + x * src_w / dst_w]);
+            }
+        }
+        for y in 0..dst_ch {
+            let sy = y * src_ch / dst_ch;
+            for x in 0..dst_cw {
+                out.push(u_plane[sy * src_cw + x * src_cw / dst_cw]);
+            }
+        }
+        for y in 0..dst_ch {
+            let sy = y * src_ch / dst_ch;
+            for x in 0..dst_cw {
+                out.push(v_plane[sy * src_cw + x * src_cw / dst_cw]);
+            }
+        }
+    }
+    Frame::packed(width, height, PixelFormat::I420, out).unwrap_or(frame)
+}
+
 /// Builds a synthetic BGRA frame. Used by the probe to exercise the render path
 /// without a capture backend, so a missing portal or permission cannot hide a
 /// regression in the conversion code.

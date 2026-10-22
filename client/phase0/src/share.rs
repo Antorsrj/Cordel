@@ -16,7 +16,8 @@
 //! Two behaviors from `docs/ux/journal.md` live here rather than in the markup:
 //! a share is keyed by its media track, so it keeps its identity when another
 //! share ends or is detached, and closing a detached window docks the share back
-//! instead of dropping it.
+//! instead of dropping it. One participant still has one screen share: a new
+//! track from that person replaces the tile instead of adding another.
 //!
 //! The stage model holds exactly what the main window draws. A detached share is
 //! removed from it and held separately: Slint keeps the layout space of an
@@ -35,12 +36,21 @@ use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, VecModel};
 use crate::{ShareState, ShareTile, ShareWindow};
 
 mod events;
+mod track;
 
 pub use events::{FrameSlots, MediaEvent, MediaOut};
 
 /// The shell's own capture is a view like any other; a stable key means a second
 /// capture replaces the first instead of adding a tile.
 pub const LOCAL_SHARE_KEY: &str = "local/screen-frame";
+
+/// The width of a picture the interface is willing to paint.
+///
+/// The picture is painted scaled, so a bigger one looks the same and costs a
+/// texture the interface does not need. The media side already reduces what
+/// it sends. This is the last line, and it understands an I420 frame: the
+/// BGRA-only shrink gives a remote screen back at the captured size.
+const MAX_PAINT_WIDTH: u32 = 960;
 
 /// How often a share's picture reaches the interface.
 ///
@@ -67,6 +77,13 @@ pub struct Shares {
     /// When each share was painted last. The rate is the interface's to
     /// afford, and the room's to exceed.
     painted: RefCell<HashMap<String, Instant>>,
+    /// The newest epoch that ended each share. A picture from that epoch, or
+    /// an older one, does not create a tile. The decoder keeps sending after
+    /// the session has logged the end.
+    ended_epoch: RefCell<HashMap<String, u64>>,
+    /// The epoch of the picture on the stage. An older end must not remove a
+    /// share that was published again under the same track.
+    live_epoch: RefCell<HashMap<String, u64>>,
 }
 
 impl Shares {
@@ -77,6 +94,8 @@ impl Shares {
             sinks: RefCell::new(HashMap::new()),
             slots,
             painted: RefCell::new(HashMap::new()),
+            ended_epoch: RefCell::new(HashMap::new()),
+            live_epoch: RefCell::new(HashMap::new()),
         })
     }
 
@@ -98,36 +117,8 @@ impl Shares {
                 key,
                 publisher,
                 state,
-            } => {
-                // The picture waits in the slot. The interface takes the newest
-                // one and lets the room's replacement stand in for the picture
-                // it never painted. The state comes from the slot as well: it
-                // is the newest one, even when the note is an old one.
-                let (frame, state) = {
-                    let mut slots = self.slots.lock().expect("the frame slots are not poisoned");
-                    match slots.get_mut(&key) {
-                        Some(waiting) if waiting.pending => {
-                            waiting.pending = false;
-                            (waiting.frame.take(), waiting.state)
-                        }
-                        _ => (None, state),
-                    }
-                };
-                let Some(frame) = frame else {
-                    // The picture was already taken; a newer one is on its way.
-                    // The state still says what the share is doing.
-                    return self.set_state(&key, state);
-                };
-                // The picture is what the interface can afford to skip. The
-                // state is not: it says what the share is doing, and a share
-                // that came back has to say so even when its picture waits.
-                if self.paint(&key, publisher, state, frame) {
-                    None
-                } else {
-                    self.set_state(&key, state)
-                }
-            }
-            MediaEvent::Ended { key } => self.end(&key),
+            } => self.show_frame(key, publisher, state),
+            MediaEvent::Ended { key, epoch } => self.end(&key, epoch),
             MediaEvent::State { key, state } => self.set_state(&key, state),
             MediaEvent::Status(_) | MediaEvent::Busy(_) | MediaEvent::Joined(_) => None,
         }
@@ -197,6 +188,15 @@ impl Shares {
         }
     }
 
+    /// Whether the stage still holds a renderer for this share.
+    ///
+    /// An ended share drops it. The test for issue #25 uses this to see that a
+    /// tile which left the stage also left its texture behind.
+    #[cfg(test)]
+    pub(super) fn renderer_held(&self, key: &str) -> bool {
+        self.sinks.borrow().contains_key(key)
+    }
+
     /// The one share presented in its own window, if there is one.
     pub fn detached_tile(&self) -> Option<ShareTile> {
         self.detached.borrow().clone()
@@ -234,6 +234,16 @@ impl Shares {
     /// first picture of a share is always painted: it is what puts the share
     /// on the stage.
     fn paint(&self, key: &str, publisher: String, state: ShareState, frame: Frame) -> bool {
+        let frame = if frame.width() > MAX_PAINT_WIDTH {
+            log::warn!(
+                "a picture of {}x{} arrived at the interface and was reduced",
+                frame.width(),
+                frame.height()
+            );
+            cordel_media::frame::fit_display(frame, MAX_PAINT_WIDTH)
+        } else {
+            frame
+        };
         let on_stage = self.row_of(key).is_some()
             || self
                 .detached
@@ -306,30 +316,6 @@ impl Shares {
             }
         }
         None
-    }
-
-    fn end(&self, key: &str) -> Option<String> {
-        // The picture of a share that ended is not worth keeping.
-        self.slots
-            .lock()
-            .expect("the frame slots are not poisoned")
-            .remove(key);
-        self.painted.borrow_mut().remove(key);
-
-        let mut detached = self.detached.borrow_mut();
-        if detached.as_ref().is_some_and(|tile| tile.key == key) {
-            let tile = detached.take().expect("just checked");
-            drop(detached);
-            self.ensure_emphasis();
-            return Some(format!("{} stopped sharing.", tile.publisher));
-        }
-        drop(detached);
-
-        let row = self.row_of(key)?;
-        let tile = self.tiles.row_data(row).expect("the row was just found");
-        self.tiles.remove(row);
-        self.ensure_emphasis();
-        Some(format!("{} stopped sharing.", tile.publisher))
     }
 
     fn set_state(&self, key: &str, state: ShareState) -> Option<String> {
@@ -461,3 +447,7 @@ impl DetachedWindow {
 #[cfg(test)]
 #[path = "share/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "share/replace_tests.rs"]
+mod replace_tests;
