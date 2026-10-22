@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use cordel_media::capture::{CaptureSource, CaptureTarget, ScreenCapture, TargetKind};
 use cordel_media::frame::{fit_display, Frame};
+use cordel_media::quality::ScreenShareBitrate;
 use cordel_media::sdk::{ScreenPublisher, SdkDesktopCapture};
 
 use super::*;
@@ -24,6 +25,26 @@ use super::*;
 /// the user's choice.
 /// The default rate. It is the safest one for a full-screen capture.
 pub(crate) const DEFAULT_FRAME_RATE: u32 = 15;
+
+/// The frame rate and quality a Share screen click asked for.
+pub(crate) struct ShareRequest {
+    pub(crate) rate: u32,
+    pub(crate) quality: ScreenShareBitrate,
+}
+
+/// Reads the two shell labels. An unknown label keeps the default for that
+/// choice, so the click still starts a share.
+pub(crate) fn share_request(frame_rate_label: &str, quality_label: &str) -> ShareRequest {
+    let rate = match frame_rate_label {
+        "30 fps" => 30,
+        "60 fps" => 60,
+        _ => DEFAULT_FRAME_RATE,
+    };
+    ShareRequest {
+        rate,
+        quality: ScreenShareBitrate::from_label(quality_label),
+    }
+}
 
 /// A Share screen click while a publication is already open.
 ///
@@ -91,6 +112,7 @@ pub(super) async fn start_share(
     joined: &mut Joined,
     kind: TargetKind,
     rate: u32,
+    quality: ScreenShareBitrate,
     events: &MediaOut,
     epochs: &mut u64,
 ) -> anyhow::Result<()> {
@@ -185,20 +207,23 @@ pub(super) async fn start_share(
 
     let publisher = Arc::new(
         ScreenPublisher::new(first.width(), first.height(), "screen-stream")
-            .with_frame_rate(rate as f64),
+            .with_frame_rate(rate as f64)
+            .with_bitrate(quality),
     );
     let publication = publisher.publish(&joined.room).await?;
     log::info!(
-        "the screen track {} was published at {}x{}",
+        "the screen track {} was published at {}x{} with a {} kbps ceiling",
         publication.sid(),
         first.width(),
-        first.height()
+        first.height(),
+        quality.kilobits_per_second()
     );
     publisher.push(&first)?;
     let _ = events.send(MediaEvent::Status(format!(
-        "Sharing the screen at {}x{} on the {} session.",
+        "Sharing the screen at {}x{}, {}, on the {} session.",
         first.width(),
         first.height(),
+        quality.label(),
         session_label(SessionKind::detect()),
     )));
     // A previa local e a mesma imagem que vai para o outro lado, so que

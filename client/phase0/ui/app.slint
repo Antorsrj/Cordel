@@ -222,7 +222,7 @@ export component AppWindow inherits Window {
     in-out property <bool> fake-media: false;
 
     callback join();
-    callback capture-frame(string);
+    callback capture-frame(string, string);
     callback stop-share();
     callback leave();
     callback identity-login(string, string);
@@ -379,12 +379,25 @@ export component AppWindow inherits Window {
                 current-value: "15 fps";
                 accessible-label: "Frames per second of the screen share";
             }
+            quality-picker := ComboBox {
+                width: 220px;
+                model: [
+                    "Economical (3.5 Mbps)",
+                    "Standard (5 Mbps)",
+                    "High (6 Mbps)",
+                    "Sharp text (8 Mbps)",
+                ];
+                current-value: "Standard (5 Mbps)";
+                accessible-label: "Quality of the screen share";
+            }
             Button {
                 text: "Share screen";
                 enabled: !root.busy;
                 accessible-role: AccessibleRole.button;
                 accessible-label: "Share the screen after confirmation";
-                clicked => { root.capture-frame(fps-picker.current-value); }
+                clicked => {
+                    root.capture-frame(fps-picker.current-value, quality-picker.current-value);
+                }
             }
             Button {
                 text: "Stop sharing";

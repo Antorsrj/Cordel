@@ -49,6 +49,7 @@ use crate::capture::{
 };
 use crate::devices::{default_device, AudioDevice, AudioDeviceControl, DeviceError, Direction};
 use crate::frame::{Frame, FrameError, PixelFormat};
+use crate::quality::ScreenShareBitrate;
 
 fn device_err(context: &str, error: impl fmt::Debug) -> DeviceError {
     DeviceError::Audio(format!("{context}: {error:?}"))

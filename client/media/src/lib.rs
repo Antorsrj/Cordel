@@ -12,6 +12,7 @@
 //! | --- | --- | --- |
 //! | [`frame`] | nothing | yes — pixel conversion is unit-tested |
 //! | [`consent`] | nothing | yes — capture-consent rules are unit-tested |
+//! | [`quality`] | nothing | yes — bitrate presets are unit-tested |
 //! | [`capture`] | nothing | trait + honest "unavailable" backend |
 //! | [`devices`] | nothing | trait + honest "unavailable" backend |
 //! | `render` (feature `ui`) | Slint | measured conversion + image construction |
@@ -25,6 +26,7 @@ pub mod capture;
 pub mod consent;
 pub mod devices;
 pub mod frame;
+pub mod quality;
 
 #[cfg(feature = "ui")]
 pub mod render;

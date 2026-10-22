@@ -1,9 +1,3 @@
-/// The bitrate budget of a screen share, in bits per second.
-///
-/// A screen of text and code compresses very well, and the default budget of
-/// the SDK reserves more than the picture needs.
-pub const SCREEN_BITRATE_BPS: u64 = 3_500_000;
-
 /// The frame rate of a screen share when the caller does not choose one.
 pub const DEFAULT_SCREEN_FRAME_RATE: f64 = 15.0;
 
@@ -14,6 +8,7 @@ pub struct ScreenPublisher {
     width: u32,
     height: u32,
     frame_rate: f64,
+    bitrate: ScreenShareBitrate,
 }
 
 impl ScreenPublisher {
@@ -31,6 +26,7 @@ impl ScreenPublisher {
             width,
             height,
             frame_rate: DEFAULT_SCREEN_FRAME_RATE,
+            bitrate: ScreenShareBitrate::DEFAULT,
         }
     }
 
@@ -39,6 +35,13 @@ impl ScreenPublisher {
     /// was asked for.
     pub fn with_frame_rate(mut self, frames_per_second: f64) -> Self {
         self.frame_rate = frames_per_second;
+        self
+    }
+
+    /// Sets the bitrate ceiling the encoder is allowed to use. It follows the
+    /// quality the user chose before this share started.
+    pub fn with_bitrate(mut self, bitrate: ScreenShareBitrate) -> Self {
+        self.bitrate = bitrate;
         self
     }
 
@@ -62,11 +65,12 @@ impl ScreenPublisher {
                     // an extra encoding and an extra decoding for a picture
                     // that is mostly text.
                     simulcast: false,
-                    // A tela muda o tempo todo, e a taxa de bits padrao do
-                    // SDK reserva mais do que o conteudo precisa. O valor e
-                    // fixo para que a medicao nao dependa do padrao.
+                    // The sharer picks the ceiling before the share starts.
+                    // The SDK's own default reserves more than a screen of
+                    // text needs, so the publication carries the chosen preset
+                    // instead of leaving the measurement to that default.
                     video_encoding: Some(VideoEncoding {
-                        max_bitrate: SCREEN_BITRATE_BPS,
+                        max_bitrate: self.bitrate.bits_per_second(),
                         max_framerate: self.frame_rate,
                     }),
                     ..Default::default()
