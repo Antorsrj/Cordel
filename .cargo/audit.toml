@@ -1,0 +1,18 @@
+# Advisories that `cargo audit` must not fail the build for.
+#
+# RUSTSEC-2026-0381 and RUSTSEC-2026-0382 are fixed in the lockfiles
+# (`webpki-roots` 1.0.10 and `rustls-webpki` 0.103.16). They are not ignored.
+#
+# `webrtc-sys-build` 0.3.19 (LiveKit's WebRTC build helper) depends on
+# `zip` 0.6. The patched line is `zip` >= 9.0.0, which that crate does not
+# accept, so `cargo update -p zip` cannot move it. The helper unpacks
+# LiveKit's own prebuilt archive during the build. It does not extract
+# archives supplied by a Cordel user. Remove these ignores when a LiveKit
+# release builds with `zip` >= 9.
+
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0367", # zip 0.6: SUID/SGID bits kept on extract; fix is zip >= 9
+    "RUSTSEC-2026-0368", # zip 0.6: extract follows a symlink outside the destination
+    "RUSTSEC-2026-0369", # zip 0.6: extract applies Unix permissions through symlinks
+]

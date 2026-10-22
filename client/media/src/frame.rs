@@ -463,18 +463,6 @@ fn scale_packed(frame: Frame, width: u32, height: u32) -> Frame {
     Frame::new(width, height, target_stride as u32, format, data).unwrap_or(frame)
 }
 
-#[cfg(test)]
-mod fitted_size_tests {
-    use super::fitted_size;
-
-    /// `max_edge * width / height` is 4294968000. A cast to `u32` keeps 704,
-    /// which is under the cap, so the copy would be 704 wide instead of 960.
-    #[test]
-    fn a_ratio_past_u32_max_keeps_the_cap() {
-        assert_eq!(fitted_size(4_473_925, 1, 960, false), Some((960, 1)));
-    }
-}
-
 /// Builds a synthetic BGRA frame. Used by the probe to exercise the render path
 /// without a capture backend, so a missing portal or permission cannot hide a
 /// regression in the conversion code.
@@ -491,4 +479,16 @@ pub fn synthetic_bgra(width: u32, height: u32, phase: u8) -> Frame {
         }
     }
     Frame::new(width, height, stride, PixelFormat::Bgra8, data).expect("synthetic frame is valid")
+}
+
+#[cfg(test)]
+mod fitted_size_tests {
+    use super::fitted_size;
+
+    /// `max_edge * width / height` is 4294968000. A cast to `u32` keeps 704,
+    /// which is under the cap, so the copy would be 704 wide instead of 960.
+    #[test]
+    fn a_ratio_past_u32_max_keeps_the_cap() {
+        assert_eq!(fitted_size(4_473_925, 1, 960, false), Some((960, 1)));
+    }
 }

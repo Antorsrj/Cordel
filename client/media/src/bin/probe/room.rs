@@ -22,7 +22,7 @@ fn join(args: &[String]) -> Result<()> {
     }
     #[cfg(not(feature = "sdk"))]
     {
-        let _ = (url, token, seconds, share, source);
+        let _ = (url, token, seconds, share, source, no_audio, synthetic);
         Err(anyhow!(
             "joining needs the SDK: rebuild with --features sdk"
         ))
