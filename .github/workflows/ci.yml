@@ -29,9 +29,9 @@
 # - Rust is pinned to 1.99.1, the same toolchain as deploy/native/local-lxc-provision.sh.
 #   Swatinem/rust-cache keys each crate by that toolchain and its Cargo.lock.
 # - cargo-audit ignores RUSTSEC-2026-0367, RUSTSEC-2026-0368, and
-#   RUSTSEC-2026-0369. webrtc-sys-build 0.3.19 requires zip 0.6, and the fix
-#   is zip >= 9, so the lockfile cannot take it. See .cargo/audit.toml.
-#   RUSTSEC-2026-0381 and RUSTSEC-2026-0382 are fixed, not ignored.
+#   RUSTSEC-2026-0369 (zip 0.6 required by webrtc-sys-build; fix is zip >= 9)
+#   and RUSTSEC-2023-0071 (rsa 0.9.10 via sqlx-mysql; no fixed upgrade).
+#   See .cargo/audit.toml. RUSTSEC-2026-0381 and RUSTSEC-2026-0382 are fixed.
 
 name: CI
 
