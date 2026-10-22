@@ -50,13 +50,27 @@ pub enum Command {
     Leave,
 }
 
+/// A remote share being followed, plus the handle that stops its frame pump when
+/// the track ends or is replaced.
+struct TrackedShare {
+    publisher: String,
+    stop: watch::Sender<bool>,
+}
+
+impl TrackedShare {
+    fn stop(&self) {
+        let _ = self.stop.send(true);
+    }
+}
+
 /// A joined room, plus what the shell has to remember about it.
 struct Joined {
     room: Room,
     room_events: UnboundedReceiver<RoomEvent>,
-    /// The shares being followed: media track key -> publishing identity. It is
-    /// what lets a reconnection and a disconnect attribute tiles correctly.
-    tracked: HashMap<String, String>,
+    /// The shares being followed: media track key -> tracked publisher and pump
+    /// stop handle. It lets a reconnection, an unpublish, or a replacement
+    /// attribute tiles and stop stale frame pumps immediately.
+    tracked: HashMap<String, TrackedShare>,
     /// Held for the session. The platform audio module is reference counted, and
     /// its device selection is what allows the microphone to open at all.
     _audio: SdkAudio,
@@ -125,11 +139,7 @@ pub async fn run(
                     None => {
                         // The room channel ended without a Leave command. The
                         // session is gone, and the tiles should not outlive it.
-                        let stale: Vec<String> =
-                            session.tracked.drain().map(|(key, _)| key).collect();
-                        for key in stale {
-                            let _ = events.send(MediaEvent::Ended { key });
-                        }
+                        drain_all_shares(&events, &mut session.tracked);
                         let _ = events.send(MediaEvent::Joined(false));
                         let _ =
                             events.send(MediaEvent::Status("The room connection ended.".into()));
@@ -196,10 +206,14 @@ pub async fn run(
                     if let Some(session) = joined.as_mut() {
                         session.stop_publishing().await;
                     }
+                    let _ = events.send(MediaEvent::Ended {
+                        key: LOCAL_SHARE_KEY.into(),
+                    });
                     let _ = events.send(MediaEvent::Status("Stopped sharing the screen.".into()));
                 }
                 Command::Leave => {
                     if let Some(mut session) = joined.take() {
+                        drain_all_shares(&events, &mut session.tracked);
                         session.stop_publishing().await;
                         let _ = session.room.close().await;
                         drop(session._audio);
@@ -226,7 +240,8 @@ pub(crate) mod stream;
 /// participants leaving and the connection dropping.
 ///
 /// Keys are the media track identity, so a tile keeps its identity while another
-/// share ends or is detached (`docs/ux/journal.md`).
+/// share ends or is detached (`docs/ux/journal.md`). Each participant owns at
+/// most one active screen share at a time.
 fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) {
     match event {
         RoomEvent::TrackSubscribed {
@@ -239,14 +254,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
             };
             let publisher = participant.identity().to_string();
             let key = share_key(&publisher, publication.sid());
-            if session
-                .tracked
-                .insert(key.clone(), publisher.clone())
-                .is_none()
-            {
-                log::info!("a share appeared: {key}");
-                pump_share(track, key, publisher, events.clone());
-            }
+            follow_remote_share(&mut session.tracked, events, track, key, publisher);
         }
         RoomEvent::TrackUnsubscribed {
             track,
@@ -273,15 +281,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
         }
         RoomEvent::ParticipantDisconnected(participant) => {
             let leaving = participant.identity().to_string();
-            let keys: Vec<String> = session
-                .tracked
-                .iter()
-                .filter(|(_, publisher)| **publisher == leaving)
-                .map(|(key, _)| key.clone())
-                .collect();
-            for key in keys {
-                end_share(events, &mut session.tracked, &key);
-            }
+            end_publisher_shares(events, &mut session.tracked, &leaving, None);
         }
         RoomEvent::Reconnecting => {
             for key in session.tracked.keys() {
@@ -298,10 +298,7 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
             // A full reconnect re-issues track identifiers, so the old keys cannot
             // be reused: the catalog is rebuilt from what the room reports, and the
             // tiles come back under the same publishers.
-            let stale: Vec<String> = session.tracked.drain().map(|(key, _)| key).collect();
-            for key in stale {
-                let _ = events.send(MediaEvent::Ended { key });
-            }
+            drain_all_shares(events, &mut session.tracked);
             register_remote_shares(&session.room, events, &mut session.tracked);
             let _ = events.send(MediaEvent::Status(
                 "Reconnected. The share list was refreshed.".into(),
@@ -313,27 +310,71 @@ fn handle_room_event(session: &mut Joined, event: RoomEvent, events: &MediaOut) 
 
 /// Adds every video publication the room already has. Called on joining (someone
 /// may be sharing already) and after a reconnection.
-fn register_remote_shares(room: &Room, events: &MediaOut, tracked: &mut HashMap<String, String>) {
+fn register_remote_shares(
+    room: &Room,
+    events: &MediaOut,
+    tracked: &mut HashMap<String, TrackedShare>,
+) {
     for participant in room.remote_participants().values() {
         let publisher = participant.identity().to_string();
         for publication in participant.track_publications().values() {
             if let Some(RemoteTrack::Video(track)) = publication.track() {
                 let key = share_key(&publisher, publication.sid());
-                if tracked.insert(key.clone(), publisher.clone()).is_none() {
-                    pump_share(track, key, publisher.clone(), events.clone());
-                }
+                follow_remote_share(tracked, events, track, key, publisher.clone());
             }
         }
     }
 }
 
+/// Starts following `track` under `key` after stopping any older share from the
+/// same `publisher`.
+fn follow_remote_share(
+    tracked: &mut HashMap<String, TrackedShare>,
+    events: &MediaOut,
+    track: RemoteVideoTrack,
+    key: String,
+    publisher: String,
+) {
+    if tracked.contains_key(&key) {
+        return;
+    }
+    end_publisher_shares(events, tracked, &publisher, Some(&key));
+    let (stop, stopped) = watch::channel(false);
+    tracked.insert(
+        key.clone(),
+        TrackedShare {
+            publisher: publisher.clone(),
+            stop,
+        },
+    );
+    log::info!("a share appeared: {key}");
+    pump_share(track, key, publisher, events.clone(), stopped);
+}
+
 /// Forwards one remote share's frames to the UI thread for as long as the track
-/// delivers them.
-fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: MediaOut) {
+/// delivers them and has not been stopped.
+fn pump_share(
+    track: RemoteVideoTrack,
+    key: String,
+    publisher: String,
+    events: MediaOut,
+    mut stopped: watch::Receiver<bool>,
+) {
     tokio::spawn(async move {
         let mut stream = remote_video_stream(&track);
         let mut last = Instant::now() - SHARE_FRAME_INTERVAL;
-        while let Some(frame) = stream.next().await {
+        loop {
+            let next_frame = tokio::select! {
+                biased;
+                _ = stopped.changed() => break,
+                frame = stream.next() => frame,
+            };
+            let Some(frame) = next_frame else {
+                break;
+            };
+            if *stopped.borrow() {
+                break;
+            }
             if last.elapsed() < SHARE_FRAME_INTERVAL {
                 continue;
             }
@@ -346,16 +387,49 @@ fn pump_share(track: RemoteVideoTrack, key: String, publisher: String, events: M
             // tem a resolucao capturada, e a interface nao pinta um quadro
             // desse tamanho a cada quadro.
             let frame = resize_bgra(frame, UI_FRAME_WIDTH);
+            if *stopped.borrow() {
+                break;
+            }
             events.frame(&key, &publisher, ShareState::Live, frame);
         }
     });
 }
 
-fn end_share(events: &MediaOut, tracked: &mut HashMap<String, String>, key: &str) {
-    if tracked.remove(key).is_some() {
+fn end_share(events: &MediaOut, tracked: &mut HashMap<String, TrackedShare>, key: &str) {
+    if let Some(share) = tracked.remove(key) {
+        share.stop();
         let _ = events.send(MediaEvent::Ended {
             key: key.to_string(),
         });
+    }
+}
+
+fn end_publisher_shares(
+    events: &MediaOut,
+    tracked: &mut HashMap<String, TrackedShare>,
+    publisher: &str,
+    keep_key: Option<&str>,
+) {
+    let stale: Vec<String> = tracked
+        .iter()
+        .filter(|(key, share)| share.publisher == publisher && Some(key.as_str()) != keep_key)
+        .map(|(key, _)| key.clone())
+        .collect();
+    for key in stale {
+        end_share(events, tracked, &key);
+    }
+}
+
+fn drain_all_shares(events: &MediaOut, tracked: &mut HashMap<String, TrackedShare>) {
+    let stale: Vec<String> = tracked
+        .drain()
+        .map(|(key, share)| {
+            share.stop();
+            key
+        })
+        .collect();
+    for key in stale {
+        let _ = events.send(MediaEvent::Ended { key });
     }
 }
 

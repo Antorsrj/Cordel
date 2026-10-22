@@ -16,7 +16,9 @@
 //! Two behaviors from `docs/ux/journal.md` live here rather than in the markup:
 //! a share is keyed by its media track, so it keeps its identity when another
 //! share ends or is detached, and closing a detached window docks the share back
-//! instead of dropping it.
+//! instead of dropping it. Each publishing participant owns at most one share
+//! tile at a time: a new share track from the same participant replaces their
+//! previous tile in place.
 //!
 //! The stage model holds exactly what the main window draws. A detached share is
 //! removed from it and held separately: Slint keeps the layout space of an
@@ -227,6 +229,23 @@ impl Shares {
         (0..self.tiles.row_count()).find(|&i| self.tiles.row_data(i).is_some_and(|t| t.key == key))
     }
 
+    fn row_of_publisher(&self, publisher: &str) -> Option<usize> {
+        (0..self.tiles.row_count()).find(|&i| {
+            self.tiles
+                .row_data(i)
+                .is_some_and(|t| t.publisher == publisher)
+        })
+    }
+
+    fn drop_key_state(&self, key: &str) {
+        self.slots
+            .lock()
+            .expect("the frame slots are not poisoned")
+            .remove(key);
+        self.painted.borrow_mut().remove(key);
+        self.sinks.borrow_mut().remove(key);
+    }
+
     /// Paints a picture, at a rate the interface can afford.
     ///
     /// It answers whether the picture was painted. A picture that arrives too
@@ -276,19 +295,43 @@ impl Shares {
         drop(sinks);
 
         // The detached share is not in the stage model, and it keeps updating: its
-        // window shows the newest frame.
-        if let Some(tile) = self.detached.borrow_mut().as_mut() {
-            if tile.key == key {
-                tile.publisher = publisher.into();
-                tile.state = state;
-                tile.frame = image;
-                return None;
+        // window shows the newest frame. A new track from the same publisher
+        // replaces their detached share in place.
+        let mut old_detached_key = None;
+        let updated_detached = {
+            let mut detached = self.detached.borrow_mut();
+            if let Some(tile) = detached.as_mut() {
+                if tile.key == key || tile.publisher == publisher {
+                    if tile.key != key {
+                        old_detached_key = Some(tile.key.to_string());
+                        tile.key = key.clone().into();
+                    }
+                    tile.publisher = publisher.clone().into();
+                    tile.state = state;
+                    tile.frame = image.clone();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
             }
+        };
+        if let Some(old_key) = old_detached_key {
+            self.drop_key_state(&old_key);
+        }
+        if updated_detached {
+            return None;
         }
 
-        match self.row_of(&key) {
+        match self.row_of(&key).or_else(|| self.row_of_publisher(&publisher)) {
             Some(row) => {
                 let mut tile = self.tiles.row_data(row).expect("the row was just found");
+                if tile.key != key {
+                    let old_key = tile.key.to_string();
+                    self.drop_key_state(&old_key);
+                    tile.key = key.into();
+                }
                 tile.publisher = publisher.into();
                 tile.state = state;
                 tile.frame = image;
@@ -309,12 +352,8 @@ impl Shares {
     }
 
     fn end(&self, key: &str) -> Option<String> {
-        // The picture of a share that ended is not worth keeping.
-        self.slots
-            .lock()
-            .expect("the frame slots are not poisoned")
-            .remove(key);
-        self.painted.borrow_mut().remove(key);
+        // The picture and sink of a share that ended are not worth keeping.
+        self.drop_key_state(key);
 
         let mut detached = self.detached.borrow_mut();
         if detached.as_ref().is_some_and(|tile| tile.key == key) {
@@ -461,3 +500,7 @@ impl DetachedWindow {
 #[cfg(test)]
 #[path = "share/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "share/replacement_tests.rs"]
+mod replacement_tests;

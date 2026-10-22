@@ -204,6 +204,12 @@ fn main() -> anyhow::Result<()> {
                         publisher,
                         state,
                     } => pictures.push((key, publisher, state)),
+                    MediaEvent::Ended { key } => {
+                        pictures.retain(|(queued, _, _)| queued != &key);
+                        if let Some(note) = shares.apply(MediaEvent::Ended { key }) {
+                            ui.set_status(note.into());
+                        }
+                    }
                     event => {
                         if let Some(note) = shares.apply(event) {
                             ui.set_status(note.into());
