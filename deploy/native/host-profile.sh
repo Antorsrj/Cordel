@@ -55,7 +55,7 @@ cordel_apply_env_file() {
       [[ $val == *\" ]] || cordel_die "Unbalanced quotes in the host profile."
       val=${val:1:${#val}-2}
     fi
-    [[ $val != *'$'* && $val != *'`'* && $val != *'\'* && $val != *';'* ]] || cordel_die "Profile value contains a forbidden character."
+    [[ $val != *'$'* && $val != *'`'* && $val != *\\* && $val != *';'* ]] || cordel_die "Profile value contains a forbidden character."
     case $key in
       CORDEL_MEDIA_HOST|CORDEL_TURN_HOST|CORDEL_NODE_IP|CORDEL_MEDIA_BIND|CORDEL_SIGNAL_BIND|CORDEL_ICE_BIND|CORDEL_TURN_BIND|CORDEL_TURN_HTTP_BIND|CORDEL_TURN_TLS_PORT|CORDEL_FIREWALL_IF|CORDEL_REQUIRED_ADDRS|CORDEL_ACME_EMAIL|CORDEL_TURN_CERT_MODE|CORDEL_INSTALL_CERTBOT|CORDEL_IDENTITY_USER|CORDEL_IDENTITY_GROUP|CORDEL_LIVEKIT_UPSTREAM|CORDEL_ENABLE_MEDIA_GATE|CORDEL_IDENTITY_SCHEMA_STATE|CORDEL_ADVERTISE_INTERNAL_IP|CORDEL_RTC_INTERFACE_EXCLUDES|CORDEL_ACCEPT_WILDCARD_ICE|CORDEL_BACKUP_STOCK_CADDY|CORDEL_WARN_DOCKER|CORDEL_DENY_INTERNAL_PORTS|CORDEL_EDGE_NOTE)
         printf -v "$key" '%s' "$val" ;;
@@ -90,6 +90,11 @@ cordel_validate_profile() {
   done
   [[ $CORDEL_TURN_TLS_PORT =~ ^[0-9]+$ && $CORDEL_TURN_TLS_PORT -ge 1 && $CORDEL_TURN_TLS_PORT -le 65535 ]] || cordel_die 'Invalid TURN TLS port.'
   [[ $CORDEL_TURN_TLS_PORT != 80 ]] || cordel_die 'TURN TLS cannot use port 80.'
+  case $CORDEL_TURN_TLS_PORT in
+    7880|7881|7882|3478)
+      cordel_die "TURN TLS port ${CORDEL_TURN_TLS_PORT} collides with a LiveKit port."
+      ;;
+  esac
   [[ $CORDEL_FIREWALL_IF =~ ^[A-Za-z0-9._:-]+$ ]] || cordel_die 'Invalid firewall interface.'
   [[ -n $CORDEL_REQUIRED_ADDRS ]] || cordel_die 'CORDEL_REQUIRED_ADDRS is empty.'
   for addr in $CORDEL_REQUIRED_ADDRS; do
@@ -113,6 +118,9 @@ cordel_validate_profile() {
     for iface in "${_cordel_ifaces[@]}"; do
       [[ $iface =~ ^[A-Za-z0-9._:-]+$ ]] || cordel_die 'Invalid interface name.'
     done
+  fi
+  if [[ $CORDEL_TURN_CERT_MODE == caddy && $CORDEL_TURN_HOST != "$CORDEL_MEDIA_HOST" ]]; then
+    cordel_die 'In caddy mode CORDEL_TURN_HOST must equal CORDEL_MEDIA_HOST.'
   fi
   if [[ $CORDEL_TURN_CERT_MODE == caddy && $CORDEL_MEDIA_BIND == "$CORDEL_TURN_BIND" && $CORDEL_TURN_TLS_PORT == 443 ]]; then
     cordel_die 'On one address, Caddy already uses TCP 443. Set CORDEL_TURN_TLS_PORT=5349.'
@@ -226,4 +234,98 @@ cordel_listener_present() {
 cordel_port_present() {
   local proto=$1 port=$2 listeners=$3
   awk -v protocol="$proto" -v port="$port" '$1 == protocol && $5 ~ ":" port "$" { found = 1 } END { exit !found }' <<<"$listeners"
+}
+
+# Pick the Caddy production certificate for domain under a Caddy data directory.
+# Layout is certificates/<issuer>/<domain>/<domain>.crt with a sibling .key.
+# Let's Encrypt, ZeroSSL, and other ACME issuer directories are all eligible.
+# Staging issuers and Caddy's internal "local" issuer are not.
+cordel_find_caddy_cert() {
+  local root=$1 domain=$2 cert key issuer issuer_lc mtime newest='' newest_mtime=-1
+  local -a matches=()
+  [[ -d $root && ! -L $root ]] || cordel_die "Caddy storage is missing: $root"
+  [[ $domain =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ && $domain == *.* ]] || cordel_die "Invalid certificate name."
+  while IFS= read -r -d '' cert; do
+    key=${cert%.crt}.key
+    [[ -s $cert && -f $key && ! -L $key && -s $key ]] || continue
+    [[ $cert == */certificates/*/"$domain"/"$domain.crt" ]] || continue
+    issuer=${cert%/"$domain/$domain.crt"}
+    issuer=${issuer##*/}
+    issuer_lc=${issuer,,}
+    [[ $issuer_lc == *staging* || $issuer_lc == local ]] && continue
+    matches+=("$cert")
+  done < <(find "$root" -type f -name "$domain.crt" -print0 2>/dev/null)
+  [[ ${#matches[@]} -ge 1 ]] || cordel_die "No production Caddy ACME certificate found for ${domain}."
+  for cert in "${matches[@]}"; do
+    mtime=$(stat -c %Y "$cert")
+    if (( mtime > newest_mtime )); then
+      newest=$cert
+      newest_mtime=$mtime
+    elif (( mtime == newest_mtime )) && [[ $cert < $newest ]]; then
+      newest=$cert
+    fi
+  done
+  if [[ ${#matches[@]} -gt 1 ]]; then
+    printf 'Several production Caddy certificates matched %s; using %s\n' "$domain" "$newest" >&2
+  fi
+  printf '%s\n' "$newest"
+}
+
+cordel_render_livekit_node_ip() {
+  local src=$1 dest=$2 ip=$3 found=0 line
+  cordel_ipv4 "$ip" || cordel_die "Invalid IPv4 address: $ip"
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line == '  node_ip: '* ]]; then
+      printf '  node_ip: %s\n' "$ip"
+      found=$((found + 1))
+    else
+      printf '%s\n' "$line"
+    fi
+  done <"$src" >"$dest"
+  [[ $found -eq 1 ]] || cordel_die 'Expected exactly one indented node_ip line.'
+}
+
+cordel_render_profile_node_ip() {
+  local src=$1 dest=$2 ip=$3 found=0 line
+  cordel_ipv4 "$ip" || cordel_die "Invalid IPv4 address: $ip"
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line == CORDEL_NODE_IP=* ]]; then
+      printf 'CORDEL_NODE_IP=%s\n' "$ip"
+      found=$((found + 1))
+    else
+      printf '%s\n' "$line"
+    fi
+  done <"$src" >"$dest"
+  [[ $found -eq 1 ]] || cordel_die 'Expected exactly one CORDEL_NODE_IP line in the host profile.'
+}
+
+# Rewrite rtc.node_ip when it differs from ip. When profile is set, rewrite
+# CORDEL_NODE_IP there too. Prints "updated" or "unchanged" on stdout.
+cordel_sync_public_node_ip() {
+  local ip=$1 yaml=$2 profile=${3:-}
+  local current raw tmp status
+  cordel_ipv4 "$ip" || cordel_die "Invalid IPv4 address: $ip"
+  [[ -f $yaml && ! -L $yaml ]] || cordel_die "LiveKit config is missing: $yaml"
+  current=$(awk 'BEGIN { c = 0 } /^  node_ip: / { value = $2; c++ } END { if (c != 1) exit 1; print value }' "$yaml") || cordel_die 'Expected exactly one indented node_ip line.'
+  status=unchanged
+  if [[ $current != "$ip" ]]; then
+    printf 'LiveKit node_ip %s does not match public IPv4 %s. Updating node_ip.\n' "$current" "$ip" >&2
+    tmp=$(mktemp)
+    cordel_render_livekit_node_ip "$yaml" "$tmp" "$ip"
+    cat "$tmp" >"$yaml"
+    rm -f "$tmp"
+    status=updated
+  fi
+  if [[ -n $profile ]]; then
+    [[ -f $profile && ! -L $profile ]] || cordel_die "Host profile is missing: $profile"
+    raw=$(awk -F= 'BEGIN { c = 0 } $1 == "CORDEL_NODE_IP" { value = substr($0, index($0, "=") + 1); c++ } END { if (c != 1) exit 1; print value }' "$profile") || cordel_die 'Expected exactly one CORDEL_NODE_IP line in the host profile.'
+    if [[ $raw != "$ip" && $raw != "\"$ip\"" ]]; then
+      tmp=$(mktemp)
+      cordel_render_profile_node_ip "$profile" "$tmp" "$ip"
+      cat "$tmp" >"$profile"
+      rm -f "$tmp"
+      printf 'Updated CORDEL_NODE_IP in %s.\n' "$profile" >&2
+    fi
+  fi
+  printf '%s\n' "$status"
 }

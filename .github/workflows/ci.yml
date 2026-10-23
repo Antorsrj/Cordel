@@ -172,6 +172,26 @@ jobs:
       - uses: actions/checkout@v5
       - name: Dry-run native host profiles
         run: bash deploy/native/host-profile-dry-run.sh
+      - name: Shellcheck native deploy scripts
+        run: |
+          set -euo pipefail
+          if ! command -v shellcheck >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+          shellcheck --severity=warning \
+            deploy/native/bootstrap.sh \
+            deploy/native/cordel-duckdns-update.sh \
+            deploy/native/host-profile-dry-run.sh \
+            deploy/native/host-profile.sh \
+            deploy/native/install-duckdns-timer.sh \
+            deploy/native/install-identity.sh \
+            deploy/native/install-livekit.sh \
+            deploy/native/issue-turn-cert.sh \
+            deploy/native/migrate-identity-current.sh \
+            deploy/native/start-livekit.sh \
+            deploy/native/update-node-ip.sh \
+            deploy/native/verify-host.sh
 
   cargo-audit:
     name: cargo-audit

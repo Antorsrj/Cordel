@@ -22,9 +22,13 @@ install -d -o root -g livekit -m 0750 /etc/cordel/turn-tls
 
 write_copy_tool() {
   local source_kind=$1
-  cat >/usr/local/sbin/cordel-install-turn-cert <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+    if [[ $source_kind == caddy ]]; then
+      declare -f cordel_die
+      declare -f cordel_find_caddy_cert
+    fi
+    cat <<EOF
 dest=/etc/cordel/turn-tls
 mode=$source_kind
 domain=$CORDEL_TURN_HOST
@@ -33,9 +37,7 @@ if [[ \$mode == certbot ]]; then
   full=\$src/fullchain.pem
   key=\$src/privkey.pem
 else
-  mapfile -t found < <(find /var/lib/caddy -type f -path '*acme-v02.api.letsencrypt.org-directory*' -name "\${domain}.crt" 2>/dev/null | sort)
-  [[ \${#found[@]} -eq 1 ]] || { echo 'Expected exactly one production Caddy certificate for the TURN name.' >&2; exit 1; }
-  full=\${found[0]}
+  full=\$(cordel_find_caddy_cert /var/lib/caddy "\$domain")
   key=\${full%.crt}.key
 fi
 [[ -s \$full && -s \$key ]] || { echo 'TURN certificate source is missing.' >&2; exit 1; }
@@ -54,6 +56,7 @@ if [[ \$same == 0 ]]; then
   fi
 fi
 EOF
+  } >/usr/local/sbin/cordel-install-turn-cert
   chmod 0750 /usr/local/sbin/cordel-install-turn-cert
 }
 

@@ -2,35 +2,21 @@
 # Optional DuckDNS updater. The token stays in /etc/cordel/duckdns.env (root, mode 0600).
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 env_file=/etc/cordel/duckdns.env
 [[ -f $env_file && ! -L $env_file && $(stat -c '%U:%a' "$env_file") == root:600 ]] || {
   echo 'Create root-only mode 0600 /etc/cordel/duckdns.env with DUCKDNS_SUBDOMAIN and DUCKDNS_TOKEN first.' >&2
   exit 1
 }
-set -a
-# shellcheck disable=SC1090
-. "$env_file"
-set +a
-[[ ${DUCKDNS_SUBDOMAIN:-} =~ ^[a-z0-9-]{1,63}$ ]] || { echo 'DUCKDNS_SUBDOMAIN is missing or malformed.' >&2; exit 1; }
-[[ ${DUCKDNS_TOKEN:-} =~ ^[A-Za-z0-9_-]{8,128}$ ]] || { echo 'DUCKDNS_TOKEN is missing or malformed.' >&2; exit 1; }
-unset DUCKDNS_SUBDOMAIN DUCKDNS_TOKEN
+# shellcheck source=cordel-duckdns-update.sh
+. "$root/cordel-duckdns-update.sh"
+cordel_require_duckdns_env_mode "$env_file"
+cordel_read_duckdns_env "$env_file"
+unset CORDEL_DUCKDNS_SUBDOMAIN CORDEL_DUCKDNS_TOKEN CORDEL_DUCKDNS_PROFILE
 
-cat >/usr/local/sbin/cordel-duckdns-update <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-set -a
-# shellcheck disable=SC1091
-. /etc/cordel/duckdns.env
-set +a
-response=$(curl --fail --silent --max-time 20 --get \
-  --data-urlencode "domains=${DUCKDNS_SUBDOMAIN}" \
-  --data-urlencode "token=${DUCKDNS_TOKEN}" \
-  --data-urlencode "ip=" \
-  https://www.duckdns.org/update) || { echo 'DuckDNS request failed.' >&2; exit 1; }
-printf '%s' "$response" | grep -qx OK || { echo 'DuckDNS update did not return OK.' >&2; exit 1; }
-echo 'DuckDNS update returned OK.'
-EOF
-chmod 0750 /usr/local/sbin/cordel-duckdns-update
+install -d -o root -g root -m 0755 /usr/local/lib/cordel
+install -o root -g root -m 0644 "$root/host-profile.sh" /usr/local/lib/cordel/host-profile.sh
+install -o root -g root -m 0750 "$root/cordel-duckdns-update.sh" /usr/local/sbin/cordel-duckdns-update
 cat >/etc/systemd/system/cordel-duckdns.service <<'EOF'
 [Unit]
 Description=Update the Cordel DuckDNS name
