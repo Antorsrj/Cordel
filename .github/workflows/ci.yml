@@ -164,6 +164,15 @@ jobs:
           test-wrapper: xvfb-run -a
           release: "true"
 
+  deploy-scripts:
+    name: deploy-scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Dry-run native host profiles
+        run: bash deploy/native/host-profile-dry-run.sh
+
   cargo-audit:
     name: cargo-audit
     runs-on: ubuntu-24.04

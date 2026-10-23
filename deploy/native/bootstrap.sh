@@ -2,6 +2,9 @@
 set -euo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+# shellcheck source=host-profile.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-profile.sh"
+cordel_load_host_profile
 [[ -r /etc/os-release ]] || { echo 'Cannot identify operating system.' >&2; exit 1; }
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -12,15 +15,13 @@ if [[ -e /etc/caddy/Cordel.caddy || -e /etc/systemd/system/caddy.service.d/corde
   exit 1
 fi
 
-for addr in 10.77.1.4 10.77.1.5; do
-  ip -o -4 addr show | awk '{sub(/\/.*/,"",$4); print $4}' | grep -Fxq "$addr" || {
-    echo "Expected guest address $addr is not configured; stopping." >&2; exit 1;
-  }
-done
+cordel_require_addresses
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg debian-keyring debian-archive-keyring apt-transport-https ufw postgresql certbot openssl
+packages=(ca-certificates curl gnupg debian-keyring debian-archive-keyring apt-transport-https ufw postgresql openssl)
+[[ $CORDEL_INSTALL_CERTBOT == 1 ]] && packages+=(certbot)
+apt-get install -y "${packages[@]}"
 
 # Caddy's maintained upstream package repository; key is installed as a scoped keyring.
 install -d -m 0755 /usr/share/keyrings
@@ -38,18 +39,16 @@ install -d -o livekit -g livekit -m 0750 /var/lib/livekit 2>/dev/null || {
 chown root:livekit /etc/cordel
 chmod 0710 /etc/cordel
 
+if [[ $CORDEL_WARN_DOCKER == 1 ]] && systemctl is-active --quiet docker.service 2>/dev/null; then
+  echo 'Docker is active. Its iptables rules can bypass UFW. Stop and disable docker before exposing this host.' >&2
+fi
+if [[ $CORDEL_BACKUP_STOCK_CADDY == 1 && -f /etc/caddy/Caddyfile && ! -L /etc/caddy/Caddyfile && ! -e /root/Caddyfile.pre-cordel ]]; then
+  install -o root -g root -m 0600 /etc/caddy/Caddyfile /root/Caddyfile.pre-cordel
+fi
+
 candidate_caddy=$(mktemp)
 trap 'rm -f "$candidate_caddy"' EXIT
-cat >"$candidate_caddy" <<'EOF'
-http://cordel-media-f77cc05e.eastus.cloudapp.azure.com {
-    bind 10.77.1.4
-    redir https://{host}{uri} permanent
-}
-cordel-media-f77cc05e.eastus.cloudapp.azure.com {
-    bind 10.77.1.4
-    reverse_proxy 10.77.1.4:7880
-}
-EOF
+cordel_write_caddy_bootstrap "$candidate_caddy"
 caddy validate --config "$candidate_caddy" --adapter caddyfile
 systemctl stop caddy
 install -o root -g root -m 0644 "$candidate_caddy" /etc/caddy/Cordel.caddy
@@ -67,14 +66,7 @@ systemctl enable --now caddy
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow OpenSSH
-ufw allow in on eth0 to 10.77.1.4 port 80 proto tcp
-ufw allow in on eth0 to 10.77.1.4 port 443 proto tcp
-ufw allow in on eth0 to 10.77.1.5 port 80 proto tcp
-ufw allow in on eth0 to 10.77.1.4 port 7881 proto tcp
-ufw allow in on eth0 to 10.77.1.4 port 7882 proto udp
-ufw allow in on eth0 to 10.77.1.5 port 3478 proto udp
-ufw allow in on eth0 to 10.77.1.5 port 443 proto tcp
-ufw deny in on eth0 to 10.77.1.4 port 7880 proto tcp
+cordel_apply_ufw
 ufw --force enable
 
-printf 'Bootstrap complete. Review `ufw status numbered`, Caddy and PostgreSQL health, and Azure NSG before proceeding.\n'
+printf 'Bootstrap complete. Review `ufw status numbered`, Caddy and PostgreSQL health, and %s before proceeding.\n' "$CORDEL_EDGE_NOTE"

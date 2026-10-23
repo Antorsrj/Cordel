@@ -3,6 +3,9 @@
 set -euo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+# shellcheck source=host-profile.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-profile.sh"
+cordel_load_host_profile
 [[ -f /etc/systemd/system/cordel-livekit.service ]] || { echo 'Cordel LiveKit unit is missing.' >&2; exit 1; }
 [[ $(stat -c '%U' /etc/cordel) == root ]] || { echo 'Unexpected /etc/cordel owner; refusing to change it.' >&2; exit 1; }
 chgrp livekit /etc/cordel
@@ -23,22 +26,23 @@ printf 'SERVICE\n'
 systemctl is-active cordel-livekit.service
 printf '\nLIVEKIT LISTENERS\n'
 listeners=$(ss -H -lntup)
-awk '$5 ~ /:(443|3478|7880|7881|7882)$/ {print}' <<<"$listeners"
+awk -v tls="$CORDEL_TURN_TLS_PORT" '$5 ~ ":(3478|7880|7881|7882|" tls ")$" { print }' <<<"$listeners"
 
-for socket in \
-  'tcp 10.77.1.4:7880' \
-  'udp 10.77.1.4:7882' \
-  'udp 10.77.1.5:3478' \
-  'tcp 10.77.1.5:443'; do
-  protocol=${socket%% *}
-  address=${socket#* }
-  if ! awk -v protocol="$protocol" -v address="$address" '$1 == protocol && $5 == address {found=1} END {exit !found}' <<<"$listeners"; then
-    printf 'Expected %s listener is missing.\n' "$socket" >&2
-    exit 1
-  fi
-done
-
-if ! awk '$1 == "tcp" && $5 ~ /:7881$/ {found=1} END {exit !found}' <<<"$listeners"; then
+if ! cordel_listener_present tcp "${CORDEL_SIGNAL_BIND}:7880" "$listeners"; then
+  printf 'Expected tcp %s:7880 listener is missing.\n' "$CORDEL_SIGNAL_BIND" >&2
+  exit 1
+fi
+if [[ $CORDEL_ACCEPT_WILDCARD_ICE == 1 ]]; then
+  cordel_port_present udp 7882 "$listeners" || { echo 'Expected ICE/UDP listener on port 7882 is missing.' >&2; exit 1; }
+else
+  cordel_listener_present udp "${CORDEL_ICE_BIND}:7882" "$listeners" || { printf 'Expected udp %s:7882 listener is missing.\n' "$CORDEL_ICE_BIND" >&2; exit 1; }
+fi
+cordel_listener_present udp "${CORDEL_TURN_BIND}:3478" "$listeners" || { printf 'Expected udp %s:3478 listener is missing.\n' "$CORDEL_TURN_BIND" >&2; exit 1; }
+cordel_listener_present tcp "${CORDEL_TURN_BIND}:${CORDEL_TURN_TLS_PORT}" "$listeners" || {
+  printf 'Expected tcp %s:%s listener is missing.\n' "$CORDEL_TURN_BIND" "$CORDEL_TURN_TLS_PORT" >&2
+  exit 1
+}
+if ! cordel_port_present tcp 7881 "$listeners"; then
   echo 'Expected ICE/TCP listener on port 7881 is missing.' >&2
   exit 1
 fi
