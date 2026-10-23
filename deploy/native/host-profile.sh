@@ -4,16 +4,20 @@
 # lines that are not executed. A host.env next to the caller is used when unset.
 # Do not commit a filled-in profile.
 
-cordel_die() {
+cordel_cleanup_temps() {
   local path
   if [[ -n ${CORDEL_CLEANUP_FILES:-} ]]; then
     for path in $CORDEL_CLEANUP_FILES; do
       rm -f -- "$path"
     done
   fi
+}
+cordel_die() {
+  cordel_cleanup_temps
   printf '%s\n' "$*" >&2
   exit 1
 }
+trap cordel_cleanup_temps INT TERM
 
 cordel_ipv4() {
   [[ $1 =~ ^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$ ]]
