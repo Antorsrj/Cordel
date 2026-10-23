@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Host profile for the native deploy scripts.
-#
-# Azure values are the defaults. A profile file overrides them. The file is
-# KEY=value lines only (optional double quotes). It is not executed as shell.
-# Point scripts at it with CORDEL_HOST_ENV. If that variable is unset and a
-# file named host.env sits next to the calling script, that file is used.
-# Do not commit a filled-in profile: it carries the public IP and domain.
+# Azure values are the defaults. CORDEL_HOST_ENV overrides them with KEY=value
+# lines that are not executed. A host.env next to the caller is used when unset.
+# Do not commit a filled-in profile.
 
-cordel_die() { printf '%s\n' "$*" >&2; exit 1; }
+cordel_die() {
+  local path
+  if [[ -n ${CORDEL_CLEANUP_FILES:-} ]]; then
+    for path in $CORDEL_CLEANUP_FILES; do
+      rm -f -- "$path"
+    done
+  fi
+  printf '%s\n' "$*" >&2
+  exit 1
+}
 
 cordel_ipv4() {
   [[ $1 =~ ^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$ ]]
@@ -236,10 +242,8 @@ cordel_port_present() {
   awk -v protocol="$proto" -v port="$port" '$1 == protocol && $5 ~ ":" port "$" { found = 1 } END { exit !found }' <<<"$listeners"
 }
 
-# Pick the Caddy production certificate for domain under a Caddy data directory.
-# Layout is certificates/<issuer>/<domain>/<domain>.crt with a sibling .key.
-# Let's Encrypt, ZeroSSL, and other ACME issuer directories are all eligible.
-# Staging issuers and Caddy's internal "local" issuer are not.
+# Production Caddy cert: certificates/<issuer>/<domain>/<domain>.crt plus a sibling .key.
+# Any ACME issuer is eligible. Staging and the internal "local" issuer are not.
 cordel_find_caddy_cert() {
   local root=$1 domain=$2 cert key issuer issuer_lc mtime newest='' newest_mtime=-1
   local -a matches=()
@@ -299,12 +303,10 @@ cordel_render_profile_node_ip() {
   [[ $found -eq 1 ]] || cordel_die 'Expected exactly one CORDEL_NODE_IP line in the host profile.'
 }
 
-# True when path is a symlink. Does not follow the link.
 cordel_is_symlink() {
   [[ -L $1 ]]
 }
 
-# Locale-independent regular-file test. Does not follow symlinks.
 cordel_is_regular_file() {
   local raw
   [[ -e $1 && ! -L $1 ]] || return 1
@@ -312,45 +314,52 @@ cordel_is_regular_file() {
   (( (16#$raw & 0170000) == 0100000 ))
 }
 
-# Replace dest with src using mktemp in dest's directory, then rename.
-# dest must be a regular file owned by expected_owner. Symlinks are refused.
-# Owner, group, and mode of dest are copied onto the replacement.
+# dest must be a regular file owned by expected_owner. The replacement is
+# created with mkstemp and updated through that fd, so a swapped symlink is not followed.
 cordel_atomic_replace() {
   local dest=$1 src=$2 expected_owner=$3
-  local dir owner group mode tmp tmp_owner tmp_group
+  local owner mode uid gid
   [[ -n $dest && -n $src && -n $expected_owner ]] || cordel_die 'Atomic replace needs a destination, a source, and an expected owner.'
+  command -v python3 >/dev/null || cordel_die 'python3 is required to replace a host file without following symlinks.'
   cordel_is_regular_file "$src" || cordel_die "Replacement source is not a regular file: $src"
   if cordel_is_symlink "$dest"; then
     cordel_die "Refusing to replace a symlink: $dest"
   fi
   cordel_is_regular_file "$dest" || cordel_die "Refusing to replace a path that is not a regular file: $dest"
   owner=$(stat -c '%U' -- "$dest")
-  group=$(stat -c '%G' -- "$dest")
   mode=$(stat -c '%a' -- "$dest")
+  uid=$(stat -c '%u' -- "$dest")
+  gid=$(stat -c '%g' -- "$dest")
   [[ $owner == "$expected_owner" ]] || cordel_die "Refusing to replace ${dest}: owner is ${owner}, expected ${expected_owner}."
-  dir=$(dirname -- "$dest")
-  [[ -d $dir && ! -L $dir ]] || cordel_die "Refusing to replace ${dest}: the parent directory is missing or is a symlink."
-  tmp=$(mktemp "${dir}/.cordel-replace.XXXXXX") || cordel_die "Could not create a temporary file in ${dir}."
-  if ! cp -- "$src" "$tmp"; then
-    rm -f -- "$tmp"
-    cordel_die "Could not write the replacement for ${dest}."
-  fi
-  tmp_owner=$(stat -c '%u' -- "$tmp")
-  tmp_group=$(stat -c '%g' -- "$tmp")
-  if [[ $tmp_owner != "$(stat -c '%u' -- "$dest")" || $tmp_group != "$(stat -c '%g' -- "$dest")" ]]; then
-    if ! chown -- "${owner}:${group}" "$tmp"; then
-      rm -f -- "$tmp"
-      cordel_die "Could not preserve the owner of ${dest}."
-    fi
-  fi
-  if ! chmod -- "$mode" "$tmp"; then
-    rm -f -- "$tmp"
-    cordel_die "Could not preserve the mode of ${dest}."
-  fi
-  if ! mv -f -- "$tmp" "$dest"; then
-    rm -f -- "$tmp"
-    cordel_die "Could not replace ${dest}."
-  fi
+  [[ -d $(dirname -- "$dest") && ! -L $(dirname -- "$dest") ]] || cordel_die "Refusing to replace ${dest}: the parent directory is missing or is a symlink."
+  python3 - "$dest" "$src" "$uid" "$gid" "$mode" <<'PY' || cordel_die "Could not replace ${dest}."
+import os, sys, tempfile
+dest, src, uid, gid, mode = sys.argv[1:]
+uid, gid, mode = int(uid), int(gid), int(mode, 8)
+fd = name = None
+try:
+    fd, name = tempfile.mkstemp(prefix=".cordel-replace.", dir=os.path.dirname(dest))
+    os.fchmod(fd, 0o600)
+    with open(src, "rb") as handle:
+        os.write(fd, handle.read())
+    st = os.fstat(fd)
+    if st.st_uid != uid or st.st_gid != gid:
+        os.fchown(fd, uid, gid)
+    os.fchmod(fd, mode)
+    os.fsync(fd)
+    os.close(fd)
+    fd = None
+    os.rename(name, dest)
+    name = None
+finally:
+    if fd is not None:
+        os.close(fd)
+    if name is not None:
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+PY
 }
 
 # The host profile is a user file. Its owner must be the owner of the parent directory.
@@ -372,32 +381,48 @@ cordel_livekit_expected_owner() {
   fi
 }
 
+# Refuse a profile that cannot be replaced. Does not write.
+cordel_check_profile_target() {
+  local profile=$1 expected owner
+  if cordel_is_symlink "$profile"; then
+    cordel_die "Refusing to update the host profile through a symlink: $profile"
+  fi
+  cordel_is_regular_file "$profile" || cordel_die "Host profile is missing: $profile"
+  expected=$(cordel_profile_expected_owner "$profile")
+  owner=$(stat -c '%U' -- "$profile")
+  [[ $owner == "$expected" ]] || cordel_die "Refusing to replace ${profile}: owner is ${owner}, expected ${expected}."
+  awk -F= 'BEGIN { c = 0 } $1 == "CORDEL_NODE_IP" { c++ } END { if (c != 1) exit 1 }' "$profile" || cordel_die 'Expected exactly one CORDEL_NODE_IP line in the host profile.'
+}
+
 # Rewrite rtc.node_ip when it differs from ip. When profile is set, rewrite
-# CORDEL_NODE_IP there too. Prints "updated" or "unchanged" on stdout.
+# CORDEL_NODE_IP there too. Every target is checked before either file changes.
+# Prints "updated" or "unchanged" on stdout.
 cordel_sync_public_node_ip() {
   local ip=$1 yaml=$2 profile=${3:-}
-  local current raw rendered status expected
+  local current raw rendered='' status expected yaml_dir yaml_owner
   cordel_ipv4 "$ip" || cordel_die "Invalid IPv4 address: $ip"
   if cordel_is_symlink "$yaml"; then
     cordel_die "Refusing to update LiveKit config through a symlink: $yaml"
   fi
   cordel_is_regular_file "$yaml" || cordel_die "LiveKit config is missing: $yaml"
+  yaml_owner=$(cordel_livekit_expected_owner)
+  [[ $(stat -c '%U' -- "$yaml") == "$yaml_owner" ]] || cordel_die "Refusing to replace ${yaml}: owner is $(stat -c '%U' -- "$yaml"), expected ${yaml_owner}."
   current=$(awk 'BEGIN { c = 0 } /^  node_ip: / { value = $2; c++ } END { if (c != 1) exit 1; print value }' "$yaml") || cordel_die 'Expected exactly one indented node_ip line.'
+  if [[ -n $profile ]]; then
+    cordel_check_profile_target "$profile"
+  fi
   status=unchanged
-  rendered=$(mktemp)
+  yaml_dir=$(dirname -- "$yaml")
+  rendered=$(mktemp "${yaml_dir}/.cordel-render.XXXXXX")
+  CORDEL_CLEANUP_FILES="${CORDEL_CLEANUP_FILES:+$CORDEL_CLEANUP_FILES }$rendered"
   if [[ $current != "$ip" ]]; then
     printf 'LiveKit node_ip %s does not match public IPv4 %s. Updating node_ip.\n' "$current" "$ip" >&2
     cordel_render_livekit_node_ip "$yaml" "$rendered" "$ip"
-    cordel_atomic_replace "$yaml" "$rendered" "$(cordel_livekit_expected_owner)"
+    cordel_atomic_replace "$yaml" "$rendered" "$yaml_owner"
     status=updated
   fi
   if [[ -n $profile ]]; then
-    if cordel_is_symlink "$profile"; then
-      rm -f -- "$rendered"
-      cordel_die "Refusing to update the host profile through a symlink: $profile"
-    fi
-    cordel_is_regular_file "$profile" || { rm -f -- "$rendered"; cordel_die "Host profile is missing: $profile"; }
-    raw=$(awk -F= 'BEGIN { c = 0 } $1 == "CORDEL_NODE_IP" { value = substr($0, index($0, "=") + 1); c++ } END { if (c != 1) exit 1; print value }' "$profile") || { rm -f -- "$rendered"; cordel_die 'Expected exactly one CORDEL_NODE_IP line in the host profile.'; }
+    raw=$(awk -F= 'BEGIN { c = 0 } $1 == "CORDEL_NODE_IP" { value = substr($0, index($0, "=") + 1); c++ } END { if (c != 1) exit 1; print value }' "$profile") || cordel_die 'Expected exactly one CORDEL_NODE_IP line in the host profile.'
     if [[ $raw != "$ip" && $raw != "\"$ip\"" ]]; then
       expected=$(cordel_profile_expected_owner "$profile")
       cordel_render_profile_node_ip "$profile" "$rendered" "$ip"
@@ -406,5 +431,7 @@ cordel_sync_public_node_ip() {
     fi
   fi
   rm -f -- "$rendered"
+  CORDEL_CLEANUP_FILES=${CORDEL_CLEANUP_FILES%" $rendered"}
+  CORDEL_CLEANUP_FILES=${CORDEL_CLEANUP_FILES%"$rendered"}
   printf '%s\n' "$status"
 }

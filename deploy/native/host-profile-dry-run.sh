@@ -272,17 +272,66 @@ decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.
 [[ $decision == wait ]]
 decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.9 "$state" $((now + 300)))
 [[ $decision == restart ]]
+grep -qx 'restarts=' "$state"
+cordel_record_livekit_restart "$state" $((now + 300))
+grep -qx 'restarts=1700000300' "$state"
 decision=$(cordel_livekit_restart_decision 198.51.100.20 198.51.100.20 203.0.113.9 "$state" $((now + 600)))
 [[ $decision == unchanged ]]
-grep -qx 'restarts=1700000300' "$state"
 rm -f "$state"
 decision=$(cordel_livekit_restart_decision 203.0.113.40 198.51.100.1 203.0.113.40 "$state" "$now")
 [[ $decision == restart ]]
 printf 'last_ip=198.51.100.20\nrestarts=%s,%s,%s\n' "$now" "$((now + 1))" "$((now + 2))" >"$state"
 decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.10 "$state" $((now + 10)))
 [[ $decision == capped ]]
-cap_err=$(cordel_report_restart_decision capped 198.51.100.20 203.0.113.10 2>&1 >/dev/null)
-grep -q 'warning: LiveKit restart cap reached' <<<"$cap_err"
+logger_log=$(mktemp)
+cat >"$state_dir/logger" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >"$CORDEL_FAKE_LOGGER"
+EOF
+chmod +x "$state_dir/logger"
+CORDEL_FAKE_LOGGER=$logger_log PATH="$state_dir:$PATH" cordel_report_restart_decision capped 198.51.100.20 203.0.113.10
+grep -q -- '-p warning' "$logger_log"
+grep -q 'LiveKit restart cap reached' "$logger_log"
+printf 'last_ip=198.51.100.20\nrestarts=%s\nnot-a-field\n' "$now" >"$state"
+decision=$(cordel_livekit_restart_decision 198.51.100.30 203.0.113.10 198.51.100.30 "$state" $((now + 20)) 2>/dev/null)
+[[ $decision == corrupt ]]
+grep -q 'not-a-field' "$state"
+grep -qx "restarts=$now" "$state"
+printf 'last_ip=198.51.100.20\nrestarts=%s\n' $((now + 100000)) >"$state"
+decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.10 "$state" $((now + 30)))
+[[ $decision == restart ]]
+grep -qx "restarts=$((now + 100000))" "$state"
+half=$(mktemp -d)
+cat >"$half/livekit.yaml" <<'EOF'
+port: 7880
+keys:
+  secret: keep
+rtc:
+  node_ip: 198.51.100.8
+EOF
+printf 'CORDEL_NODE_IP=198.51.100.8\n' >"$half/real.env"
+ln -s "$half/real.env" "$half/link.env"
+printf 'last_ip=203.0.113.77\nrestarts=%s\n' "$now" >"$half/state"
+decision=$(cordel_livekit_restart_decision 203.0.113.77 198.51.100.8 203.0.113.77 "$half/state" $((now + 40)))
+[[ $decision == restart ]]
+half_rc=0
+( cordel_sync_public_node_ip 203.0.113.77 "$half/livekit.yaml" "$half/link.env" >/dev/null 2>&1 ) || half_rc=$?
+[[ $half_rc -ne 0 ]]
+grep -qx '  node_ip: 198.51.100.8' "$half/livekit.yaml"
+grep -q 'secret: keep' "$half/livekit.yaml"
+grep -qx "restarts=$now" "$half/state"
+printf 'port: 7880\nkeys:\n  secret: keep\nrtc:\n  node_ip: 203.0.113.77\n' >"$half/livekit.yaml"
+export CORDEL_LIVEKIT_START_EPOCH=1
+decision=$(cordel_livekit_restart_decision 203.0.113.77 203.0.113.77 203.0.113.77 "$half/state" $((now + 50)) "$half/livekit.yaml")
+[[ $decision == restart ]]
+grep -qx "restarts=$now" "$half/state"
+unset CORDEL_LIVEKIT_START_EPOCH
+cordel_record_livekit_restart "$half/state" $((now + 50))
+grep -qx "restarts=${now},$((now + 50))" "$half/state"
+ln -s "$half/livekit.yaml" "$half/yaml-link"
+link_rc=0
+( cordel_sync_public_node_ip 203.0.113.77 "$half/yaml-link" "$half/real.env" >/dev/null 2>&1 ) || link_rc=$?
+[[ $link_rc -ne 0 ]]
 
 fake=$(mktemp -d)
 cat >"$fake/curl" <<'EOF'
@@ -317,6 +366,6 @@ grep -q 'acme-v02.api.letsencrypt.org-directory' "$root/issue-turn-cert.sh" && {
 rm -rf "$home" "$home_caddy" "$home_livekit" "$home_routed" "$azure_caddy" "$azure_livekit" \
   "$azure_routed" "$azure_ufw" "$bad_turn" "$bad_port" "$bad_udp" "$cert_root" "$yaml" \
   "$profile_dir" "$fake" "$curl_log" "$curl_body" "$env_sample" "$sync_err" \
-  "$atom" "$state_dir"
+  "$atom" "$state_dir" "$half" "$logger_log"
 trap - EXIT
 echo 'host profile dry-run passed'

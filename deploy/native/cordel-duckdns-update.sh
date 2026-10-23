@@ -119,28 +119,57 @@ cordel_read_ip_state() {
     return 0
   fi
   if cordel_is_symlink "$file"; then
-    cordel_die "Refusing to read public-IP state through a symlink: $file"
+    printf '%s\n' "Refusing to read public-IP state through a symlink: $file" >&2
+    return 1
   fi
-  cordel_is_regular_file "$file" || cordel_die "Public-IP state is not a regular file: $file"
+  if ! cordel_is_regular_file "$file"; then
+    printf '%s\n' "Public-IP state is not a regular file: $file" >&2
+    return 1
+  fi
   while IFS= read -r line || [[ -n $line ]]; do
     line=${line%%$'\r'}
     [[ $line =~ ^[[:space:]]*$ || $line == \#* ]] && continue
-    [[ $line =~ ^[a-z_]+= ]] || cordel_die 'Invalid public-IP state line.'
+    if [[ $line != [a-z_]*=* ]]; then
+      printf '%s\n' 'Invalid public-IP state line.' >&2
+      return 1
+    fi
     key=${line%%=*}
     val=${line#*=}
     case $key in
       last_ip)
-        [[ -z $val ]] || cordel_ipv4 "$val" || cordel_die 'Invalid last_ip in public-IP state.'
+        if [[ -n $val ]] && ! cordel_ipv4 "$val"; then
+          printf '%s\n' 'Invalid last_ip in public-IP state.' >&2
+          return 1
+        fi
         last=$val
         ;;
       restarts)
-        [[ -z $val || $val =~ ^[0-9]+(,[0-9]+)*$ ]] || cordel_die 'Invalid restart history in public-IP state.'
+        if [[ -n $val && ! $val =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+          printf '%s\n' 'Invalid restart history in public-IP state.' >&2
+          return 1
+        fi
         restarts=$val
         ;;
-      *) cordel_die "Unknown public-IP state key: $key" ;;
+      *)
+        printf '%s\n' "Unknown public-IP state key: $key" >&2
+        return 1
+        ;;
     esac
   done <"$file"
   printf '%s\n%s\n' "$last" "$restarts"
+}
+
+cordel_journal_warning() {
+  local msg=$1
+  if command -v logger >/dev/null 2>&1; then
+    logger -p warning -t cordel-duckdns -- "$msg"
+    return 0
+  fi
+  if command -v systemd-cat >/dev/null 2>&1; then
+    printf '%s\n' "$msg" | systemd-cat -p warning -t cordel-duckdns
+    return 0
+  fi
+  printf 'warning: %s\n' "$msg" >&2
 }
 
 cordel_write_ip_state() {
@@ -172,6 +201,7 @@ cordel_append_restart() {
   IFS=',' read -r -a stamps <<<"${existing:-}"
   for stamp in "${stamps[@]}"; do
     [[ $stamp =~ ^[0-9]+$ ]] || continue
+    (( stamp > now )) && continue
     if (( now - stamp < window )); then
       kept=${kept:+$kept,}$stamp
     fi
@@ -186,6 +216,7 @@ cordel_restart_cap_allows() {
   IFS=',' read -r -a stamps <<<"${restarts:-}"
   for stamp in "${stamps[@]}"; do
     [[ $stamp =~ ^[0-9]+$ ]] || continue
+    (( stamp > now )) && continue
     if (( now - stamp < window )); then
       count=$((count + 1))
     fi
@@ -197,18 +228,49 @@ cordel_restart_cap_allows() {
   fi
 }
 
-# Prints unchanged, wait, restart, or capped. Records the observation.
-# A restart is recorded only when the result is restart.
+# yes when the on-disk config is newer than the running LiveKit process.
+cordel_yaml_newer_than_process() {
+  local yaml=$1 start='' raw
+  if [[ -v CORDEL_LIVEKIT_START_EPOCH ]]; then
+    start=$CORDEL_LIVEKIT_START_EPOCH
+  else
+    command -v systemctl >/dev/null 2>&1 || { printf '%s\n' no; return 0; }
+    systemctl is-active --quiet cordel-livekit.service 2>/dev/null || { printf '%s\n' no; return 0; }
+    raw=$(systemctl show cordel-livekit.service -p ActiveEnterTimestamp --timestamp=unix --value 2>/dev/null || true)
+    start=${raw%%.*}
+  fi
+  [[ $start =~ ^[0-9]+$ ]] || { printf '%s\n' no; return 0; }
+  if (( $(stat -c %Y -- "$yaml") > start )); then
+    printf '%s\n' yes
+  else
+    printf '%s\n' no
+  fi
+}
+
+# Prints unchanged, wait, restart, capped, or corrupt.
+# Does not record a restart; that happens only after systemctl restart succeeds.
 cordel_livekit_restart_decision() {
-  local candidate=$1 node_ip=$2 dns_ip=$3 state_file=$4 now=$5
-  local previous='' restarts='' confirmed allowed fresh
+  local candidate=$1 node_ip=$2 dns_ip=$3 state_file=$4 now=$5 yaml=${6:-}
+  local previous='' restarts='' confirmed allowed output='' read_rc=0
   [[ $now =~ ^[0-9]+$ ]] || cordel_die 'Restart decision needs a numeric timestamp.'
-  {
-    IFS= read -r previous
-    IFS= read -r restarts
-  } < <(cordel_read_ip_state "$state_file")
+  output=$(cordel_read_ip_state "$state_file") || read_rc=$?
+  if [[ $read_rc -ne 0 ]]; then
+    printf '%s\n' corrupt
+    return 0
+  fi
+  previous=$(printf '%s\n' "$output" | sed -n '1p')
+  restarts=$(printf '%s\n' "$output" | sed -n '2p')
   if [[ $node_ip == "$candidate" ]]; then
     cordel_write_ip_state "$state_file" "$candidate" "$restarts"
+    if [[ -n $yaml ]] && [[ $(cordel_yaml_newer_than_process "$yaml") == yes ]]; then
+      allowed=$(cordel_restart_cap_allows "$restarts" "$now" "$CORDEL_NODE_IP_RESTART_WINDOW" "$CORDEL_NODE_IP_RESTART_CAP")
+      if [[ $allowed == yes ]]; then
+        printf '%s\n' restart
+      else
+        printf '%s\n' capped
+      fi
+      return 0
+    fi
     printf '%s\n' unchanged
     return 0
   fi
@@ -219,14 +281,26 @@ cordel_livekit_restart_decision() {
     return 0
   fi
   allowed=$(cordel_restart_cap_allows "$restarts" "$now" "$CORDEL_NODE_IP_RESTART_WINDOW" "$CORDEL_NODE_IP_RESTART_CAP")
+  cordel_write_ip_state "$state_file" "$candidate" "$restarts"
   if [[ $allowed != yes ]]; then
-    cordel_write_ip_state "$state_file" "$candidate" "$restarts"
     printf '%s\n' capped
-    return 0
+  else
+    printf '%s\n' restart
   fi
+}
+
+cordel_record_livekit_restart() {
+  local state_file=$1 now=$2
+  local previous='' restarts='' fresh output='' read_rc=0
+  output=$(cordel_read_ip_state "$state_file") || read_rc=$?
+  if [[ $read_rc -ne 0 ]]; then
+    cordel_journal_warning "Public-IP state is unreadable (${state_file}). The LiveKit restart was not recorded."
+    return 1
+  fi
+  previous=$(printf '%s\n' "$output" | sed -n '1p')
+  restarts=$(printf '%s\n' "$output" | sed -n '2p')
   fresh=$(cordel_append_restart "$restarts" "$now" "$CORDEL_NODE_IP_RESTART_WINDOW")
-  cordel_write_ip_state "$state_file" "$candidate" "$fresh"
-  printf '%s\n' restart
+  cordel_write_ip_state "$state_file" "$previous" "$fresh"
 }
 
 cordel_report_restart_decision() {
@@ -240,8 +314,10 @@ cordel_report_restart_decision() {
         "$candidate" "${dns_ip:-unknown}" >&2
       ;;
     capped)
-      printf 'warning: LiveKit restart cap reached (%s in %s seconds). Leaving node_ip unchanged; public IPv4 %s was not applied.\n' \
-        "$CORDEL_NODE_IP_RESTART_CAP" "$CORDEL_NODE_IP_RESTART_WINDOW" "$candidate" >&2
+      cordel_journal_warning "LiveKit restart cap reached (${CORDEL_NODE_IP_RESTART_CAP} in ${CORDEL_NODE_IP_RESTART_WINDOW} seconds). Leaving node_ip unchanged; public IPv4 ${candidate} was not applied."
+      ;;
+    corrupt)
+      cordel_journal_warning "Public-IP state is unreadable. LiveKit was not restarted."
       ;;
     restart)
       printf 'Public IPv4 %s is confirmed. Updating node_ip.\n' "$candidate"
@@ -267,9 +343,15 @@ cordel_duckdns_main() {
   ip=$(cordel_duckdns_fetch_ip "$subdomain" "$token")
   unset token subdomain
   printf '%s\n' 'DuckDNS update returned OK.'
-  if cordel_is_symlink /etc/livekit/livekit.yaml || ! cordel_is_regular_file /etc/livekit/livekit.yaml; then
+  if cordel_is_symlink /etc/livekit/livekit.yaml; then
+    cordel_die 'Refusing to update LiveKit config through a symlink: /etc/livekit/livekit.yaml'
+  fi
+  if [[ ! -e /etc/livekit/livekit.yaml ]]; then
     printf '%s\n' 'LiveKit config is absent, so node_ip was not checked.' >&2
     return 0
+  fi
+  if ! cordel_is_regular_file /etc/livekit/livekit.yaml; then
+    cordel_die 'Refusing to update LiveKit config that is not a regular file: /etc/livekit/livekit.yaml'
   fi
   node_ip=$(awk 'BEGIN { c = 0 } /^  node_ip: / { value = $2; c++ } END { if (c != 1) exit 1; print value }' /etc/livekit/livekit.yaml) || cordel_die 'Expected exactly one indented node_ip line.'
   if [[ -L /var/lib/cordel ]]; then
@@ -277,9 +359,9 @@ cordel_duckdns_main() {
   fi
   mkdir -p -- /var/lib/cordel
   chmod 0755 /var/lib/cordel
-  decision=$(cordel_livekit_restart_decision "$ip" "$node_ip" "$dns_ip" "$CORDEL_PUBLIC_IP_STATE" "$(date +%s)")
+  decision=$(cordel_livekit_restart_decision "$ip" "$node_ip" "$dns_ip" "$CORDEL_PUBLIC_IP_STATE" "$(date +%s)" /etc/livekit/livekit.yaml)
   cordel_report_restart_decision "$decision" "$ip" "$dns_ip"
-  if [[ $decision == wait || $decision == capped ]]; then
+  if [[ $decision != restart ]]; then
     return 0
   fi
   if [[ -z $profile ]]; then
@@ -293,6 +375,7 @@ cordel_duckdns_main() {
   if [[ $decision == restart ]]; then
     if systemctl is-active --quiet cordel-livekit.service || systemctl is-failed --quiet cordel-livekit.service; then
       systemctl restart cordel-livekit.service
+      cordel_record_livekit_restart "$CORDEL_PUBLIC_IP_STATE" "$(date +%s)"
       printf '%s\n' 'Restarted LiveKit so media uses the new public address.'
     else
       printf '%s\n' 'LiveKit is not active; the new node_ip applies on the next start.'

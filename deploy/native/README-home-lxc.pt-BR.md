@@ -35,7 +35,7 @@ No **host** Proxmox (a interface web, ou o shell do host, não dentro do CT):
 
 1. Abra o CT `Cordel` → Options → Features.
 2. Marque **nesting** = 1. Deixe o CT unprivileged.
-3. Confirme o disco com folga (a verificação de 2026-10-22 tinha pouco espaço; são necessários vários GB livres) e a reserva DHCP `172.16.1.16`.
+3. Confirme o disco com vários GB livres e a reserva DHCP `172.16.1.16`.
 4. Reinicie o CT pelo Proxmox.
 
 Dentro do CT:
@@ -195,7 +195,7 @@ responde 403 a um token de sala de uma geração já revogada; o cliente expulso
 
 ## 8. Atualizador DuckDNS e IP público que muda
 
-O DuckDNS consegue acompanhar um endereço público novo sozinho. O LiveKit não. O `rtc.node_ip` fica no valor da instalação, o ICE continua oferecendo o endereço antigo, e as chamadas falham sem erro da API. O timer atualiza o DuckDNS em toda execução. Ele reescreve o `node_ip` e reinicia o LiveKit só quando o IPv4 novo apareceu em duas execuções seguidas, ou quando ele já é o registro A do DuckDNS consultado antes dessa atualização. O reinício derruba chamadas que já estão no ar. No máximo 3 reinícios ficam em `/var/lib/cordel/public-ip.state` por 60 minutos. Quando esse limite estoura, o timer grava um aviso no journal e deixa o LiveKit rodando, então uma VPN que muda o endereço de saída não reinicia o serviço a cada ciclo. A gravação do perfil é uma troca atômica no próprio diretório do perfil: o arquivo tem que ser regular e pertencer ao dono do diretório pai, e um symlink é recusado.
+O DuckDNS consegue acompanhar um endereço público novo sozinho. O LiveKit não. O `rtc.node_ip` fica no valor da instalação, o ICE continua oferecendo o endereço antigo, e as chamadas falham sem erro da API. O timer atualiza o DuckDNS em toda execução. Ele reescreve o `node_ip` e reinicia o LiveKit só quando o IPv4 novo apareceu em duas execuções seguidas, ou quando ele já é o registro A do DuckDNS consultado antes dessa atualização. O reinício derruba chamadas que já estão no ar. No máximo 3 reinícios ficam em `/var/lib/cordel/public-ip.state` por 60 minutos, e um reinício só entra na conta depois que `systemctl restart` termina com sucesso. Quando esse limite estoura, o timer grava um aviso no journal e deixa o LiveKit rodando, então uma VPN que muda o endereço de saída não reinicia o serviço a cada ciclo. A gravação do perfil é uma troca atômica no próprio diretório do perfil: o arquivo tem que ser regular e pertencer ao dono do diretório pai, e um symlink é recusado.
 
 O token é lido do arquivo só do root. O atualizador entrega o token ao `curl` pela entrada padrão, não pela linha de comando, e força IPv4 com `curl -4`.
 
