@@ -11,6 +11,13 @@
 #   CI / server-identity
 #   CI / phase0
 #   CI / cargo-audit
+#   CI / deploy-scripts
+#
+# deploy-scripts runs deploy/native/host-profile-dry-run.sh, then shellcheck
+# on the native deploy scripts. The dry-run compares the default Azure
+# Caddyfile, identity Caddyfile, livekit.yaml, and UFW rules byte for byte
+# with what main generates, and checks the home-profile atomic replace and
+# the LiveKit restart cap.
 #
 # Left out on purpose:
 # - server/identity disposable_database_media_drain_flow needs a real LiveKit

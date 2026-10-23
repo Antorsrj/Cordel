@@ -11,7 +11,7 @@ cordel_load_host_profile
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 cordel_render_livekit_node_ip /etc/livekit/livekit.yaml "$tmp" "$CORDEL_NODE_IP"
-install -o root -g livekit -m 0640 "$tmp" /etc/livekit/livekit.yaml
+cordel_atomic_replace /etc/livekit/livekit.yaml "$tmp" root
 rm -f "$tmp"
 trap - EXIT
 if systemctl is-active --quiet cordel-livekit.service; then

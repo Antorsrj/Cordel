@@ -35,7 +35,7 @@ On the Proxmox **host** (the web UI, or the host shell, not inside the CT):
 
 1. Open the `Cordel` CT → Options → Features.
 2. Set **nesting** = 1. Leave the CT unprivileged.
-3. Confirm the disk has room (the 22 Oct check was short on space; several free GB are required) and the DHCP reservation `172.16.1.16`.
+3. Confirm the disk has room (the 2026-10-22 check was short on space; several free GB are required) and the DHCP reservation `172.16.1.16`.
 4. Reboot the CT from Proxmox.
 
 Inside the CT:
@@ -195,7 +195,7 @@ returns 403 for a room token from a generation that was already revoked; the kic
 
 ## 8. DuckDNS updater and a changing public IP
 
-DuckDNS can follow a new public address by itself. LiveKit does not. `rtc.node_ip` stays at the value from install, ICE keeps offering the old address, and calls fail with no error from the API. The timer below updates DuckDNS and, when the IPv4 changes, rewrites `node_ip`, updates `CORDEL_NODE_IP` in the host profile, and restarts LiveKit. A restart drops calls that are already up.
+DuckDNS can follow a new public address by itself. LiveKit does not. `rtc.node_ip` stays at the value from install, ICE keeps offering the old address, and calls fail with no error from the API. The timer updates DuckDNS on every run. It rewrites `node_ip` and restarts LiveKit only when the new IPv4 was seen on two runs in a row, or it already matches the DuckDNS A record looked up before that update. A restart drops calls that are already up. At most 3 restarts are kept in `/var/lib/cordel/public-ip.state` for 60 minutes. When that cap is hit, the timer writes a warning to the journal and leaves LiveKit running, so a VPN that changes the egress address does not restart it on every tick. The profile write is an atomic replace in the profile's own directory: the file must be a regular file owned by the owner of its parent directory, and a symlink is refused.
 
 The token is read from the root-only file. The updater passes it to `curl` on standard input, not on the command line, and it forces IPv4 with `curl -4`.
 
@@ -218,9 +218,9 @@ CORDEL_HOST_ENV=/home/cordel/cordel-host.env
 sudo bash /home/cordel/Projects/Cordel/deploy/native/install-duckdns-timer.sh
 ```
 
-The output must include `DuckDNS update returned OK.` When LiveKit is already installed it also reports that `node_ip` matches the public IPv4, or that it was updated and LiveKit was restarted. The timer repeats this every five minutes. `journalctl -u cordel-duckdns.service` shows a mismatch when one was corrected.
+The output must include `DuckDNS update returned OK.` When the address is already in use it reports that `node_ip` matches. A new address that is not stable yet is reported and LiveKit stays up. A confirmed change updates `node_ip` and restarts LiveKit. Re-run this installer after updating the checkout so the copy in `/usr/local/sbin` picks up the guard. The timer repeats every five minutes. `journalctl -u cordel-duckdns.service` shows the warning when the restart cap is hit.
 
-Without the timer, edit `CORDEL_NODE_IP`, point DuckDNS at the same address, then:
+Without the timer, edit `CORDEL_NODE_IP`, point DuckDNS at the same address, then run the command below. That manual command applies the address once and restarts LiveKit; it does not use the cap:
 
 ```sh
 sudo --preserve-env=CORDEL_HOST_ENV bash deploy/native/update-node-ip.sh

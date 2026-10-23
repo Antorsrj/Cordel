@@ -202,7 +202,8 @@ if ( cordel_find_caddy_cert "$cert_root" "$domain" >/dev/null 2>&1 ); then
 fi
 
 yaml=$(mktemp)
-profile=$(mktemp)
+profile_dir=$(mktemp -d)
+profile=$profile_dir/cordel-host.env
 cat >"$yaml" <<'EOF'
 port: 7880
 rtc:
@@ -212,6 +213,7 @@ keys:
   keep: me
 EOF
 printf 'CORDEL_MEDIA_HOST=cordel-home.example\nCORDEL_NODE_IP=198.51.100.8\n' >"$profile"
+chmod 600 "$profile"
 sync_err=$(mktemp)
 status=$(cordel_sync_public_node_ip 203.0.113.50 "$yaml" "$profile" 2>"$sync_err")
 [[ $status == updated ]]
@@ -222,8 +224,65 @@ grep -qx '  use_external_ip: false' "$yaml"
 grep -qx '  keep: me' "$yaml"
 grep -qx 'CORDEL_NODE_IP=203.0.113.50' "$profile"
 grep -qx 'CORDEL_MEDIA_HOST=cordel-home.example' "$profile"
+[[ $(stat -c '%a' "$profile") == 600 ]]
+[[ $(stat -c '%U' "$profile") == "$(id -un)" ]]
 status=$(cordel_sync_public_node_ip 203.0.113.50 "$yaml" "$profile")
 [[ $status == unchanged ]]
+
+owner=$(id -un)
+atom=$(mktemp -d)
+printf 'old\n' >"$atom/file"
+chmod 640 "$atom/file"
+printf 'new-contents\n' >"$atom/src"
+cordel_atomic_replace "$atom/file" "$atom/src" "$owner"
+[[ $(stat -c '%a' "$atom/file") == 640 ]]
+[[ $(stat -c '%U' "$atom/file") == "$owner" ]]
+[[ $(stat -c '%G' "$atom/file") == "$(stat -c '%G' "$atom/src")" || $(stat -c '%G' "$atom/file") == "$(id -gn)" ]]
+grep -qx 'new-contents' "$atom/file"
+compgen -G "$atom/.cordel-replace.*" >/dev/null && { echo 'Atomic replace left a temporary file.' >&2; exit 1; }
+printf 'secret\n' >"$atom/secret"
+ln -s "$atom/secret" "$atom/link"
+printf 'pwn\n' >"$atom/src"
+link_err=$(cordel_atomic_replace "$atom/link" "$atom/src" "$owner" 2>&1 >/dev/null) && { echo 'Symlink replace was accepted.' >&2; exit 1; }
+grep -q 'symlink' <<<"$link_err"
+grep -qx 'secret' "$atom/secret"
+owner_err=$(cordel_atomic_replace "$atom/file" "$atom/src" nobody 2>&1 >/dev/null) && { echo 'Wrong owner was accepted.' >&2; exit 1; }
+grep -q 'expected nobody' <<<"$owner_err"
+grep -qx 'new-contents' "$atom/file"
+mkdir "$atom/dir"
+dir_err=$(cordel_atomic_replace "$atom/dir" "$atom/src" "$owner" 2>&1 >/dev/null) && { echo 'Directory replace was accepted.' >&2; exit 1; }
+grep -q 'not a regular file' <<<"$dir_err"
+mkfifo "$atom/fifo"
+fifo_err=$(cordel_atomic_replace "$atom/fifo" "$atom/src" "$owner" 2>&1 >/dev/null) && { echo 'Fifo replace was accepted.' >&2; exit 1; }
+grep -q 'not a regular file' <<<"$fifo_err"
+
+state_dir=$(mktemp -d)
+state=$state_dir/public-ip.state
+now=1700000000
+export CORDEL_NODE_IP_RESTART_WINDOW=3600
+export CORDEL_NODE_IP_RESTART_CAP=3
+decision=$(cordel_livekit_restart_decision 198.51.100.1 203.0.113.10 203.0.113.10 "$state" "$now")
+[[ $decision == wait ]]
+decision=$(cordel_livekit_restart_decision 198.51.100.2 203.0.113.10 203.0.113.10 "$state" $((now + 300)))
+[[ $decision == wait ]]
+decision=$(cordel_livekit_restart_decision 198.51.100.1 203.0.113.10 203.0.113.10 "$state" $((now + 600)))
+[[ $decision == wait ]]
+rm -f "$state"
+decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.9 "$state" "$now")
+[[ $decision == wait ]]
+decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.9 "$state" $((now + 300)))
+[[ $decision == restart ]]
+decision=$(cordel_livekit_restart_decision 198.51.100.20 198.51.100.20 203.0.113.9 "$state" $((now + 600)))
+[[ $decision == unchanged ]]
+grep -qx 'restarts=1700000300' "$state"
+rm -f "$state"
+decision=$(cordel_livekit_restart_decision 203.0.113.40 198.51.100.1 203.0.113.40 "$state" "$now")
+[[ $decision == restart ]]
+printf 'last_ip=198.51.100.20\nrestarts=%s,%s,%s\n' "$now" "$((now + 1))" "$((now + 2))" >"$state"
+decision=$(cordel_livekit_restart_decision 198.51.100.20 203.0.113.10 203.0.113.10 "$state" $((now + 10)))
+[[ $decision == capped ]]
+cap_err=$(cordel_report_restart_decision capped 198.51.100.20 203.0.113.10 2>&1 >/dev/null)
+grep -q 'warning: LiveKit restart cap reached' <<<"$cap_err"
 
 fake=$(mktemp -d)
 cat >"$fake/curl" <<'EOF'
@@ -257,6 +316,7 @@ grep -q 'acme-v02.api.letsencrypt.org-directory' "$root/issue-turn-cert.sh" && {
 
 rm -rf "$home" "$home_caddy" "$home_livekit" "$home_routed" "$azure_caddy" "$azure_livekit" \
   "$azure_routed" "$azure_ufw" "$bad_turn" "$bad_port" "$bad_udp" "$cert_root" "$yaml" \
-  "$profile" "$fake" "$curl_log" "$curl_body" "$env_sample" "$sync_err"
+  "$profile_dir" "$fake" "$curl_log" "$curl_body" "$env_sample" "$sync_err" \
+  "$atom" "$state_dir"
 trap - EXIT
 echo 'host profile dry-run passed'
