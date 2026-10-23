@@ -1,6 +1,6 @@
 # Native Ubuntu host package
 
-This package prepares an Ubuntu 24.04 host for native services. With no profile file, the scripts keep the Azure test guest: `10.77.1.4`, `10.77.1.5`, TURN/TLS on TCP 443, and the identity account `cordel`. A home LXC uses [`profiles/home-lxc.env.example`](profiles/home-lxc.env.example) through `CORDEL_HOST_ENV`. The click-by-click procedure is [README-home-lxc.md](README-home-lxc.md). `host-profile.sh` must sit next to the scripts. Do not commit a filled-in profile.
+This package prepares an Ubuntu 24.04 host for native services. With no profile file, the scripts keep the Azure test guest: `10.77.1.4`, `10.77.1.5`, TURN/TLS on TCP 443, and the identity account `cordel`. A home LXC uses [`profiles/home-lxc.env.example`](profiles/home-lxc.env.example) through `CORDEL_HOST_ENV`. The click-by-click procedure is [README-home-lxc.md](README-home-lxc.md) ([português do Brasil](README-home-lxc.pt-BR.md)). `host-profile.sh` must sit next to the scripts. Do not commit a filled-in profile.
 
 ## Phase 0 origin and LAN candidates
 
