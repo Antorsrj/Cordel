@@ -1,5 +1,13 @@
 # Native Ubuntu host package
 
+This package prepares an Ubuntu 24.04 host for native services. With no profile file, the scripts keep the Azure test guest: `10.77.1.4`, `10.77.1.5`, TURN/TLS on TCP 443, and the identity account `cordel`. A home LXC uses [`profiles/home-lxc.env.example`](profiles/home-lxc.env.example) through `CORDEL_HOST_ENV`. The click-by-click procedure is [README-home-lxc.md](README-home-lxc.md) ([português do Brasil](README-home-lxc.pt-BR.md)). `host-profile.sh` must sit next to the scripts. Do not commit a filled-in profile.
+
+## Phase 0 origin and LAN candidates
+
+A normal Phase 0 build, without the `local-smoke` feature, accepts `CORDEL_API_ORIGIN=https://<domain>` when that value is a bare HTTPS origin. Chat uses `wss://<domain>/v1/events`. Voice asks Axum for an admission; the URL in that admission is the server's `CORDEL_LIVEKIT_URL`. No client change is required for the home proof.
+
+LiveKit v1.13.10, with `use_external_ip: false` and an explicit `node_ip`, advertises only that public address unless `rtc.advertise_internal_ip: true`. The pinned `mediatransportutil` commit `f234b534b095` keeps the LAN address beside `node_ip` when the flag is set. The home profile turns the flag on and excludes `docker0`. A client on the same LAN can then use `172.16.1.16` for ICE without router hairpin. Signaling still uses the DuckDNS name, so that name must resolve to `172.16.1.16` from the LAN when the router does not hairpin TCP 443. The runbook gives the hosts-file workaround.
+
 This package prepares the selected Ubuntu 24.04 Azure guest for native services. It does not provision Azure resources. `install-identity.sh` installed the separately built Axum binary on the test VM after its deployment prerequisites were met. Run as root on the guest only after reviewing each script. Package and firewall operations can be repeated; bootstrap refuses to overwrite existing Cordel Caddy configuration and is not a rerunnable full installer.
 
 ## Layout and ports
@@ -22,7 +30,7 @@ The [ADR-002 identity deployment record](identity-deployment-runbook.md) and [hi
 
 ## Azure Cloud Shell staging
 
-If using Azure Run Command instead of SSH, upload the reviewed `.sh` files in this directory to the current Cloud Shell home directory. Confirm that each file is present before invoking **one stage at a time** with the same subscription, resource group, VM, and `--command-id RunShellScript`. This read-only example verifies the existing host:
+If using Azure Run Command instead of SSH, upload the reviewed `.sh` files in this directory, including `host-profile.sh`, to the current Cloud Shell home directory. Without `CORDEL_HOST_ENV`, the scripts keep the Azure addresses below. Confirm that each file is present before invoking **one stage at a time** with the same subscription, resource group, VM, and `--command-id RunShellScript`. This read-only example verifies the existing host:
 
 ```bash
 test -s "$HOME/verify-host.sh" || { echo 'Upload verify-host.sh first'; exit 1; }

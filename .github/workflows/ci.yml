@@ -11,6 +11,13 @@
 #   CI / server-identity
 #   CI / phase0
 #   CI / cargo-audit
+#   CI / deploy-scripts
+#
+# deploy-scripts runs deploy/native/host-profile-dry-run.sh, then shellcheck
+# on the native deploy scripts. The dry-run compares the default Azure
+# Caddyfile, identity Caddyfile, livekit.yaml, and UFW rules byte for byte
+# with what main generates, and checks the home-profile atomic replace and
+# the LiveKit restart cap.
 #
 # Left out on purpose:
 # - server/identity disposable_database_media_drain_flow needs a real LiveKit
@@ -163,6 +170,35 @@ jobs:
           workspace: client/phase0
           test-wrapper: xvfb-run -a
           release: "true"
+
+  deploy-scripts:
+    name: deploy-scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Dry-run native host profiles
+        run: bash deploy/native/host-profile-dry-run.sh
+      - name: Shellcheck native deploy scripts
+        run: |
+          set -euo pipefail
+          if ! command -v shellcheck >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+          shellcheck --severity=warning \
+            deploy/native/bootstrap.sh \
+            deploy/native/cordel-duckdns-update.sh \
+            deploy/native/host-profile-dry-run.sh \
+            deploy/native/host-profile.sh \
+            deploy/native/install-duckdns-timer.sh \
+            deploy/native/install-identity.sh \
+            deploy/native/install-livekit.sh \
+            deploy/native/issue-turn-cert.sh \
+            deploy/native/migrate-identity-current.sh \
+            deploy/native/start-livekit.sh \
+            deploy/native/update-node-ip.sh \
+            deploy/native/verify-host.sh
 
   cargo-audit:
     name: cargo-audit
