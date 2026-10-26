@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+# shellcheck source=host-profile.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-profile.sh"
+cordel_load_host_profile
 [[ -r /etc/os-release ]] || exit 1
 # shellcheck disable=SC1091
 . /etc/os-release
 [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]] || { echo 'Requires Ubuntu 24.04.' >&2; exit 1; }
-turn_host=cordel-turn-f77cc05e.eastus.cloudapp.azure.com
 cert_dir=/etc/cordel/turn-tls
 [[ -s "$cert_dir/fullchain.pem" && -s "$cert_dir/privkey.pem" ]] || { echo "TURN certificate copy missing in $cert_dir; run issue-turn-cert.sh first." >&2; exit 1; }
 [[ -r /etc/cordel/livekit.env ]] || { echo 'Create root-only /etc/cordel/livekit.env with LIVEKIT_API_KEY and LIVEKIT_API_SECRET first.' >&2; exit 1; }
@@ -35,27 +37,7 @@ install -o root -g root -m 0755 /usr/local/bin/livekit-server.new /usr/local/bin
 rm -f /usr/local/bin/livekit-server.new
 
 umask 077
-cat >/etc/livekit/livekit.yaml <<EOF
-port: 7880
-bind_addresses:
-  - 10.77.1.4
-rtc:
-  tcp_port: 7881
-  udp_port: 7882
-  use_external_ip: false
-  node_ip: 20.124.106.190
-keys:
-  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
-turn:
-  enabled: true
-  domain: $turn_host
-  udp_port: 3478
-  tls_port: 443
-  bind_addresses:
-    - 10.77.1.5
-  cert_file: $cert_dir/fullchain.pem
-  key_file: $cert_dir/privkey.pem
-EOF
+cordel_write_livekit_yaml /etc/livekit/livekit.yaml "$LIVEKIT_API_KEY" "$LIVEKIT_API_SECRET"
 chown root:livekit /etc/livekit/livekit.yaml
 chmod 0640 /etc/livekit/livekit.yaml
 

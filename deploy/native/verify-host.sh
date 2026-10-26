@@ -15,7 +15,7 @@ if [[ -x /usr/local/bin/livekit-server ]]; then
 fi
 
 printf '\nSELECTED LISTENERS\n'
-ss -H -lntup | awk '$5 ~ /:(22|80|443|3478|5432|7880|7881|7882)$/ {print}'
+ss -H -lntup | awk '$5 ~ /:(22|80|443|3000|3001|3478|5349|5432|7880|7881|7882)$/ {print}'
 
 printf '\nHOST FIREWALL\n'
 ufw status numbered 2>/dev/null || true

@@ -113,15 +113,25 @@ def read_gate() -> dict[str, str]:
 
 
 def check_binary() -> None:
-    path = f"/var/lib/cordel-identity-build/artifacts/{REVISION}/cordel-identity"
+    override = os.environ.get("CORDEL_IDENTITY_BINARY", "")
+    expected = os.environ.get("CORDEL_IDENTITY_SHA256", "")
+    if override or expected:
+        if not override or not re.fullmatch(r"[0-9a-f]{64}", expected or ""):
+            fail("Set both CORDEL_IDENTITY_BINARY and CORDEL_IDENTITY_SHA256, or neither.")
+        if os.path.islink(override) or not os.path.isfile(override):
+            fail("CORDEL_IDENTITY_BINARY must be a regular file.")
+        path = override
+    else:
+        path = f"/var/lib/cordel-identity-build/artifacts/{REVISION}/cordel-identity"
+        expected = EXPECTED_BINARY_SHA
     try:
         digest = subprocess.run(
             ["sha256sum", path], check=True, text=True, capture_output=True
         ).stdout.split()[0]
     except (OSError, subprocess.CalledProcessError, IndexError):
-        fail("Pinned identity build artifact is unavailable.")
-    if digest != EXPECTED_BINARY_SHA:
-        fail("Pinned identity build artifact checksum mismatch.")
+        fail("Identity build artifact is unavailable.")
+    if digest != expected:
+        fail("Identity build artifact checksum mismatch.")
 
 
 def check_database_absent() -> None:
