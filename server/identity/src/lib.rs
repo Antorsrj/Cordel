@@ -22,6 +22,7 @@ mod media;
 #[cfg(test)]
 mod media_tests;
 mod policy;
+mod presence;
 
 pub use host_admin::change_admin_role;
 pub use host_identity::{bootstrap_admin, recover_admin};
@@ -72,6 +73,7 @@ pub struct AppState {
     signing: Arc<Vec<u8>>,
     attempts: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
     pub(crate) chat_events: broadcast::Sender<ChatEvent>,
+    pub(crate) presence: Arc<presence::PresenceNode>,
     /// The LiveKit service, when the host configured one. Without it the
     /// admission and webhook routes are not registered, so a deployment that
     /// does not serve media keeps working unchanged.
@@ -89,6 +91,7 @@ impl AppState {
             signing: Arc::new(signing_key),
             attempts: Arc::new(Mutex::new(HashMap::new())),
             chat_events,
+            presence: presence::PresenceNode::new(),
             media: None,
         })
     }

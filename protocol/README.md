@@ -8,6 +8,7 @@ Version 1 covers:
 - Native WebSocket admission through the `authorization: Bearer` header.
 - Chat sends, acknowledgements tied to `client_message_id`, and history strictly after `after_seq`.
 - Versioned WebSocket frames. Unknown kinds and extra fields still parse. A frame whose `v` is not `1` is rejected.
+- Presence snapshots and deltas from ADR-010. A client applies a delta only when the stream id matches and the base revision is current.
 
 ```sh
 cargo test

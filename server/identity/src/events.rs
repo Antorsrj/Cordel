@@ -6,7 +6,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
-use cordel_protocol::{ChatEvent, WsFrame};
+use cordel_protocol::{presence_resync_frame, presence_subscribed_frame, ChatEvent, WsFrame};
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use sqlx::Row;
@@ -19,9 +19,9 @@ const HEARTBEAT_SECONDS: u64 = 30;
 const MAX_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy)]
-struct Access {
-    allowed: bool,
-    revision: i64,
+pub(crate) struct Access {
+    pub(crate) allowed: bool,
+    pub(crate) revision: i64,
 }
 
 pub(super) async fn events(
@@ -39,11 +39,14 @@ pub(super) async fn events(
 async fn session(socket: WebSocket, state: AppState, principal: Principal) {
     let (mut sender, mut receiver) = socket.split();
     let mut chat_events = state.chat_events.subscribe();
+    let mut presence_events = state.presence.subscribe();
     let mut subscribed: HashSet<Uuid> = HashSet::new();
     // Highest sequence forwarded per channel, used only to advise catch-up after
     // a broadcast lag. Events are not dropped based on it: two transactions can
     // publish out of order, and the client is responsible for gap recovery.
     let mut seen: HashMap<Uuid, u64> = HashMap::new();
+    let mut presence_subscribed = false;
+    let connection_id = Uuid::new_v4();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(HEARTBEAT_SECONDS));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -57,6 +60,15 @@ async fn session(socket: WebSocket, state: AppState, principal: Principal) {
         return;
     }
 
+    let deltas = state.presence.retain(
+        principal.community_id,
+        principal.account_id,
+        connection_id,
+        &principal.login,
+        std::time::Instant::now(),
+    );
+    state.presence.publish(&deltas);
+
     loop {
         tokio::select! {
             incoming = receiver.next() => {
@@ -69,6 +81,7 @@ async fn session(socket: WebSocket, state: AppState, principal: Principal) {
                             &mut sender,
                             &mut subscribed,
                             &mut seen,
+                            &mut presence_subscribed,
                             text.as_str(),
                         )
                         .await
@@ -106,14 +119,53 @@ async fn session(socket: WebSocket, state: AppState, principal: Principal) {
                         }
                     }
                     Err(RecvError::Lagged(_)) => {
+                        let mut failed = false;
                         for frame in lag_frames(&subscribed, &seen) {
                             if send_frame(&mut sender, &frame).await.is_err() {
-                                return;
+                                failed = true;
+                                break;
                             }
+                        }
+                        if failed {
+                            break;
                         }
                         // The client recovers from history and deduplicates live
                         // events that were already applied.
                         seen.clear();
+                    }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            event = presence_events.recv() => {
+                match event {
+                    Ok(json) => {
+                        if presence_subscribed && !presence::deliver_presence(
+                            &state,
+                            &principal,
+                            &mut sender,
+                            json.as_ref(),
+                        )
+                        .await
+                        {
+                            break;
+                        }
+                    }
+                    Err(RecvError::Lagged(_)) => {
+                        if presence_subscribed {
+                            let (stream_id, _) = state.presence.epoch(principal.community_id);
+                            if send_frame(
+                                &mut sender,
+                                &presence_resync_frame(
+                                    &principal.community_id.to_string(),
+                                    &stream_id,
+                                ),
+                            )
+                            .await
+                            .is_err()
+                            {
+                                break;
+                            }
+                        }
                     }
                     Err(RecvError::Closed) => break,
                 }
@@ -129,9 +181,26 @@ async fn session(socket: WebSocket, state: AppState, principal: Principal) {
                             ),
                         )
                         .await;
+                        let deltas = state.presence.revoke(
+                            principal.community_id,
+                            principal.account_id,
+                            std::time::Instant::now(),
+                        );
+                        state.presence.publish(&deltas);
                         break;
                     }
                     Ok(_) => {
+                        let deltas = state.presence.retain(
+                            principal.community_id,
+                            principal.account_id,
+                            connection_id,
+                            &principal.login,
+                            std::time::Instant::now(),
+                        );
+                        state.presence.publish(&deltas);
+                        // A missed observation is recovered on the next webhook
+                        // or snapshot. It does not close the chat socket.
+                        let _ = presence::sync_media(&state, false).await;
                         if sender
                             .send(Message::Ping(Default::default()))
                             .await
@@ -154,6 +223,12 @@ async fn session(socket: WebSocket, state: AppState, principal: Principal) {
         }
     }
 
+    state.presence.release(
+        principal.community_id,
+        principal.account_id,
+        connection_id,
+        std::time::Instant::now(),
+    );
     let _ = sender.send(Message::Close(None)).await;
 }
 
@@ -163,6 +238,7 @@ async fn handle_text(
     sender: &mut SplitSink<WebSocket, Message>,
     subscribed: &mut HashSet<Uuid>,
     seen: &mut HashMap<Uuid, u64>,
+    presence_subscribed: &mut bool,
     text: &str,
 ) -> bool {
     let frame: WsFrame = match serde_json::from_str(text) {
@@ -184,6 +260,29 @@ async fn handle_text(
 
     match frame.kind.as_str() {
         "subscribe" => {
+            let presence = frame
+                .fields
+                .get("presence")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if presence {
+                if frame.fields.contains_key("channel_id") {
+                    let _ = send_error(
+                        sender,
+                        "invalid_frame",
+                        "presence and channel_id are different subscriptions",
+                    )
+                    .await;
+                    return true;
+                }
+                if !presence::access_still_open(state, principal, sender).await {
+                    return false;
+                }
+                *presence_subscribed = true;
+                let (stream_id, revision) = state.presence.epoch(principal.community_id);
+                let _ = send_frame(sender, &presence_subscribed_frame(&stream_id, revision)).await;
+                return true;
+            }
             let Some(raw_channel_id) = frame
                 .fields
                 .get("channel_id")
@@ -251,6 +350,26 @@ async fn handle_text(
             true
         }
         "unsubscribe" => {
+            let presence = frame
+                .fields
+                .get("presence")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if presence {
+                *presence_subscribed = false;
+                let mut fields = serde_json::Map::new();
+                fields.insert("presence".to_owned(), serde_json::Value::Bool(true));
+                let _ = send_frame(
+                    sender,
+                    &WsFrame {
+                        v: 1,
+                        kind: "unsubscribed".to_owned(),
+                        fields,
+                    },
+                )
+                .await;
+                return true;
+            }
             let Some(raw_channel_id) = frame
                 .fields
                 .get("channel_id")
@@ -343,7 +462,7 @@ fn lag_frames(subscribed: &HashSet<Uuid>, seen: &HashMap<Uuid, u64>) -> Vec<WsFr
         .collect()
 }
 
-async fn access(state: &AppState, principal: &Principal) -> Result<Access, ApiError> {
+pub(crate) async fn access(state: &AppState, principal: &Principal) -> Result<Access, ApiError> {
     let row = sqlx::query(
         "SELECT c.authorization_revision, \
          (m.account_id IS NOT NULL AND s.id IS NOT NULL \
@@ -368,7 +487,7 @@ async fn access(state: &AppState, principal: &Principal) -> Result<Access, ApiEr
     })
 }
 
-async fn send_error(
+pub(crate) async fn send_error(
     sender: &mut SplitSink<WebSocket, Message>,
     code: &str,
     message: &str,
@@ -376,7 +495,10 @@ async fn send_error(
     send_frame(sender, &WsFrame::error(code, message)).await
 }
 
-async fn send_frame(sender: &mut SplitSink<WebSocket, Message>, frame: &WsFrame) -> Result<(), ()> {
+pub(crate) async fn send_frame(
+    sender: &mut SplitSink<WebSocket, Message>,
+    frame: &WsFrame,
+) -> Result<(), ()> {
     let json = serde_json::to_string(frame).map_err(|_| ())?;
     sender
         .send(Message::Text(json.into()))

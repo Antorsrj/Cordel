@@ -195,6 +195,8 @@ impl WsFrame {
                 | "error"
                 | "access_revoked"
                 | "pong"
+                | "presence.delta"
+                | "presence.resync"
         ) {
             return Ok(None);
         }

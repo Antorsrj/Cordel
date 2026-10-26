@@ -339,6 +339,12 @@ async fn moderate(
         .await
         .map_err(|_| ApiError::internal())?;
     tx.commit().await.map_err(|_| ApiError::internal())?;
+    if !matches!(action, Moderation::Unban) {
+        let deltas = state
+            .presence
+            .revoke(id, member_id, std::time::Instant::now());
+        state.presence.publish(&deltas);
+    }
     // The rooms of the old generation are drained after the commit, so the
     // moderated account is out of them and the members rejoin in the current
     // room.

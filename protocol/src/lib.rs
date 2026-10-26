@@ -5,12 +5,17 @@
 //! It does not store passwords, issue tokens, or open a database.
 
 mod chat;
+mod presence;
 mod session;
 mod ws;
 
 pub use chat::{
     validate_history, ChatEvent, HistoryError, HistoryPage, HistoryQuery, MessageAck, SendMessage,
     PROTOCOL_VERSION,
+};
+pub use presence::{
+    presence_resync_frame, presence_subscribed_frame, PresenceApply, PresenceChange, PresenceDelta,
+    PresenceMember, PresenceShare, PresenceSnapshot, Revision,
 };
 pub use session::{
     authorization_header, AdminGrantRequest, AdminGrantResponse, ApiError, EmptyResponse,
