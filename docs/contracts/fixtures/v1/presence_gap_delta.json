@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "type": "presence.delta",
+  "event_id": "2d0a6a1e-0a3e-4f4a-9a1c-6e5b4c3d2a10",
+  "community_id": "5aee793e-3cde-44fc-9608-48b7e945fb53",
+  "stream_id": "448aa588-0e69-4453-a03e-138664dcaac6",
+  "base_revision": "73",
+  "revision": "74",
+  "changes": [
+    {
+      "kind": "member_offline",
+      "user_id": "0c900df0-7a32-4776-b996-827825ad6298"
+    }
+  ]
+}

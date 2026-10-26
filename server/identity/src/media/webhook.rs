@@ -236,5 +236,6 @@ pub(crate) async fn handler(
     verify(&media.config, &headers, &body)?;
     let parsed: WebhookBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid())?;
     media.observation.apply(&parsed.id, &parsed);
+    crate::presence::sync_media(&state, true).await?;
     Ok(StatusCode::OK)
 }

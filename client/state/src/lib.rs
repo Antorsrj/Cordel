@@ -10,6 +10,7 @@ mod identity;
 mod live;
 mod media;
 mod outbox;
+mod presence;
 mod protocol;
 mod retry;
 mod session;
@@ -28,6 +29,7 @@ pub use live::{
 };
 pub use media::{AdmissionError, AdmissionTransport, MediaAdmissionClient};
 pub use outbox::{AckResult, ClientMessageId, Outbox, PendingSend, SendState};
+pub use presence::{PresenceStatus, PresenceSync};
 pub use protocol::ChatEvent;
 pub use retry::{plan_interrupt, retry_delay, AccessBlock, Interrupt, NextAction, FIRST_RETRY};
 pub use session::{visible_bodies, ClientState, CursorCache};

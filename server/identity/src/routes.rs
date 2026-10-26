@@ -49,6 +49,10 @@ pub fn router(state: AppState) -> Router {
             get(community::list_channels).post(community::create_channel),
         )
         .route(
+            "/v1/communities/{community_id}/presence",
+            get(presence::get_presence),
+        )
+        .route(
             "/v1/communities/{community_id}/members/{member_id}/kick",
             post(community::kick),
         )
