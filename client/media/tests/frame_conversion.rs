@@ -39,6 +39,13 @@ fn bgra_swap_reverses_red_and_blue() {
 }
 
 #[test]
+fn bgra_with_clear_alpha_paints_opaque() {
+    let data = vec![1, 2, 3, 0];
+    let frame = Frame::new(1, 1, 4, PixelFormat::Bgra8, data).expect("valid frame");
+    assert_eq!(pixel(&rgba(&frame), 1, 0, 0), [3, 2, 1, 255]);
+}
+
+#[test]
 fn rgba_passthrough_drops_the_padding() {
     let mut data = vec![0u8; 2 * 4];
     data[0..4].copy_from_slice(&[9, 8, 7, 6]);

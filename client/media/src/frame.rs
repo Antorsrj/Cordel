@@ -222,7 +222,9 @@ impl Frame {
                         out_px[0] = px[2];
                         out_px[1] = px[1];
                         out_px[2] = px[0];
-                        out_px[3] = px[3];
+                        // X11 capture reports alpha 0. The tile is black, so a
+                        // faithful copy is invisible. A screen pixel is opaque.
+                        out_px[3] = 255;
                     }
                 }
             }
