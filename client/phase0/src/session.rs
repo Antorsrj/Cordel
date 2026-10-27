@@ -21,7 +21,6 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context};
 use cordel_media::capture::{SessionKind, TargetKind};
 use cordel_media::devices::AudioDeviceControl;
-use cordel_media::frame::fit_display;
 use cordel_media::quality::ScreenShareBitrate;
 use cordel_media::sdk::{publish_microphone, received_to_frame, remote_video_stream, SdkAudio};
 use cordel_state::{MediaAdmissionClient, NativeHttpsTransport};
@@ -32,11 +31,6 @@ use tokio::sync::watch;
 
 use crate::share::{MediaEvent, MediaOut, LOCAL_SHARE_KEY};
 use crate::ShareState;
-
-/// The width of the copy of a frame that reaches the interface.
-/// The picture is painted scaled, so a smaller copy looks the same and keeps
-/// the interface affordable. A tile of the stage is about half that wide.
-const UI_FRAME_WIDTH: u32 = 960;
 
 /// How often a remote share is allowed to hand a frame to the UI. A screen share
 /// does not need 30 fps to look live on this stage, and the conversion runs on the
@@ -419,11 +413,8 @@ fn pump_share(
                         );
                         continue;
                     };
-                    // The copy that reaches the interface is smaller. A remote
-                    // frame is I420, and the BGRA shrink leaves that at the
-                    // captured size, which is what made four tiles cost about
-                    // 545 ms to paint.
-                    let frame = fit_display(frame, UI_FRAME_WIDTH);
+                    // The stage shrinks its own copy. The detached window needs
+                    // this captured frame, so the reduction happens there.
                     events.frame(&key, &publisher, ShareState::Live, frame, epoch);
                 }
             }

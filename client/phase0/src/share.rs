@@ -45,12 +45,10 @@ pub use events::{FrameSlots, MediaEvent, MediaOut};
 /// when its epoch is newer than the publication the stage already ended.
 pub const LOCAL_SHARE_KEY: &str = "local/screen-frame";
 
-/// The width of a picture the interface is willing to paint.
+/// The width of a picture on the main stage.
 ///
-/// The picture is painted scaled, so a bigger one looks the same and costs a
-/// texture the interface does not need. The media side already reduces what
-/// it sends. This is the last line, and it understands an I420 frame: the
-/// BGRA-only shrink gives a remote screen back at the captured size.
+/// A stage tile is a thumbnail. The detached window is where someone reads
+/// the share, so that window keeps the captured frame.
 const MAX_PAINT_WIDTH: u32 = 960;
 
 /// How often a share's picture reaches the interface.
@@ -239,7 +237,14 @@ impl Shares {
     /// first picture of a share is always painted: it is what puts the share
     /// on the stage.
     fn paint(&self, key: &str, publisher: String, state: ShareState, frame: Frame) -> bool {
-        let frame = if frame.width() > MAX_PAINT_WIDTH || frame.height() > MAX_PAINT_WIDTH {
+        let readable = self
+            .detached
+            .borrow()
+            .as_ref()
+            .is_some_and(|tile| tile.key == key);
+        let frame = if readable {
+            frame
+        } else if frame.width() > MAX_PAINT_WIDTH || frame.height() > MAX_PAINT_WIDTH {
             if !self.logged_shrink.get() {
                 log::warn!(
                     "a picture of {}x{} arrived at the interface and was reduced; further ones \

@@ -566,3 +566,14 @@ fn a_detached_window_hides_when_its_share_ends() {
         "the window is hidden once there is nothing to present"
     );
 }
+
+#[test]
+fn a_detached_share_keeps_the_captured_width() {
+    let (shares, slots) = stage();
+    shares.apply(share_frame(&slots, "wide", "ana", (1280, 720), 1));
+    assert!(shares.model().row_data(0).unwrap().frame.size().width <= 960);
+    shares.detach("wide");
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    shares.apply(share_frame(&slots, "wide", "ana", (1280, 720), 2));
+    assert_eq!(shares.detached_tile().unwrap().frame.size().width, 1280);
+}
