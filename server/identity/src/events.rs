@@ -29,15 +29,28 @@ pub(super) async fn events(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    let principal = state.authenticate(&headers).await?;
+    let start = browser::open_socket(&state, &headers).await?;
     Ok(ws
         .max_message_size(MAX_MESSAGE_BYTES)
         .max_frame_size(MAX_MESSAGE_BYTES)
-        .on_upgrade(move |socket| session(socket, state, principal)))
+        .on_upgrade(move |socket| session(socket, state, start)))
 }
 
-async fn session(socket: WebSocket, state: AppState, principal: Principal) {
+async fn session(socket: WebSocket, state: AppState, start: browser::SocketStart) {
     let (mut sender, mut receiver) = socket.split();
+    let principal = match start {
+        browser::SocketStart::Ready(principal) => principal,
+        browser::SocketStart::Browser { principal, csrf } => {
+            let arrived = tokio::time::timeout(Duration::from_secs(5), receiver.next()).await;
+            let Ok(Some(Ok(Message::Text(text)))) = arrived else {
+                return;
+            };
+            if !browser::csrf_matches(&text, &csrf) {
+                return;
+            }
+            principal
+        }
+    };
     let mut chat_events = state.chat_events.subscribe();
     let mut presence_events = state.presence.subscribe();
     let mut subscribed: HashSet<Uuid> = HashSet::new();

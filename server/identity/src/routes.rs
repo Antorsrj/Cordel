@@ -27,10 +27,11 @@ pub fn gate_router(state: AppState) -> Router {
 pub fn router(state: AppState) -> Router {
     let mut router = Router::new()
         .route("/v1/accounts", post(registration_disabled))
-        .route("/v1/accounts/from-invite", post(redeem))
-        .route("/v1/sessions", post(login))
-        .route("/v1/sessions/refresh", post(refresh))
-        .route("/v1/sessions/current", delete(logout))
+        .route("/v1/browser/csrf", get(browser::csrf))
+        .route("/v1/accounts/from-invite", post(browser::redeem_route))
+        .route("/v1/sessions", post(browser::login_route))
+        .route("/v1/sessions/refresh", post(browser::refresh_route))
+        .route("/v1/sessions/current", delete(browser::logout_route))
         .route(
             "/v1/sessions/admin-grant",
             post(unlock_admin).delete(lock_admin),

@@ -21,7 +21,7 @@ The first product test covers the Linux native client and diagnostic browser aga
 | [005 — LiveKit media and room admission](server/ADR-005-livekit-media.md) | Accepted | 5/5 | Voice, screens, NAT/CGNAT | 001–003 |
 | [006 — Enforceable media revocation](server/ADR-006-media-revocation.md) | Proposed | 5/5 | Kick/ban rejoin protection | 003 and 005; gate before moderation release |
 | [007 — Backup and operating targets](server/ADR-007-backup-operations.md) | Proposed | 4/5 | Recovery and deployment runbook | 001; gate before real users |
-| [009 — Browser session and WS admission](server/ADR-009-browser-auth.md) | Proposed | 4/5 | Same-origin cookie, CSRF, WS origin | 002; gate before public browser test |
+| [009 — Browser session and WS admission](server/ADR-009-browser-auth.md) | Accepted | 4/5 | Same-origin cookie, CSRF, WS origin | 002; gate before public browser test |
 | [010 — Presence and screen-share state](server/ADR-010-presence-and-share-state.md) | Accepted | 4/5 | Online roster, voice-room and share snapshots | 003–005 |
 | [011 — Rich chat and private images](server/ADR-011-rich-chat-images.md) | Proposed | 5/5 | Restricted formatting, image storage and access | 004, 007; gate before image chat |
 

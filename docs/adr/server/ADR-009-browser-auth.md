@@ -1,18 +1,18 @@
 # ADR-009: Authenticate the diagnostic browser by same-origin session cookie
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Delivery stage:** First-test mandatory
 
 **Date:** 2026-10-17
 
-**Decider:** Project owner after browser security review
+**Decider:** Project owner. The owner accepted this design on 2026-10-29.
 
 ## Context
 
 The diagnostic browser client is accepted under ADR-104. Native clients can send an app access token in a WebSocket handshake header, but the standard browser [WebSocket constructor](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/WebSocket) exposes a URL and optional subprotocols, not arbitrary headers. Putting a durable bearer token in a URL risks disclosure through logs and telemetry. Browser cookies introduce CSRF and cross-origin WebSocket risks unless handled explicitly.
 
-## Proposed decision
+## Decision
 
 Serve the diagnostic client and Axum API from the same origin for the first test. After invite redemption or login, set a session cookie with `Secure`, `HttpOnly`, and `SameSite=Strict`. Bind it to a server-side revocable session in PostgreSQL and rotate its credential as in ADR-002. Do not store a reusable bearer token in browser JavaScript storage.
 

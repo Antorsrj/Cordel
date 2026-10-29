@@ -38,6 +38,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let secret =
             hex::decode(secret_hex).map_err(|_| "CORDEL_JWT_SECRET_HEX must be hexadecimal")?;
         let mut state = AppState::new(pool, secret)?;
+        if let Ok(origin) = env::var("CORDEL_BROWSER_ORIGIN") {
+            let origin = origin.trim().to_owned();
+            if !origin.is_empty() {
+                state = state.with_browser_origin(origin);
+            }
+        }
         // The LiveKit service is optional. Without it the media routes are not
         // registered and the API serves identity, community, and chat only.
         match media_config() {

@@ -255,6 +255,14 @@ pub(super) async fn unlock_admin(
     headers: HeaderMap,
     payload: Result<Json<AdminGrantRequest>, JsonRejection>,
 ) -> Result<Json<AdminGrantResponse>, ApiError> {
+    // A cookie session must not receive an admin bearer in JavaScript.
+    if headers.get(header::AUTHORIZATION).is_none() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "browser_management_disabled",
+            "Browser management is not enabled",
+        ));
+    }
     let principal = state.authenticate(&headers).await?;
     let body = payload.map_err(json_error)?.0;
     if principal.role != "admin" {

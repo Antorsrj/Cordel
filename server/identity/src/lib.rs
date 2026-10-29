@@ -13,6 +13,9 @@ mod client_ip;
 mod routes;
 pub use client_ip::ClientIp;
 pub use routes::{gate_router, router};
+mod browser;
+#[cfg(test)]
+mod browser_tests;
 mod community;
 mod events;
 mod host_admin;
@@ -78,6 +81,7 @@ pub struct AppState {
     /// admission and webhook routes are not registered, so a deployment that
     /// does not serve media keeps working unchanged.
     pub(crate) media: Option<MediaState>,
+    browser_origin: Option<String>,
 }
 
 impl AppState {
@@ -93,7 +97,14 @@ impl AppState {
             chat_events,
             presence: presence::PresenceNode::new(),
             media: None,
+            browser_origin: None,
         })
+    }
+
+    /// The exact origin allowed to use the browser cookie session.
+    pub fn with_browser_origin(mut self, origin: String) -> Self {
+        self.browser_origin = Some(origin);
+        self
     }
 
     /// Attach the LiveKit service. The media routes exist only when it is
@@ -188,6 +199,15 @@ impl AppState {
     }
 
     async fn authenticate(&self, headers: &HeaderMap) -> Result<Principal, ApiError> {
+        if headers.get(header::AUTHORIZATION).is_some() {
+            return self.authenticate_bearer(headers).await;
+        }
+        browser::authenticate_cookie(self, headers, true)
+            .await
+            .map(|auth| auth.principal)
+    }
+
+    async fn authenticate_bearer(&self, headers: &HeaderMap) -> Result<Principal, ApiError> {
         let bearer = headers
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())

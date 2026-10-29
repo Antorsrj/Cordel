@@ -19,7 +19,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Server 005 — LiveKit media](adr/server/ADR-005-livekit-media.md) | 40% | LiveKit foundation runs | Scoped admission and two-network voice/share proof |
 | [Server 006 — Media revocation](adr/server/ADR-006-media-revocation.md) | 0% | Proposed | Prove strict old-token denial and accept design |
 | [Server 007 — Backup operations](adr/server/ADR-007-backup-operations.md) | 0% | Proposed | Accept recovery targets and perform off-host restore |
-| [Server 009 — Browser auth](adr/server/ADR-009-browser-auth.md) | 0% | Proposed | Accept cookie/CSRF design and test hostile origins |
+| [Server 009 — Browser auth](adr/server/ADR-009-browser-auth.md) | 40% | Accepted | Cookie/CSRF source has a disposable proof; the diagnostic client remains |
 | [Server 010 — Presence](adr/server/ADR-010-presence-and-share-state.md) | 20% | Decision accepted | Implement snapshot, deltas and reconciliation |
 | [Server 011 — Rich chat/images](adr/server/ADR-011-rich-chat-images.md) | 0% | Proposed | Accept storage/limits and prove protected reads/restore |
 | [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 50% | Combined Phase 0 Linux client passed [CI formatting, Clippy, tests, and release build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545); desktop UI remains unrun | Run the UI on Linux and prove X11 and second-network media |
