@@ -17,6 +17,7 @@ mod browser;
 #[cfg(test)]
 mod browser_tests;
 mod community;
+mod diagnostic;
 mod events;
 mod host_admin;
 mod host_identity;

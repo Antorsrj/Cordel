@@ -26,6 +26,9 @@ pub fn gate_router(state: AppState) -> Router {
 
 pub fn router(state: AppState) -> Router {
     let mut router = Router::new()
+        .route("/", get(diagnostic::page))
+        .route("/diagnostic.js", get(diagnostic::script))
+        .route("/diagnostic.css", get(diagnostic::style))
         .route("/v1/accounts", post(registration_disabled))
         .route("/v1/browser/csrf", get(browser::csrf))
         .route("/v1/accounts/from-invite", post(browser::redeem_route))

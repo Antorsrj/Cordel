@@ -175,6 +175,32 @@ async fn disposable_database_browser_session_flow() {
     .await;
     assert_eq!(grant.body["error"]["code"], "browser_management_disabled");
 
+    let page = text(&state, "/").await;
+    assert_eq!(page.0, StatusCode::OK);
+    assert!(page.1.contains("/diagnostic.js"));
+    assert!(!page.1.contains("localStorage"));
+    let plain = AppState::new(state.pool.clone(), vec![7; 32]).unwrap();
+    assert_eq!(text(&plain, "/").await.0, StatusCode::NOT_FOUND);
+
+    let community = mine.body["community_id"].as_str().unwrap();
+    let created = call(
+        &state,
+        "POST",
+        &format!("/v1/communities/{community}/channels"),
+        &[
+            (header::ORIGIN, ORIGIN_VALUE),
+            (header::COOKIE, &format!("cordel_session={session_cookie}")),
+            (
+                header::HeaderName::from_static("x-csrf-token"),
+                csrf.as_str(),
+            ),
+        ],
+        Some(r#"{"kind":"text","name":"geral"}"#),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let channel_id = created.body["channel_id"].as_str().unwrap();
+
     let mut browser = connect_cookie(port, &session_cookie, ORIGIN_VALUE)
         .await
         .unwrap();
@@ -188,6 +214,34 @@ async fn disposable_database_browser_session_flow() {
         .await
         .unwrap();
     assert_eq!(next_text(&mut browser).await["kind"], "ready");
+    browser
+        .send(Message::Text(
+            format!(r#"{{"v":1,"kind":"subscribe","channel_id":"{channel_id}"}}"#).into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(next_text(&mut browser).await["kind"], "subscribed");
+    let sent = call(
+        &state,
+        "POST",
+        &format!("/v1/channels/{channel_id}/messages"),
+        &[
+            (header::ORIGIN, ORIGIN_VALUE),
+            (header::COOKIE, &format!("cordel_session={session_cookie}")),
+            (
+                header::HeaderName::from_static("x-csrf-token"),
+                csrf.as_str(),
+            ),
+        ],
+        Some(r#"{"client_message_id":"browser-1","body":"from the browser"}"#),
+    )
+    .await;
+    assert_eq!(sent.status, StatusCode::CREATED, "{}", sent.body);
+    let mut live = next_text(&mut browser).await;
+    while live["kind"] != "message" {
+        live = next_text(&mut browser).await;
+    }
+    assert_eq!(live["body"], "from the browser");
 
     let mut rejected = connect_cookie(port, &session_cookie, ORIGIN_VALUE)
         .await
@@ -288,6 +342,16 @@ async fn me(state: &AppState, origin: &str, session: &str, csrf: &str) -> Reply 
         None,
     )
     .await
+}
+
+async fn text(state: &AppState, path: &str) -> (StatusCode, String) {
+    let response = router(state.clone())
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    (status, String::from_utf8(bytes.to_vec()).unwrap())
 }
 
 async fn call(

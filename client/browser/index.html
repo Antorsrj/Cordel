@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cordel</title>
+    <link rel="stylesheet" href="/diagnostic.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Cordel</h1>
+      <p id="who"></p>
+      <button id="logout" type="button" hidden>Log out</button>
+    </header>
+    <p id="status" role="status"></p>
+    <section id="enter">
+      <form id="login">
+        <h2>Log in</h2>
+        <label>Login <input name="login" autocomplete="username" required /></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Log in</button>
+      </form>
+      <form id="invite">
+        <h2>Redeem an invite</h2>
+        <label>Invite code <input name="invite_code" autocomplete="off" required /></label>
+        <label>Login <input name="login" autocomplete="username" required /></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password" required /></label>
+        <button type="submit">Create account</button>
+      </form>
+    </section>
+    <section id="chat" hidden>
+      <form id="channel">
+        <label>Text channel
+          <select id="channels"></select>
+        </label>
+        <label>New channel <input name="name" maxlength="80" /></label>
+        <button type="submit">Create</button>
+      </form>
+      <ol id="messages"></ol>
+      <form id="composer">
+        <label>Message <input name="body" maxlength="4000" required /></label>
+        <button type="submit">Send</button>
+      </form>
+    </section>
+    <script src="/diagnostic.js"></script>
+  </body>
+</html>

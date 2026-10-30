@@ -1,0 +1,67 @@
+:root {
+  color: #1c1915;
+  background: #f6f3ec;
+  font: 16px/1.45 "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 42rem;
+  padding: 1.5rem;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+form {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #ddd4c4;
+}
+
+label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+}
+
+#status {
+  min-height: 1.4rem;
+  color: #8a3b12;
+}
+
+#messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 12rem;
+  background: #fff;
+  border: 1px solid #ddd4c4;
+}
+
+#messages li {
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid #eee6d8;
+}
+
+#messages .seq {
+  color: #6d675c;
+  margin-right: 0.4rem;
+}

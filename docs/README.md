@@ -25,7 +25,7 @@ The percentages are a navigation aid. The owning ADR and status ledger remain au
 | [Client 101 — Native platforms](adr/client/ADR-101-native-client-platforms.md) | 50% | Combined Phase 0 Linux client passed [CI formatting, Clippy, tests, and release build](https://github.com/Antorsrj/Cordel/actions/runs/39519166545); desktop UI remains unrun | Run the UI on Linux and prove X11 and second-network media |
 | [Client 102 — State recovery](adr/client/ADR-102-client-state-recovery.md) | 70% | Shared state, focused live identity, native chat catch-up/transport checks, and a real-router native client flow passed | OS credential store, Phase 0 chat UI, and network-switch proof |
 | [Client 103 — Capture/playback](adr/client/ADR-103-capture-playback.md) | 60% | Linux media adapters and one-machine three-client room test passed | Continuous capture, X11, denial/hotplug, and second-network proof |
-| [Client 104 — Browser test client](adr/client/ADR-104-browser-test-client.md) | 20% | Decision accepted | Build diagnostic client after Server 009 gate |
+| [Client 104 — Browser test client](adr/client/ADR-104-browser-test-client.md) | 40% | Login and live text page is in source | Voice, screen share, and a two-browser proof remain |
 | [Client 106 — Licensing](adr/client/ADR-106-license-distribution.md) | 50% | Source license and known inventory are in `main` | Packaged About attribution and full notice audit |
 | [Client 107 — Journal UX](adr/client/ADR-107-journal-ux.md) | 30% | Written spec and provisional Phase 0 controls passed a Linux build; interactive UI unverified | Implement and prove three Journal states and accessibility |
 
