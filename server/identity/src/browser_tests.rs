@@ -56,9 +56,11 @@ async fn disposable_database_browser_session_flow() {
         axum::serve(listener, router(served)).await.unwrap();
     });
 
-    let missing = call(&state, "GET", "/v1/browser/csrf", &[], None).await;
-    assert_eq!(missing.status, StatusCode::FORBIDDEN);
-    assert_eq!(missing.body["error"]["code"], "origin_rejected");
+    // Neither header can be set by a page on another origin, so a request
+    // without any evidence of a same-origin browser is refused.
+    let bare = call(&state, "GET", "/v1/browser/csrf", &[], None).await;
+    assert_eq!(bare.status, StatusCode::FORBIDDEN);
+    assert_eq!(bare.body["error"]["code"], "origin_rejected");
 
     let crossed = call(
         &state,
@@ -76,15 +78,21 @@ async fn disposable_database_browser_session_flow() {
     .await;
     assert_eq!(crossed.status, StatusCode::FORBIDDEN);
 
+    // This is the request a browser really makes: a same-origin `GET` carries
+    // no `Origin`, only `Sec-Fetch-Site`. A test that invents the `Origin`
+    // header here would hide the request the client cannot produce.
     let pre = call(
         &state,
         "GET",
         "/v1/browser/csrf",
-        &[(header::ORIGIN, ORIGIN_VALUE)],
+        &[(
+            header::HeaderName::from_static("sec-fetch-site"),
+            "same-origin",
+        )],
         None,
     )
     .await;
-    assert_eq!(pre.status, StatusCode::OK);
+    assert_eq!(pre.status, StatusCode::OK, "{}", pre.body);
     let pre_cookie = cookie(&pre, "cordel_pre");
     let pre_csrf = pre.body["csrf_token"].as_str().unwrap();
 
@@ -126,6 +134,29 @@ async fn disposable_database_browser_session_flow() {
     let mine = me(&state, ORIGIN_VALUE, &session_cookie, &csrf).await;
     assert_eq!(mine.status, StatusCode::OK);
     assert_eq!(mine.body["login"], "Ada");
+
+    // After login the client reads through a same-origin `GET`, which carries
+    // no `Origin` either. The cookie proves the session and the CSRF header is
+    // still required, so a page on another origin cannot read the answer.
+    let browser_mine = call(
+        &state,
+        "GET",
+        "/v1/me",
+        &[
+            (header::COOKIE, &format!("cordel_session={session_cookie}")),
+            (
+                header::HeaderName::from_static("x-csrf-token"),
+                csrf.as_str(),
+            ),
+            (
+                header::HeaderName::from_static("sec-fetch-site"),
+                "same-origin",
+            ),
+        ],
+        None,
+    )
+    .await;
+    assert_eq!(browser_mine.status, StatusCode::OK, "{}", browser_mine.body);
 
     let grant = call(
         &state,

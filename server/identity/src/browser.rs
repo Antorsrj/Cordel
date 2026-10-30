@@ -373,6 +373,12 @@ fn browser_attempt(headers: &HeaderMap) -> bool {
     headers.get(CSRF_HEADER).is_some() || cookie_value(headers, PRE_COOKIE).is_some()
 }
 
+/// Is this request allowed to use the browser path?
+///
+/// A browser does not send `Origin` on a same-origin `GET`; it sends
+/// `Sec-Fetch-Site: same-origin` instead. A request that changes state does
+/// carry `Origin`, and that one has to match exactly. Neither header can be
+/// forged from a page on another origin, so a request with neither is refused.
 fn guard(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     let expected = state
         .browser_origin
@@ -381,16 +387,24 @@ fn guard(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     let origin = headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok());
-    if origin != Some(expected) {
-        return Err(origin_rejected());
-    }
     let site = headers
         .get(FETCH_SITE)
         .and_then(|value| value.to_str().ok());
+    match origin {
+        Some(origin) if origin == expected => {}
+        Some(_) => return Err(origin_rejected()),
+        None if site == Some("same-origin") => {}
+        None => return Err(origin_rejected()),
+    }
     if !fetch_site_ok(site) {
         return Err(origin_rejected());
     }
     Ok(())
+}
+
+/// Whether the request carries a live browser session cookie.
+pub(crate) fn has_session_cookie(headers: &HeaderMap) -> bool {
+    cookie_value(headers, SESSION_COOKIE).is_some()
 }
 
 fn cookie_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {

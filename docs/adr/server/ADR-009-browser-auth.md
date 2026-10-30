@@ -36,6 +36,8 @@ If the diagnostic browser later exposes Management Mode, it must recheck the des
 
 ## Consequences
 
+- A browser does not send `Origin` on a same-origin `GET`. Admission therefore accepts `Sec-Fetch-Site: same-origin` for a request that carries no `Origin`, and still requires an exact `Origin` when the browser sends one. A test that invents the `Origin` header hides the request the client cannot produce.
+- A request with no credential at all stays `unauthenticated`; it must not fall into the browser path and answer `browser_disabled` on a deployment that serves no browser.
 - Browser API hosting must remain same-origin for this first design. A later cross-origin web product requires its own review.
 - Browser logout, kick, ban, and host-side session revocation must close or invalidate active WS connections.
 - Cookie auth does not replace authorization checks on REST resources or individual WS subscriptions.

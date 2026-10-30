@@ -202,6 +202,13 @@ impl AppState {
         if headers.get(header::AUTHORIZATION).is_some() {
             return self.authenticate_bearer(headers).await;
         }
+        // No cookie means there is no browser session to consider. Entering the
+        // browser path anyway would answer `browser_disabled` on a deployment
+        // that serves no browser, and the contract promises `unauthenticated`
+        // for a request that carries no credential at all.
+        if !browser::has_session_cookie(headers) {
+            return Err(ApiError::unauthenticated());
+        }
         browser::authenticate_cookie(self, headers, true)
             .await
             .map(|auth| auth.principal)
